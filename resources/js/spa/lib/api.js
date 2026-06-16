@@ -3,17 +3,12 @@ import { appState } from '../stores/app';
 
 export const api = axios.create({
     baseURL: '/api',
+    withXSRFToken: true,
     headers: {
         Accept: 'application/json',
         'X-Requested-With': 'XMLHttpRequest',
     },
 });
-
-const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content');
-
-if (csrfToken) {
-    api.defaults.headers.common['X-CSRF-TOKEN'] = csrfToken;
-}
 
 api.interceptors.request.use((config) => {
     appState.pendingRequests += 1;

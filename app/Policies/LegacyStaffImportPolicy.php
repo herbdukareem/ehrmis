@@ -23,6 +23,10 @@ class LegacyStaffImportPolicy
             return false;
         }
 
+        if ($batch->status === 'publishing') {
+            return false;
+        }
+
         if (($batch->approvalWorkflow?->status ?? null) !== 'approved') {
             return false;
         }

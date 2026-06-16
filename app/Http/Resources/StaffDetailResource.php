@@ -5,7 +5,9 @@ namespace App\Http\Resources;
 use App\Domain\Audit\Models\AuditLog;
 use App\Domain\Legacy\Models\LegacyStaffImportRow;
 use App\Domain\Staff\Models\Staff;
+use App\Domain\Staff\Models\AllowanceType;
 use App\Domain\Staff\Services\SalaryCalculationService;
+use App\Domain\Staff\Services\StaffAllowanceService;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
@@ -16,7 +18,8 @@ class StaffDetailResource extends JsonResource
         /** @var Staff $staff */
         $staff = $this->resource;
         $importRow = $this->resolveImportRow($staff);
-        $salarySummary = $this->resolveSalarySummary($staff);
+        $effectiveAllowanceAssignments = app(StaffAllowanceService::class)->effectiveAssignments($staff);
+        $salarySummary = $this->resolveSalarySummary($staff, $effectiveAllowanceAssignments);
         $auditLogs = AuditLog::query()
             ->where('auditable_type', Staff::class)
             ->where('auditable_id', $staff->id)
@@ -54,7 +57,13 @@ class StaffDetailResource extends JsonResource
             'current_salary_placement' => $staff->currentSalaryPlacement ? StaffSalaryPlacementResource::make($staff->currentSalaryPlacement)->resolve() : null,
             'salary_summary' => $salarySummary,
             'qualifications' => StaffQualificationResource::collection($staff->qualifications)->resolve(),
-            'allowance_assignments' => StaffAllowanceAssignmentResource::collection($staff->allowanceAssignments)->resolve(),
+            'allowance_assignments' => StaffAllowanceAssignmentResource::collection($effectiveAllowanceAssignments)->resolve(),
+            'allowance_types' => AllowanceType::query()
+                ->where('status', 'active')
+                ->orderBy('name')
+                ->get(['id', 'code', 'name'])
+                ->toArray(),
+            'can_update' => $request->user()?->can('update', $staff) ?? false,
             'status_histories' => StaffStatusHistoryResource::collection($staff->statusHistories)->resolve(),
             'documents' => $staff->documents->map(fn ($document): array => [
                 'id' => $document->id,
@@ -98,7 +107,7 @@ class StaffDetailResource extends JsonResource
         ];
     }
 
-    protected function resolveSalarySummary(Staff $staff): array
+    protected function resolveSalarySummary(Staff $staff, $effectiveAllowanceAssignments): array
     {
         $placement = $staff->currentSalaryPlacement;
 
@@ -106,7 +115,7 @@ class StaffDetailResource extends JsonResource
             return [];
         }
 
-        $eligibleAllowanceCodes = $staff->allowanceAssignments
+        $eligibleAllowanceCodes = $effectiveAllowanceAssignments
             ->filter(fn ($assignment): bool => (bool) $assignment->is_eligible && $assignment->allowanceType !== null)
             ->pluck('allowanceType.code')
             ->filter()
@@ -126,6 +135,7 @@ class StaffDetailResource extends JsonResource
             'calculated_gross_salary' => $placement->calculated_gross_salary_snapshot !== null ? (float) $placement->calculated_gross_salary_snapshot : $calculation['calculated_gross'],
             'gross_difference' => $placement->gross_difference_snapshot !== null ? (float) $placement->gross_difference_snapshot : $calculation['gross_difference'],
             'allowance_breakdown' => $calculation['allowance_breakdown'],
+            'total_allowances' => $calculation['total_allowances'],
         ];
     }
 

@@ -3,6 +3,7 @@
 namespace App\Domain\Legacy\Services;
 
 use Carbon\Carbon;
+use PhpOffice\PhpSpreadsheet\Shared\Date as ExcelDate;
 
 class LegacyDateParser
 {
@@ -11,10 +12,21 @@ class LegacyDateParser
      */
     public function parse(mixed $value, string $field): array
     {
-        $string = is_string($value) ? trim($value) : null;
+        $string = is_scalar($value) ? trim((string) $value) : null;
 
         if ($string === null || $string === '' || in_array($string, ['0000-00-00', '0000-00-00 00:00:00'], true)) {
             return ['value' => null, 'warning' => null];
+        }
+
+        if (is_numeric($value) && (float) $value >= 1 && (float) $value <= 2958465) {
+            try {
+                return [
+                    'value' => Carbon::instance(ExcelDate::excelToDateTimeObject((float) $value))->toDateString(),
+                    'warning' => null,
+                ];
+            } catch (\Throwable) {
+                // Fall through to the supported formatted-date checks.
+            }
         }
 
         $formats = [

@@ -275,6 +275,13 @@ button, a { -webkit-tap-highlight-color: transparent; }
 .civic-pagination button { padding: 5px 8px; background: #fff; border: 1px solid var(--civic-line); cursor: pointer; }
 
 .civic-record-sheet { display: grid; grid-template-columns: 245px 1fr; background: var(--civic-surface); border: 1px solid var(--civic-line); box-shadow: 0 14px 40px rgb(21 33 58 / .06); }
+.civic-tabs { display: flex; gap: 2px; margin-bottom: 14px; border-bottom: 1px solid var(--civic-line); }
+.civic-tab { display: inline-flex; align-items: center; gap: 8px; padding: 13px 18px; color: var(--civic-muted); background: transparent; border: 0; border-bottom: 3px solid transparent; font-size: 10px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; cursor: pointer; }
+.civic-tab:hover, .civic-tab.active { color: var(--civic-blue); background: rgb(255 255 255 / .55); border-bottom-color: var(--civic-brass); }
+.civic-tab span { display: inline-grid; min-width: 20px; height: 20px; place-items: center; padding: 0 6px; color: var(--civic-blue); background: #e8edf4; border-radius: 999px; }
+.civic-allowance-editor { display: grid; gap: 14px; margin-top: 26px; padding-top: 22px; border-top: 1px solid var(--civic-line); }
+.civic-allowance-editor h3 { margin: 4px 0 0; font-family: "Source Serif 4", serif; font-size: 22px; }
+.civic-allowance-check-grid { max-height: none; grid-template-columns: repeat(3, minmax(0, 1fr)); }
 .civic-record-index { padding: 24px; background: #f2f0ea; border-right: 1px solid var(--civic-line); }
 .civic-record-index dl { margin: 24px 0 0; }
 .civic-record-index dl div { padding: 11px 0; border-bottom: 1px solid var(--civic-line); }
@@ -331,6 +338,10 @@ button, a { -webkit-tap-highlight-color: transparent; }
         linear-gradient(135deg, rgb(17 33 65 / .96), rgb(26 58 105 / .9)),
         repeating-linear-gradient(45deg, transparent 0 22px, rgb(255 255 255 / .04) 22px 23px);
 }
+.civic-login-statement-image {
+    background: url("../images/hmb-login-background.png") center / cover no-repeat;
+}
+.civic-login-statement-image::after { display: none; }
 .civic-login-statement::after { content: ""; position: absolute; width: 370px; height: 370px; right: -140px; bottom: -140px; border: 1px solid rgb(228 199 125 / .35); border-radius: 50%; box-shadow: 0 0 0 45px rgb(228 199 125 / .04), 0 0 0 90px rgb(228 199 125 / .035); }
 .civic-login-seal { width: 76px; height: 76px; margin-bottom: 34px; font-size: 20px; }
 .civic-login-logo { position: relative; z-index: 1; width: 98px; height: 98px; margin-bottom: 34px; object-fit: contain; background: #fff; border: 3px solid var(--civic-brass); border-radius: 50%; box-shadow: 0 10px 30px rgb(0 0 0 / .2); }
@@ -386,6 +397,27 @@ button, a { -webkit-tap-highlight-color: transparent; }
 .civic-timeline-column small { color: var(--civic-muted); font-size: 8px; font-weight: 700; text-transform: uppercase; }
 .civic-timeline-value { color: var(--civic-blue); font-size: 10px; font-weight: 700; }
 .civic-form-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 18px; padding: 26px; }
+.civic-form-action { align-self: end; }
+.civic-form-action .civic-button { width: 100%; justify-content: center; }
+.civic-movement-create { margin-bottom: 18px; }
+.civic-movement-create .civic-section-heading small { max-width: 360px; color: var(--civic-muted); font-size: 10px; line-height: 1.5; text-align: right; }
+.civic-movement-groups { display: grid; gap: 16px; }
+.civic-movement-groups .civic-workspace { margin: 0; }
+.civic-movement-groups .civic-section-heading strong { color: var(--civic-blue); font-size: 11px; text-transform: uppercase; }
+.civic-movement-summary { display: grid; gap: 14px; }
+.civic-summary-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 18px; padding: 16px 18px; background: var(--civic-surface); border: 1px solid var(--civic-line); }
+.civic-summary-toolbar > div { display: grid; gap: 4px; }
+.civic-summary-toolbar strong { font-family: "Source Serif 4", serif; font-size: 21px; }
+.civic-summary-toolbar .civic-button, .civic-summary-actions .civic-button { display: inline-flex; align-items: center; text-decoration: none; }
+.civic-summary-panel { margin: 0; }
+.civic-summary-panel > summary { display: flex; align-items: center; justify-content: space-between; gap: 18px; padding: 18px 20px; cursor: pointer; list-style: none; }
+.civic-summary-panel > summary::-webkit-details-marker { display: none; }
+.civic-summary-panel > summary h2 { margin: 4px 0 0; font-size: 22px; }
+.civic-summary-actions { display: flex; align-items: center; gap: 12px; }
+.civic-summary-actions > strong, .civic-summary-toggle { color: var(--civic-muted); font-size: 9px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
+.civic-summary-toggle::after { content: "Collapse -"; }
+.civic-summary-panel:not([open]) .civic-summary-toggle { color: var(--civic-blue); }
+.civic-summary-panel:not([open]) .civic-summary-toggle::after { content: "Expand +"; }
 .civic-field-wide { grid-column: span 2; }
 .civic-field textarea { width: 100%; resize: vertical; }
 .civic-inline-form { display: grid; grid-template-columns: 1fr 1.5fr auto; gap: 14px; align-items: end; }

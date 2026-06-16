@@ -10,8 +10,8 @@ defineProps({
     <header class="civic-page-heading">
         <div>
             <div v-if="eyebrow" class="civic-eyebrow">{{ eyebrow }}</div>
-            <h1>{{ title }}</h1>
-            <p v-if="description">{{ description }}</p>
+            <h5>{{ title }}</h5>
+            <!-- <p v-if="description">{{ description }}</p> -->
         </div>
         <div class="civic-page-actions"><slot /></div>
     </header>

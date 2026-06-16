@@ -14,7 +14,10 @@ class MovementWorkbook extends Model
 {
     protected $fillable = [
         'mda_id',
+        'name',
         'year',
+        'budget_year',
+        'budget_minimum_step',
         'status',
         'generated_by',
         'reviewed_by',
@@ -30,6 +33,8 @@ class MovementWorkbook extends Model
     {
         return [
             'year' => 'integer',
+            'budget_year' => 'integer',
+            'budget_minimum_step' => 'integer',
             'generated_at' => 'datetime',
             'reviewed_at' => 'datetime',
             'approved_at' => 'datetime',

@@ -23,68 +23,84 @@ class LegacyStaffImportPublicationService
     {
         $this->ensureBatchIsApproved($batch);
 
-        return DB::transaction(function () use ($batch, $user): array {
-            $summary = [
-                'rows_considered' => 0,
-                'rows_published' => 0,
-                'published_created' => 0,
-                'published_updated' => 0,
-                'skipped_blocking_errors' => 0,
-                'skipped_already_published' => 0,
-                'published_row_ids' => [],
-            ];
+        $rowsQuery = LegacyStaffImportRow::query()
+            ->where('batch_id', $batch->id)
+            ->when(! $user->hasGlobalMdaAccess(), fn (Builder $query) => $query->where('mda_id', $user->mda_id));
 
-            $rows = LegacyStaffImportRow::query()
-                ->with(['errors', 'matchedStaff'])
-                ->where('batch_id', $batch->id)
-                ->when(! $user->hasGlobalMdaAccess(), fn (Builder $query) => $query->where('mda_id', $user->mda_id))
-                ->orderBy('id')
-                ->get();
+        $summary = [
+            'rows_considered' => (clone $rowsQuery)->count(),
+            'rows_published' => 0,
+            'published_created' => 0,
+            'published_updated' => 0,
+            'skipped_blocking_errors' => (clone $rowsQuery)
+                ->whereNull('published_staff_id')
+                ->whereHas('errors', fn (Builder $query) => $query->where('severity', 'error')->whereNull('resolved_at'))
+                ->count(),
+            'skipped_already_published' => (clone $rowsQuery)->whereNotNull('published_staff_id')->count(),
+            'published_row_ids' => [],
+        ];
 
-            foreach ($rows as $row) {
-                $summary['rows_considered']++;
+        (clone $rowsQuery)
+            ->with('matchedStaff')
+            ->whereNull('published_staff_id')
+            ->whereDoesntHave('errors', fn (Builder $query) => $query->where('severity', 'error')->whereNull('resolved_at'))
+            ->chunkById(100, function ($rows) use (&$summary, $user): void {
+                foreach ($rows as $row) {
+                    $result = $this->publishRow($row, $user, false, false);
 
-                $result = $this->publishRow($row, $user, false);
+                    if ($result['status'] !== 'published') {
+                        continue;
+                    }
 
-                if ($result['status'] === 'published') {
                     $summary['rows_published']++;
                     $summary[$result['created'] ? 'published_created' : 'published_updated']++;
                     $summary['published_row_ids'][] = $row->id;
-                } elseif ($result['status'] === 'skipped_blocking_errors') {
-                    $summary['skipped_blocking_errors']++;
-                } elseif ($result['status'] === 'skipped_already_published') {
-                    $summary['skipped_already_published']++;
                 }
-            }
+            });
 
-            LegacyStaffImportPublication::query()->create([
-                'batch_id' => $batch->id,
-                'published_by' => $user->id,
-                'published_at' => now(),
-                'summary' => $summary,
-            ]);
+        LegacyStaffImportPublication::query()->create([
+            'batch_id' => $batch->id,
+            'published_by' => $user->id,
+            'published_at' => now(),
+            'summary' => $summary,
+        ]);
 
-            $batch->forceFill([
-                'status' => $summary['rows_published'] > 0 ? 'partially_published' : $batch->status,
-            ])->save();
+        $remainingRows = LegacyStaffImportRow::query()
+            ->where('batch_id', $batch->id)
+            ->whereNull('published_staff_id')
+            ->count();
 
-            $this->auditLogService->log(
-                'legacy_staff_import.batch.published',
-                $batch,
-                [],
-                $summary,
-                [
-                    'user_id' => $user->id,
-                ],
-            );
+        $batchSummary = $batch->summary ?? [];
+        unset($batchSummary['publication_failure']);
 
-            return $summary;
-        });
+        $batch->forceFill([
+            'status' => $remainingRows === 0 ? 'published' : 'partially_published',
+            'summary' => $batchSummary,
+        ])->save();
+
+        $this->auditLogService->log(
+            'legacy_staff_import.batch.published',
+            $batch,
+            [],
+            $summary,
+            [
+                'user_id' => $user->id,
+            ],
+        );
+
+        return $summary;
     }
 
-    public function publishRow(LegacyStaffImportRow $row, User $user, bool $writeAudit = true): array
+    public function publishRow(
+        LegacyStaffImportRow $row,
+        User $user,
+        bool $writeAudit = true,
+        bool $ensureApproved = true,
+    ): array
     {
-        $this->ensureBatchIsApproved($row->batch()->with('approvalWorkflow')->firstOrFail());
+        if ($ensureApproved) {
+            $this->ensureBatchIsApproved($row->batch()->with('approvalWorkflow')->firstOrFail());
+        }
 
         if ($row->published_staff_id) {
             return [

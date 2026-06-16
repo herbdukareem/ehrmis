@@ -50,6 +50,14 @@ class StaffQueryService
             });
         }
 
+        foreach (['legacy_cno' => 'cno', 'legacy_psn' => 'psn'] as $column => $filterKey) {
+            $value = trim((string) ($filters[$filterKey] ?? ''));
+
+            if ($value !== '') {
+                $query->where($column, 'like', "%{$value}%");
+            }
+        }
+
         if ($user->hasGlobalMdaAccess() && ! empty($filters['mda_id'])) {
             $query->where('mda_id', (int) $filters['mda_id']);
         }

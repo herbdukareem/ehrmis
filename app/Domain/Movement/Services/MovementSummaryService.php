@@ -9,59 +9,44 @@ class MovementSummaryService
 {
     public function regenerate(MovementWorkbook $workbook): void
     {
-        $lines = $workbook->lines()
-            ->with(['currentEmployment.department', 'currentSalaryScale'])
-            ->get();
-
         $aggregates = [];
 
-        foreach ($lines as $line) {
-            $departmentId = $line->currentEmployment?->department_id;
-            $salaryScaleId = $line->current_salary_scale_id;
-            $level = $line->current_level;
-            $key = implode('|', [$departmentId ?? 0, $salaryScaleId ?? 0, $level ?? 0]);
+        $workbook->lines()
+            ->with('currentEmployment')
+            ->chunkById(200, function ($lines) use (&$aggregates): void {
+                foreach ($lines as $line) {
+                    $departmentId = $line->currentEmployment?->department_id;
+                    $salaryScaleId = $line->current_salary_scale_id;
+                    $level = $line->current_level;
+                    $key = implode('|', [$departmentId ?? 0, $salaryScaleId ?? 0, $level ?? 0]);
 
-            if (! isset($aggregates[$key])) {
-                $aggregates[$key] = [
-                    'department_id' => $departmentId,
-                    'salary_scale_id' => $salaryScaleId,
-                    'level' => $level,
-                    'staff_count' => 0,
-                    'due_count' => 0,
-                    'retiring_count' => 0,
-                    'retired_count' => 0,
-                    'blocked_count' => 0,
-                    'current_gross_total' => 0.0,
-                    'proposed_gross_total' => 0.0,
-                    'variance_total' => 0.0,
-                ];
-            }
+                    $aggregates[$key] ??= [
+                        'department_id' => $departmentId,
+                        'salary_scale_id' => $salaryScaleId,
+                        'level' => $level,
+                        'staff_count' => 0,
+                        'due_count' => 0,
+                        'retiring_count' => 0,
+                        'retired_count' => 0,
+                        'blocked_count' => 0,
+                        'current_gross_total' => 0.0,
+                        'proposed_gross_total' => 0.0,
+                        'variance_total' => 0.0,
+                    ];
 
-            $aggregates[$key]['staff_count']++;
+                    $aggregates[$key]['staff_count']++;
+                    $aggregates[$key]['due_count'] += $line->eligibility_status === 'due' ? 1 : 0;
+                    $aggregates[$key]['retiring_count'] += $line->retirement_status === 'retiring' ? 1 : 0;
+                    $aggregates[$key]['retired_count'] += $line->retirement_status === 'retired' ? 1 : 0;
+                    $aggregates[$key]['blocked_count'] += $line->eligibility_status === 'blocked_by_policy' ? 1 : 0;
 
-            if ($line->eligibility_status === 'due') {
-                $aggregates[$key]['due_count']++;
-            }
-
-            if ($line->retirement_status === 'retiring') {
-                $aggregates[$key]['retiring_count']++;
-            }
-
-            if ($line->retirement_status === 'retired') {
-                $aggregates[$key]['retired_count']++;
-            }
-
-            if ($line->eligibility_status === 'blocked_by_policy') {
-                $aggregates[$key]['blocked_count']++;
-            }
-
-            $currentGross = (float) ($line->current_amounts['calculated_gross'] ?? 0);
-            $proposedGross = (float) ($line->proposed_amounts['calculated_gross'] ?? 0);
-
-            $aggregates[$key]['current_gross_total'] += $currentGross;
-            $aggregates[$key]['proposed_gross_total'] += $proposedGross;
-            $aggregates[$key]['variance_total'] += ($proposedGross - $currentGross);
-        }
+                    $currentGross = (float) ($line->current_amounts['calculated_gross'] ?? 0);
+                    $proposedGross = (float) ($line->proposed_amounts['calculated_gross'] ?? 0);
+                    $aggregates[$key]['current_gross_total'] += $currentGross;
+                    $aggregates[$key]['proposed_gross_total'] += $proposedGross;
+                    $aggregates[$key]['variance_total'] += ($proposedGross - $currentGross);
+                }
+            });
 
         $workbook->summaries()->delete();
 

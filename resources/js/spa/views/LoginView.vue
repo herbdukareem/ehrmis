@@ -10,7 +10,6 @@ const route = useRoute();
 const form = reactive({ email: '', password: '', remember: false });
 const error = ref('');
 const busy = ref(false);
-const isLocal = document.querySelector('meta[name="app-environment"]')?.content === 'local';
 
 const submit = async () => {
     error.value = '';
@@ -29,13 +28,10 @@ const submit = async () => {
 
 <template>
     <main class="civic-login">
-        <section class="civic-login-statement">
-            <img class="civic-login-logo" :src="appState.branding.logo_url" :alt="`${appState.branding.name} logo`">
-            <div class="civic-eyebrow civic-eyebrow-light">Government of {{ appState.branding.state_name }}</div>
-            <h1>Workforce administration, with public-service discipline.</h1>
-            <p>{{ appState.branding.name }} provides one secure record for staff establishment, movement decisions, approvals, and recurrent personnel budgets.</p>
-            <div class="civic-login-note">Authorised government personnel only</div>
-        </section>
+        <section
+            class="civic-login-statement civic-login-statement-image"
+            :aria-label="`${appState.branding.name} Human Resource Management Information System`"
+        />
 
         <section class="civic-login-panel">
             <div class="civic-eyebrow">Secure access</div>
@@ -61,10 +57,6 @@ const submit = async () => {
                 </button>
                 <RouterLink class="civic-public-link" to="/forgot-password">Forgot your password?</RouterLink>
             </form>
-
-            <div v-if="isLocal" class="civic-local-hint">
-                Local environment: <strong>admin@ehrmis.local</strong> / <strong>password</strong>
-            </div>
         </section>
     </main>
 </template>

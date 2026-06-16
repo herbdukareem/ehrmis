@@ -198,6 +198,51 @@ class OperationalDataImportTest extends TestCase
         $this->assertSame('staged', $row->status);
     }
 
+    public function test_uploaded_staff_list_normalizes_allowance_eligibility_from_spreadsheet_headings(): void
+    {
+        $cadre = Cadre::query()->create(['department_id' => $this->department->id, 'salary_scale_id' => $this->scale->id, 'name' => 'Medical Officer', 'status' => 'active']);
+        Rank::query()->create(['cadre_id' => $cadre->id, 'salary_scale_id' => $this->scale->id, 'name' => 'Senior Medical Officer', 'level' => 4, 'status' => 'active']);
+
+        $response = $this->actingAs($this->user)->post('/api/operational-imports/staff-list', [
+            'file' => $this->csv("cno,psn,name,mda,department,cadre,rank,salary_scale,level,step,shift_,hazard_,teaching_,specialist_,rural_,call_\nC001,P001,Officer One,MOH,Clinical Services,Medical Officer,Senior Medical Officer,CM,4,1,0,1,1,0,1,CALLDOC"),
+        ])->assertOk();
+
+        $allowances = LegacyStaffImportRow::query()
+            ->where('batch_id', $response->json('data.batch_id'))
+            ->firstOrFail()
+            ->normalized_payload['allowances'];
+
+        $this->assertFalse($allowances['shift']['is_eligible']);
+        $this->assertTrue($allowances['hazard']['is_eligible']);
+        $this->assertTrue($allowances['teaching']['is_eligible']);
+        $this->assertTrue($allowances['rural']['is_eligible']);
+        $this->assertTrue($allowances['call_doctor']['is_eligible']);
+    }
+
+    public function test_staff_list_row_without_cno_or_psn_receives_a_provisional_identifier(): void
+    {
+        $response = $this->actingAs($this->user)->post('/api/operational-imports/staff-list', [
+            'file' => $this->csv("cno,psn,name,sex,dob,mda,department\n,,Zainab Isyaku,F,1998-10-23,MOH,Clinical Services"),
+        ])->assertOk();
+
+        $row = LegacyStaffImportRow::query()
+            ->where('batch_id', $response->json('data.batch_id'))
+            ->firstOrFail();
+
+        $this->assertStringStartsWith('PROV-MOH-', $row->staff_number);
+        $this->assertSame('staged', $row->status);
+        $this->assertArrayNotHasKey('_upload_row', $row->raw_payload['source_row']);
+        $this->assertDatabaseHas('legacy_staff_import_errors', [
+            'row_id' => $row->id,
+            'error_code' => 'provisional_identifier',
+            'severity' => 'warning',
+        ]);
+        $this->assertDatabaseMissing('legacy_staff_import_errors', [
+            'row_id' => $row->id,
+            'error_code' => 'missing_identifier',
+        ]);
+    }
+
     public function test_mda_user_cannot_upload_staff_for_another_mda(): void
     {
         $this->actingAs($this->user)->postJson('/api/operational-imports/staff-list', [

@@ -124,7 +124,10 @@ class MovementAndBudgetPageTest extends TestCase
         $this->actingAs($user)
             ->postJson('/api/movement-workbooks', [
                 'mda_id' => $mdaB->id,
+                'name' => 'HMB Movement Sheet',
                 'year' => 2026,
+                'budget_year' => 2027,
+                'budget_minimum_step' => 5,
             ])
             ->assertForbidden();
 
@@ -133,6 +136,50 @@ class MovementAndBudgetPageTest extends TestCase
                 'movement_workbook_id' => $movementB->id,
             ])
             ->assertForbidden();
+    }
+
+    public function test_budget_officer_can_create_a_named_movement_workbook_with_planning_fields(): void
+    {
+        [$mdaA] = $this->createMdas();
+        $user = User::factory()->mdaUser($mdaA)->create();
+        $user->assignRole('Budget Officer');
+
+        $response = $this->actingAs($user)
+            ->postJson('/api/movement-workbooks', [
+                'mda_id' => $mdaA->id,
+                'name' => '2027 Full Details',
+                'year' => 2026,
+                'budget_year' => 2027,
+                'budget_minimum_step' => 5,
+            ])
+            ->assertCreated();
+
+        $this->assertDatabaseHas('movement_workbooks', [
+            'id' => $response->json('data.id'),
+            'mda_id' => $mdaA->id,
+            'name' => '2027 Full Details',
+            'year' => 2026,
+            'budget_year' => 2027,
+            'budget_minimum_step' => 5,
+        ]);
+
+        $this->actingAs($user)
+            ->getJson('/api/movement-workbooks/'.$response->json('data.id'))
+            ->assertOk()
+            ->assertJsonPath('data.name', '2027 Full Details')
+            ->assertJsonPath('data.budget_year', 2027)
+            ->assertJsonPath('data.budget_minimum_step', 5)
+            ->assertJsonStructure(['data' => ['lines', 'summaries', 'department_summaries']]);
+
+        $this->actingAs($user)
+            ->get('/api/movement-workbooks/'.$response->json('data.id').'/summary-export')
+            ->assertOk()
+            ->assertDownload('2027-full-details-summary.xlsx');
+
+        $this->actingAs($user)
+            ->get('/api/movement-workbooks/'.$response->json('data.id').'/detail-export')
+            ->assertOk()
+            ->assertDownload('2027-full-details-detail.xlsx');
     }
 
     protected function createMdas(): array

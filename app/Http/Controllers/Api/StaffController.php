@@ -11,7 +11,9 @@ use App\Domain\Staff\Models\SalaryScale;
 use App\Domain\Staff\Models\Staff;
 use App\Domain\Staff\Services\StaffQueryService;
 use App\Domain\Staff\Services\StaffUpdateService;
+use App\Domain\Staff\Services\StaffAllowanceService;
 use App\Http\Controllers\Controller;
+use App\Http\Requests\Staff\UpdateStaffAllowanceAssignmentRequest;
 use App\Http\Requests\Staff\UpdateStaffRequest;
 use App\Http\Resources\StaffDetailResource;
 use App\Http\Resources\StaffResource;
@@ -25,7 +27,7 @@ class StaffController extends Controller
         $this->authorize('viewAny', Staff::class);
 
         $filters = $request->only([
-            'search', 'mda_id', 'department_id', 'station_id', 'cadre_id',
+            'search', 'cno', 'psn', 'mda_id', 'department_id', 'station_id', 'cadre_id',
             'rank_id', 'salary_scale_id', 'level', 'status', 'retirement_state', 'per_page',
         ]);
 
@@ -99,18 +101,56 @@ class StaffController extends Controller
         ]);
     }
 
+    public function updateAllowances(
+        UpdateStaffAllowanceAssignmentRequest $request,
+        Staff $staff,
+        StaffAllowanceService $staffAllowanceService,
+    ): JsonResponse {
+        $assignments = collect($request->validated()['assignments'])
+            ->map(fn (array $assignment): array => [
+                'allowance_type_id' => $assignment['allowance_type_id'],
+                'is_eligible' => (bool) ($assignment['is_eligible'] ?? false),
+                'source' => 'staff_management',
+                'effective_from' => now()->toDateString(),
+            ])
+            ->all();
+
+        $staffAllowanceService->syncAssignments($staff, $assignments);
+
+        $staff->load([
+            'mda', 'personalDetail', 'currentEmployment.mda', 'currentEmployment.department',
+            'currentEmployment.station', 'currentEmployment.cadre', 'currentEmployment.rank',
+            'currentSalaryPlacement.salaryScale', 'qualifications.qualificationType',
+            'allowanceAssignments.allowanceType', 'statusHistories',
+            'documents.pages',
+        ]);
+
+        return response()->json([
+            'message' => 'Allowance eligibility and gross pay updated.',
+            'data' => StaffDetailResource::make($staff)->resolve(),
+        ]);
+    }
+
     public function options(Request $request): JsonResponse
     {
         $this->authorize('viewAny', Staff::class);
         $user = $request->user();
+        $departments = Department::query()
+            ->when(! $user->hasGlobalMdaAccess(), fn ($query) => $query->where('mda_id', $user->mda_id))
+            ->orderBy('name')
+            ->get(['id', 'mda_id', 'name']);
+        $cadres = Cadre::query()
+            ->whereIn('department_id', $departments->pluck('id'))
+            ->orderBy('name')
+            ->get(['id', 'department_id', 'salary_scale_id', 'name']);
 
         return response()->json([
             'data' => [
                 'mdas' => Mda::query()->visibleToUser($user)->orderBy('name')->get(['id', 'code', 'name']),
-                'departments' => Department::query()->when(! $user->hasGlobalMdaAccess(), fn ($query) => $query->where('mda_id', $user->mda_id))->orderBy('name')->get(['id', 'mda_id', 'name']),
+                'departments' => $departments,
                 'stations' => Station::query()->when(! $user->hasGlobalMdaAccess(), fn ($query) => $query->where('mda_id', $user->mda_id))->orderBy('name')->get(['id', 'mda_id', 'name']),
-                'cadres' => Cadre::query()->orderBy('name')->get(['id', 'department_id', 'salary_scale_id', 'name']),
-                'ranks' => Rank::query()->orderBy('name')->get(['id', 'cadre_id', 'salary_scale_id', 'name', 'level']),
+                'cadres' => $cadres,
+                'ranks' => Rank::query()->whereIn('cadre_id', $cadres->pluck('id'))->orderBy('name')->get(['id', 'cadre_id', 'salary_scale_id', 'name', 'level']),
                 'salary_scales' => SalaryScale::query()->orderBy('code')->get(['id', 'code', 'name']),
                 'statuses' => ['active', 'retired', 'duplicate', 'inactive'],
             ],

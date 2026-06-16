@@ -12,32 +12,42 @@ class OrganizationSeeder extends Seeder
 {
     public function run(): void
     {
-        $mda = Mda::query()->firstOrCreate(
-            ['code' => 'MOH'],
-            [
-                'name' => 'Ministry of Health',
-                'description' => 'Sample Ministry of Health record for Phase 1.',
-                'status' => 'active',
-            ],
-        );
+        $mdas = [
+            ['code' => 'HMB', 'name' => 'HOSPITAL MANAGEMENT BOARD'],
+            ['code' => 'MOH', 'name' => 'MINISTRY OF HEALTH'],
+        ];
 
-        Department::query()->firstOrCreate(
-            ['mda_id' => $mda->id, 'code' => 'ADMIN'],
-            [
-                'name' => 'Administration',
-                'description' => 'Administration department',
-                'status' => 'active',
-            ],
-        );
+        foreach ($mdas as $mdaData) {
+            Mda::query()->updateOrCreate(
+                ['code' => $mdaData['code']],
+                [
+                    'name' => $mdaData['name'],
+                    'status' => 'active',
+                ],
+            );
+        }
 
-        Station::query()->firstOrCreate(
-            ['mda_id' => $mda->id, 'code' => 'HQ'],
-            [
-                'name' => 'Headquarters',
-                'description' => 'Primary headquarters station',
-                'status' => 'active',
-            ],
-        );
+        $hmb = Mda::query()->where('code', 'HMB')->firstOrFail();
+
+        $departments = [
+            ['code' => 'ADMIN', 'name' => 'ADMIN', 'description' => 'Administration department'],
+            ['code' => 'MEDICAL', 'name' => 'Medical', 'description' => 'Medical department'],
+            ['code' => 'PHARMACY', 'name' => 'Pharmacy', 'description' => 'Pharmacy department'],
+            ['code' => 'NURSING', 'name' => 'Nursing', 'description' => 'Nursing department'],
+            ['code' => 'LABORATORY', 'name' => 'Laboratory', 'description' => 'Laboratory department'],
+            ['code' => 'PRS/HIM', 'name' => 'PRS/HIM', 'description' => 'PRS/HIM department'],
+        ];
+
+        foreach ($departments as $deptData) {
+            Department::query()->updateOrCreate(
+                ['mda_id' => $hmb->id, 'code' => $deptData['code']],
+                [
+                    'name' => $deptData['name'],
+                    'description' => $deptData['description'],
+                    'status' => 'active',
+                ],
+            );
+        }
 
         Location::query()->firstOrCreate(
             [

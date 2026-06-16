@@ -4,6 +4,7 @@ namespace Tests\Feature;
 
 use App\Domain\Movement\Models\MovementLine;
 use App\Domain\Movement\Models\MovementWorkbook;
+use App\Domain\Movement\Services\MovementDepartmentSummaryService;
 use App\Domain\Movement\Services\MovementSheetGenerationService;
 use App\Domain\Organization\Models\Mda;
 use App\Domain\Staff\Models\AllowanceType;
@@ -81,6 +82,15 @@ class MovementSheetGenerationServiceTest extends TestCase
             'status' => 'active',
         ]);
 
+        $levelTenBudgetStep = SalaryStructureRate::query()->create([
+            'salary_scale_id' => $salaryScale->id,
+            'level' => 10,
+            'step' => 5,
+            'basic_salary' => 70000,
+            'legacy_gross_salary' => 77000,
+            'status' => 'active',
+        ]);
+
         SalaryStructureRateAllowance::query()->create([
             'salary_structure_rate_id' => $levelNine->id,
             'allowance_type_id' => $hazard->id,
@@ -92,6 +102,13 @@ class MovementSheetGenerationServiceTest extends TestCase
             'salary_structure_rate_id' => $levelTen->id,
             'allowance_type_id' => $hazard->id,
             'amount' => 6000,
+            'status' => 'active',
+        ]);
+
+        SalaryStructureRateAllowance::query()->create([
+            'salary_structure_rate_id' => $levelTenBudgetStep->id,
+            'allowance_type_id' => $hazard->id,
+            'amount' => 7000,
             'status' => 'active',
         ]);
 
@@ -110,7 +127,7 @@ class MovementSheetGenerationServiceTest extends TestCase
             'mda_id' => $mda->id,
             'department_id' => $department->id,
             'date_first_appointment' => '2010-01-01',
-            'date_last_promotion' => '2020-01-01',
+            'date_last_promotion' => '2022-01-01',
             'expected_retirement_date' => '2045-01-01',
             'employment_status' => 'active',
             'is_current' => true,
@@ -164,7 +181,14 @@ class MovementSheetGenerationServiceTest extends TestCase
             'is_current' => true,
         ]);
 
-        $workbook = app(MovementSheetGenerationService::class)->generateForMda($mda->id, 2024);
+        $workbook = app(MovementSheetGenerationService::class)->generateForMda(
+            $mda->id,
+            2024,
+            null,
+            '2024 Movement Sheet',
+            2025,
+            5,
+        );
 
         $this->assertInstanceOf(MovementWorkbook::class, $workbook);
         $this->assertSame(2, MovementLine::query()->where('workbook_id', $workbook->id)->count());
@@ -194,11 +218,27 @@ class MovementSheetGenerationServiceTest extends TestCase
         $this->assertSame('due', $activeLine->eligibility_status);
         $this->assertSame(9, $activeLine->current_level);
         $this->assertSame(10, $activeLine->proposed_level);
+        $this->assertSame(5, $activeLine->proposed_step);
         $this->assertEquals(55000.0, $activeLine->current_amounts['calculated_gross']);
-        $this->assertEquals(66000.0, $activeLine->proposed_amounts['calculated_gross']);
+        $this->assertEquals(77000.0, $activeLine->proposed_amounts['calculated_gross']);
 
         $this->assertSame('retired', $retiredLine->retirement_status);
         $this->assertSame('excluded', $retiredLine->selection_state);
         $this->assertSame('retired', $retiredLine->eligibility_status);
+
+        $departmentSummary = app(MovementDepartmentSummaryService::class)->summarize($workbook)->first();
+        $levelNineSummary = collect($departmentSummary['rows'])->firstWhere('level', 9);
+        $levelTenSummary = collect($departmentSummary['rows'])->firstWhere('level', 10);
+        $levelSeventeenSummary = collect($departmentSummary['rows'])->firstWhere('level', 17);
+
+        $this->assertCount(17, $departmentSummary['rows']);
+        $this->assertSame(0, $levelSeventeenSummary['expected_total']);
+        $this->assertSame(2, $levelNineSummary['present_staff']);
+        $this->assertSame(1, $levelNineSummary['staff_moving']);
+        $this->assertSame(1, $levelNineSummary['staff_retiring']);
+        $this->assertSame(0, $levelNineSummary['expected_total']);
+        $this->assertSame(0, $levelTenSummary['present_staff']);
+        $this->assertSame(1, $levelTenSummary['staff_joining']);
+        $this->assertSame(1, $levelTenSummary['expected_total']);
     }
 }

@@ -209,4 +209,49 @@ class LegacyStaffImportManagementTest extends TestCase
         );
     }
 
+    public function test_missing_staff_identifier_can_be_resolved_safely(): void
+    {
+        $row = LegacyStaffImportRow::query()->create([
+            'batch_id' => $this->batch->id,
+            'mda_id' => $this->mohUser->mda_id,
+            'full_name' => 'Officer Without Number',
+            'raw_payload' => ['name' => 'Officer Without Number'],
+            'normalized_payload' => ['mda_id' => $this->mohUser->mda_id, 'full_name' => 'Officer Without Number'],
+            'dedupe_key' => 'OFFICER_WITHOUT_NUMBER',
+            'status' => 'invalid',
+        ]);
+        $error = LegacyStaffImportError::query()->create([
+            'batch_id' => $this->batch->id,
+            'row_id' => $row->id,
+            'field' => 'staff_number',
+            'error_code' => 'missing_identifier',
+            'message' => 'Staff row has no usable identifier.',
+            'severity' => 'error',
+        ]);
+        $rawPayloadBefore = $row->raw_payload;
+
+        $this->actingAs($this->mohUser)
+            ->postJson(route('api.legacy-staff-imports.rows.resolve-identifier', [$this->batch, $row]), [
+                'staff_number' => 'MOH-VERIFIED-001',
+                'notes' => 'Verified from personnel file',
+            ])
+            ->assertOk();
+
+        $row->refresh();
+        $this->assertSame('MOH-VERIFIED-001', $row->staff_number);
+        $this->assertSame('MOH-VERIFIED-001', $row->normalized_payload['staff_number']);
+        $this->assertSame($rawPayloadBefore, $row->raw_payload);
+        $this->assertSame('staged', $row->status);
+        $this->assertNotNull($error->fresh()->resolved_at);
+        $this->assertTrue(AuditLog::query()->where('event_code', 'legacy_staff_import.identifier.resolved')->exists());
+
+        $response = $this->actingAs($this->mohUser)
+            ->getJson(route('api.legacy-staff-imports.rows.show', [$this->batch, $row]))
+            ->assertOk();
+
+        $this->assertSame(0, $response->json('data.row.issue_summary.errors_count'));
+        $this->assertEmpty($response->json('data.row.errors'));
+        $this->assertCount(1, $response->json('data.row.reviewed_issues'));
+    }
+
 }

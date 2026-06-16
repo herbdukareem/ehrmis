@@ -113,12 +113,27 @@ class LegacyStaffRowNormalizer
         $legacyCno = $this->cleanString($legacyRow['cno'] ?? ($masterRow['cno'] ?? null));
         $legacyPsn = $this->cleanString($legacyRow['psn'] ?? ($masterRow['psn'] ?? null));
         $legacyCnoPsn = $this->cleanString($legacyRow['cno_psn'] ?? $this->makeLegacyCnoPsn($legacyCno, $legacyPsn));
+        $staffNumber = $legacyCnoPsn ?? $legacyCno ?? $legacyPsn ?? $this->makeProvisionalStaffNumber(
+            $legacyRow,
+            $sourceTable,
+            $mda?->code,
+            $fullName,
+            $dateOfBirth,
+        );
+
+        if ($legacyCno === null && $legacyPsn === null && $staffNumber !== null) {
+            $issues[] = $this->warning(
+                'staff_number',
+                'provisional_identifier',
+                'A provisional staff number was generated because the source row has no CNO or PSN. Verify it during review.',
+            );
+        }
 
         return [
             'source_table' => $sourceTable,
             'legacy_staff_id' => $sourceTable === 'staff_list' ? ($legacyRow['id'] ?? null) : null,
             'legacy_master_staff_id' => $masterRow['id'] ?? ($sourceTable === 'master_staff_list' ? ($legacyRow['id'] ?? null) : null),
-            'staff_number' => $legacyCnoPsn ?? $legacyCno ?? $legacyPsn,
+            'staff_number' => $staffNumber,
             'legacy_cno' => $legacyCno,
             'legacy_psn' => $legacyPsn,
             'legacy_cno_psn' => $legacyCnoPsn,
@@ -171,7 +186,7 @@ class LegacyStaffRowNormalizer
             'is_duplicate' => $isDuplicate,
             'employment_status' => $isRetired ? 'retired' : 'active',
             'status' => $isRetired ? 'retired' : ($isDuplicate ? 'duplicate' : 'active'),
-            'dedupe_key' => $legacyCnoPsn ?? $legacyCno ?? $legacyPsn ?? Str::upper(Str::slug($fullName.'-'.$dateOfBirth, '_')),
+            'dedupe_key' => $staffNumber ?? Str::upper(Str::slug($fullName.'-'.$dateOfBirth, '_')),
             'issues' => $issues,
             'master_match_confidence' => $masterRow ? 'confident' : 'none',
         ];
@@ -538,22 +553,22 @@ class LegacyStaffRowNormalizer
     {
         $map = [
             'shift' => [
-                'eligible' => [$legacyRow['shift_'] ?? null, $legacyRow['shift_initial'] ?? null, $masterRow['shift'] ?? null],
+                'eligible' => [$legacyRow['shift'] ?? null, $legacyRow['shift_'] ?? null, $legacyRow['shift_initial'] ?? null, $legacyRow['shift_value'] ?? null, $masterRow['shift'] ?? null],
             ],
             'hazard' => [
-                'eligible' => [$legacyRow['hazard_'] ?? null, $legacyRow['hazard_initial'] ?? null, $masterRow['hazard'] ?? null],
+                'eligible' => [$legacyRow['hazard'] ?? null, $legacyRow['hazard_'] ?? null, $legacyRow['hazard_initial'] ?? null, $legacyRow['hazard_value'] ?? null, $masterRow['hazard'] ?? null],
             ],
             'teaching' => [
-                'eligible' => [$legacyRow['teaching_'] ?? null, $legacyRow['teaching_initial'] ?? null, $masterRow['teaching'] ?? null],
+                'eligible' => [$legacyRow['teaching'] ?? null, $legacyRow['teaching_'] ?? null, $legacyRow['teaching_initial'] ?? null, $legacyRow['teaching_value'] ?? null, $legacyRow['actual_teaching_allowance'] ?? null, $masterRow['teaching'] ?? null, $masterRow['actual_teaching_allowance'] ?? null],
             ],
             'specialty' => [
-                'eligible' => [$legacyRow['specialist_'] ?? null, $legacyRow['specialist_initial'] ?? null, $masterRow['sepecialist'] ?? null],
+                'eligible' => [$legacyRow['specialist'] ?? null, $legacyRow['specialist_'] ?? null, $legacyRow['specialist_initial'] ?? null, $legacyRow['specialist_value'] ?? null, $legacyRow['sepecialist'] ?? null, $masterRow['sepecialist'] ?? null],
             ],
             'rural' => [
-                'eligible' => [$legacyRow['rural_'] ?? null, $legacyRow['rural_initial'] ?? null, $masterRow['rural_allowance'] ?? null],
+                'eligible' => [$legacyRow['rural'] ?? null, $legacyRow['rural_'] ?? null, $legacyRow['rural_initial'] ?? null, $legacyRow['rural_value'] ?? null, $legacyRow['rural_allowance'] ?? null, $masterRow['rural_allowance'] ?? null],
             ],
             'domestic' => [
-                'eligible' => [$legacyRow['domestic_'] ?? null, $masterRow['domestic_allowance'] ?? null],
+                'eligible' => [$legacyRow['domestic'] ?? null, $legacyRow['domestic_'] ?? null, $legacyRow['domestic_allowance'] ?? null, $masterRow['domestic_allowance'] ?? null],
             ],
         ];
 
@@ -590,6 +605,19 @@ class LegacyStaffRowNormalizer
         return $allowances;
     }
 
+    /**
+     * @return array{allowances: array<string, array{is_eligible: bool}>, issues: array<int, array<string, mixed>>}
+     */
+    public function normalizeAllowanceEligibility(array $legacyRow, ?array $masterRow = null): array
+    {
+        $issues = [];
+
+        return [
+            'allowances' => $this->normalizeAllowances($legacyRow, $masterRow, $issues),
+            'issues' => $issues,
+        ];
+    }
+
     protected function resolveCallAllowanceTypeCode(array $legacyRow, ?array $masterRow): ?string
     {
         $explicitCallMap = [
@@ -600,8 +628,11 @@ class LegacyStaffRowNormalizer
         ];
 
         foreach ([
+            $legacyRow['call'] ?? null,
             $legacyRow['call_'] ?? null,
             $legacyRow['call_initial'] ?? null,
+            $legacyRow['call_allowance'] ?? null,
+            $legacyRow['actual_call_allowance'] ?? null,
             $masterRow['actual_call_allowance'] ?? null,
         ] as $candidate) {
             $normalized = $this->cleanCode($candidate);
@@ -685,8 +716,12 @@ class LegacyStaffRowNormalizer
     protected function hasLegacyCallAllowanceSignal(array $legacyRow, ?array $masterRow): bool
     {
         foreach ([
+            $legacyRow['call'] ?? null,
             $legacyRow['call_'] ?? null,
             $legacyRow['call_initial'] ?? null,
+            $legacyRow['call_value'] ?? null,
+            $legacyRow['call_allowance'] ?? null,
+            $legacyRow['actual_call_allowance'] ?? null,
             $masterRow['call_allowance'] ?? null,
             $masterRow['actual_call_allowance'] ?? null,
         ] as $candidate) {
@@ -716,6 +751,30 @@ class LegacyStaffRowNormalizer
         }
 
         return trim(($cno ?? '').($psn ?? '')) ?: null;
+    }
+
+    protected function makeProvisionalStaffNumber(
+        array $legacyRow,
+        string $sourceTable,
+        ?string $mdaCode,
+        string $fullName,
+        ?string $dateOfBirth,
+    ): ?string {
+        $sourceRow = $legacyRow['_upload_row'] ?? $legacyRow['id'] ?? null;
+
+        if ($sourceRow === null && $fullName === '') {
+            return null;
+        }
+
+        $identity = implode('|', [
+            $sourceTable,
+            $mdaCode ?? 'MDA',
+            $sourceRow ?? '',
+            Str::upper($fullName),
+            $dateOfBirth ?? '',
+        ]);
+
+        return 'PROV-'.Str::upper($mdaCode ?? 'MDA').'-'.substr(hash('sha256', $identity), 0, 12);
     }
 
     protected function truthy(mixed $value): bool

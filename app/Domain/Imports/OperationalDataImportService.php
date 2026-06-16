@@ -346,7 +346,9 @@ class OperationalDataImportService
                     $sourceRow['mda'] = $user->mda->code;
                 }
 
-                $normalized = $this->normalizer->normalize($sourceRow, 'staff_list_upload');
+                $normalizationRow = $sourceRow;
+                $normalizationRow['_upload_row'] = $index + 2;
+                $normalized = $this->normalizer->normalize($normalizationRow, 'staff_list_upload');
                 $issues = $this->validator->validate($normalized);
                 $hasErrors = $this->validator->hasErrors($issues);
                 $matchedStaff = $this->identityMatcher->match($normalized);

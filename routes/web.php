@@ -46,6 +46,7 @@ Route::prefix('api')->group(function (): void {
         Route::get('/staff', [StaffController::class, 'index'])->name('api.staff.index');
         Route::get('/staff/{staff}', [StaffController::class, 'show'])->name('api.staff.show');
         Route::put('/staff/{staff}', [StaffController::class, 'update'])->name('api.staff.update');
+        Route::put('/staff/{staff}/allowances', [StaffController::class, 'updateAllowances'])->name('api.staff.allowances.update');
         Route::post('/staff/{staff}/passport', [StaffMediaController::class, 'storePassport'])->name('api.staff.passport.store');
         Route::get('/staff/{staff}/passport', [StaffMediaController::class, 'passport'])->name('api.staff.passport.show');
         Route::post('/staff/{staff}/documents', [StaffMediaController::class, 'storeDocument'])->name('api.staff.documents.store');
@@ -60,6 +61,7 @@ Route::prefix('api')->group(function (): void {
         Route::get('/legacy-staff-imports/{batch}/rows/{row}', [LegacyStaffImportController::class, 'showRow'])->name('api.legacy-staff-imports.rows.show');
         Route::post('/legacy-staff-imports/{batch}/rows/{row}/ignore-warning', [LegacyStaffImportController::class, 'ignoreWarning'])->name('api.legacy-staff-imports.rows.ignore-warning');
         Route::post('/legacy-staff-imports/{batch}/rows/{row}/resolve-mapping', [LegacyStaffImportController::class, 'resolveMapping'])->name('api.legacy-staff-imports.rows.resolve-mapping');
+        Route::post('/legacy-staff-imports/{batch}/rows/{row}/resolve-identifier', [LegacyStaffImportController::class, 'resolveIdentifier'])->name('api.legacy-staff-imports.rows.resolve-identifier');
         Route::post('/legacy-staff-imports/{batch}/rows/{row}/publish', [LegacyStaffImportController::class, 'publishRow'])->name('api.legacy-staff-imports.rows.publish');
         Route::post('/legacy-staff-imports/{batch}/submit', [WorkflowActionController::class, 'importSubmit'])->name('api.legacy-staff-imports.submit');
         Route::post('/legacy-staff-imports/{batch}/approve', [WorkflowActionController::class, 'importApprove'])->name('api.legacy-staff-imports.approve');
@@ -69,6 +71,8 @@ Route::prefix('api')->group(function (): void {
         Route::get('/movement-workbooks', [MovementWorkbookController::class, 'index'])->name('api.movement-workbooks.index');
         Route::post('/movement-workbooks', [MovementWorkbookController::class, 'store'])->name('api.movement-workbooks.store');
         Route::get('/movement-workbooks/{workbook}', [MovementWorkbookController::class, 'show'])->name('api.movement-workbooks.show');
+        Route::get('/movement-workbooks/{workbook}/summary-export', [MovementWorkbookController::class, 'exportSummary'])->name('api.movement-workbooks.summary-export');
+        Route::get('/movement-workbooks/{workbook}/detail-export', [MovementWorkbookController::class, 'exportDetail'])->name('api.movement-workbooks.detail-export');
         Route::post('/movement-workbooks/{workbook}/review', [WorkflowActionController::class, 'movementReview'])->name('api.movement-workbooks.review');
         Route::post('/movement-workbooks/{workbook}/approve', [WorkflowActionController::class, 'movementApprove'])->name('api.movement-workbooks.approve');
         Route::post('/movement-workbooks/{workbook}/reject', [WorkflowActionController::class, 'movementReject'])->name('api.movement-workbooks.reject');

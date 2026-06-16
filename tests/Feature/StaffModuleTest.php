@@ -14,6 +14,8 @@ use App\Domain\Staff\Models\Cadre;
 use App\Domain\Staff\Models\QualificationType;
 use App\Domain\Staff\Models\Rank;
 use App\Domain\Staff\Models\SalaryScale;
+use App\Domain\Staff\Models\SalaryStructureRate;
+use App\Domain\Staff\Models\SalaryStructureRateAllowance;
 use App\Domain\Staff\Models\Staff;
 use App\Domain\Staff\Models\StaffAllowanceAssignment;
 use App\Domain\Staff\Models\StaffEmployment;
@@ -85,6 +87,30 @@ class StaffModuleTest extends TestCase
 
         $this->assertCount(1, $retiredResponse->json('data'));
         $this->assertSame($this->staffRetired->id, $retiredResponse->json('data.0.id'));
+
+        foreach ([
+            'cno' => 'CNO-A1',
+            'psn' => 'PSN-A1',
+            'department_id' => $this->staffA->currentEmployment->department_id,
+            'cadre_id' => $this->staffA->currentEmployment->cadre_id,
+            'rank_id' => $this->staffA->currentEmployment->rank_id,
+        ] as $filter => $value) {
+            $response = $this->actingAs($this->mdaUser)->getJson("/api/staff?{$filter}={$value}");
+
+            $response->assertOk();
+            $this->assertContains($this->staffA->id, array_column($response->json('data'), 'id'));
+            $this->assertNotContains($this->staffB->id, array_column($response->json('data'), 'id'));
+        }
+    }
+
+    public function test_staff_filter_options_are_scoped_to_the_users_mda(): void
+    {
+        $response = $this->actingAs($this->mdaUser)
+            ->getJson('/api/staff/options')
+            ->assertOk();
+
+        $this->assertSame([$this->mdaA->id], array_values(array_unique(array_column($response->json('data.departments'), 'mda_id'))));
+        $this->assertNotContains($this->staffB->currentEmployment->department_id, array_column($response->json('data.departments'), 'id'));
     }
 
     public function test_staff_detail_loads_with_import_warning_summary(): void
@@ -214,6 +240,76 @@ class StaffModuleTest extends TestCase
                 ->where('auditable_id', $this->staffA->id)
                 ->exists()
         );
+    }
+
+    public function test_authorized_user_can_update_allowances_and_recompute_current_gross_pay(): void
+    {
+        $ruralType = AllowanceType::query()->create([
+            'code' => 'rural',
+            'name' => 'Rural Allowance',
+            'status' => 'active',
+        ]);
+        $rate = SalaryStructureRate::query()->create([
+            'salary_scale_id' => $this->salaryScale->id,
+            'level' => 9,
+            'step' => 2,
+            'basic_salary' => 50000,
+            'legacy_gross_salary' => 56000,
+            'status' => 'active',
+        ]);
+        SalaryStructureRateAllowance::query()->create([
+            'salary_structure_rate_id' => $rate->id,
+            'allowance_type_id' => $this->hazardType->id,
+            'amount' => 5000,
+            'status' => 'active',
+        ]);
+        SalaryStructureRateAllowance::query()->create([
+            'salary_structure_rate_id' => $rate->id,
+            'allowance_type_id' => $ruralType->id,
+            'amount' => 2000,
+            'status' => 'active',
+        ]);
+
+        $this->actingAs($this->mdaUser)
+            ->putJson(route('api.staff.allowances.update', $this->staffA), [
+                'assignments' => [
+                    ['allowance_type_id' => $this->hazardType->id, 'is_eligible' => false],
+                    ['allowance_type_id' => $ruralType->id, 'is_eligible' => true],
+                ],
+            ])
+            ->assertOk()
+            ->assertJsonPath('data.salary_summary.total_allowances', 2000)
+            ->assertJsonPath('data.salary_summary.calculated_gross_salary', 52000);
+
+        $this->assertDatabaseHas('staff_allowance_assignments', [
+            'staff_id' => $this->staffA->id,
+            'allowance_type_id' => $this->hazardType->id,
+            'source' => 'staff_management',
+            'is_eligible' => false,
+        ]);
+        $this->assertDatabaseHas('staff_allowance_assignments', [
+            'staff_id' => $this->staffA->id,
+            'allowance_type_id' => $ruralType->id,
+            'source' => 'staff_management',
+            'is_eligible' => true,
+        ]);
+        $this->assertDatabaseHas('staff_salary_placements', [
+            'staff_id' => $this->staffA->id,
+            'is_current' => true,
+            'gross_salary' => 52000,
+            'calculated_gross_salary_snapshot' => 52000,
+        ]);
+
+        $otherMdaUser = User::factory()->mdaUser($this->mdaB)->create();
+        $otherMdaUser->assignRole('MDA Admin');
+
+        $this->actingAs($otherMdaUser)
+            ->putJson(route('api.staff.allowances.update', $this->staffA), [
+                'assignments' => [
+                    ['allowance_type_id' => $this->hazardType->id, 'is_eligible' => true],
+                ],
+            ])
+            ->assertNotFound();
     }
 
     protected function setUpStaffFixtures(): void

@@ -12,7 +12,10 @@ const busy = ref(false);
 const feedback = ref('');
 const note = ref('');
 const mapping = ref({ field: '', target_id: '' });
+const staffNumber = ref('');
 const mappingChoices = computed(() => data.value?.mapping_options?.[`${mapping.value.field}s`] ?? []);
+const hasIdentifierIssue = computed(() => [...(data.value?.row.errors ?? []), ...(data.value?.row.warnings ?? [])]
+    .some((issue) => ['missing_identifier', 'provisional_identifier'].includes(issue.error_code) && !issue.resolved_at && !issue.ignored_at));
 const load = async () => { data.value = (await api.get(`/legacy-staff-imports/${route.params.batchId}/rows/${route.params.rowId}`)).data.data; };
 const post = async (action, payload = {}) => {
     busy.value = true;
@@ -28,6 +31,7 @@ const post = async (action, payload = {}) => {
     }
 };
 const resolveMapping = () => post('resolve-mapping', { ...mapping.value, notes: note.value });
+const resolveIdentifier = () => post('resolve-identifier', { staff_number: staffNumber.value, notes: note.value });
 onMounted(load);
 </script>
 
@@ -58,6 +62,14 @@ onMounted(load);
                 </dl>
             </aside>
             <div class="civic-record-body">
+                <article v-if="data.can.resolve && hasIdentifierIssue">
+                    <h2>Resolve staff identifier</h2>
+                    <p class="civic-muted">The source has no CNO or PSN. Enter a verified unique staff number to replace the missing or provisional identifier.</p>
+                    <div class="civic-inline-form">
+                        <label class="civic-field"><span>Verified staff number</span><input v-model.trim="staffNumber" placeholder="Enter staff number"></label>
+                        <button class="civic-button civic-button-primary" :disabled="busy || !staffNumber" @click="resolveIdentifier">Resolve identifier</button>
+                    </div>
+                </article>
                 <article v-if="data.can.resolve">
                     <h2>Resolve reference</h2>
                     <div class="civic-inline-form">
@@ -72,6 +84,13 @@ onMounted(load);
                     <div v-for="issue in [...data.row.errors, ...data.row.warnings]" :key="issue.id" class="civic-issue-line">
                         <div><StatusPill :status="issue.severity" /><strong>{{ issue.message }}</strong></div>
                         <button v-if="issue.severity === 'warning' && data.can.ignore_warnings && !issue.ignored_at" class="civic-text-action" :disabled="busy" @click="post('ignore-warning', { warning_id: issue.id, notes: note })">Mark reviewed</button>
+                    </div>
+                </article>
+                <article v-if="data.row.reviewed_issues?.length">
+                    <h2>Resolved and reviewed issues</h2>
+                    <div v-for="issue in data.row.reviewed_issues" :key="issue.id" class="civic-issue-line">
+                        <div><StatusPill status="resolved" /><strong>{{ issue.message }}</strong></div>
+                        <small>{{ issue.resolved_at ? 'Resolved' : 'Reviewed' }}{{ issue.resolution_notes ? `: ${issue.resolution_notes}` : '' }}</small>
                     </div>
                 </article>
                 <article>

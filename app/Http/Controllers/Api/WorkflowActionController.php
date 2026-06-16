@@ -6,12 +6,13 @@ use App\Domain\Budget\Models\BudgetWorkbook;
 use App\Domain\Budget\Services\BudgetWorkbookWorkflowService;
 use App\Domain\Legacy\Models\LegacyStaffImportBatch;
 use App\Domain\Legacy\Services\LegacyStaffImportApprovalService;
-use App\Domain\Legacy\Services\LegacyStaffImportPublicationService;
 use App\Domain\Movement\Models\MovementWorkbook;
 use App\Domain\Movement\Services\MovementWorkbookWorkflowService;
 use App\Http\Controllers\Controller;
+use App\Jobs\PublishLegacyStaffImportBatch;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use InvalidArgumentException;
 
 class WorkflowActionController extends Controller
@@ -38,11 +39,31 @@ class WorkflowActionController extends Controller
         return $this->run(fn () => $service->rejectBatch($batch, $request->user(), $validated['comment']), 'Import batch rejected.');
     }
 
-    public function importPublish(Request $request, LegacyStaffImportBatch $batch, LegacyStaffImportPublicationService $service): JsonResponse
+    public function importPublish(Request $request, LegacyStaffImportBatch $batch): JsonResponse
     {
         $this->authorize('publish', $batch);
 
-        return $this->run(fn () => $service->publishBatch($batch, $request->user()), 'Import batch published.');
+        DB::transaction(function () use ($batch, $request): void {
+            $lockedBatch = LegacyStaffImportBatch::query()->lockForUpdate()->findOrFail($batch->id);
+
+            if ($lockedBatch->status === 'publishing') {
+                throw new InvalidArgumentException('This import batch is already being published.');
+            }
+
+            $summary = $lockedBatch->summary ?? [];
+            unset($summary['publication_failure']);
+
+            $lockedBatch->forceFill([
+                'status' => 'publishing',
+                'summary' => $summary,
+            ])->save();
+
+            PublishLegacyStaffImportBatch::dispatch($lockedBatch->id, $request->user()->id)->afterCommit();
+        });
+
+        return response()->json([
+            'message' => 'Import batch publishing has started. You can leave this page while it runs.',
+        ], 202);
     }
 
     public function movementReview(Request $request, MovementWorkbook $workbook, MovementWorkbookWorkflowService $service): JsonResponse

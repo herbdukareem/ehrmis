@@ -9,6 +9,7 @@ use App\Domain\Staff\Models\Staff;
 use App\Domain\Staff\Models\StaffEmployment;
 use App\Domain\Staff\Models\StaffSalaryPlacement;
 use App\Domain\Staff\Services\PromotionPolicyService;
+use App\Domain\Staff\Services\QualificationCeilingService;
 use App\Domain\Staff\Services\RetirementPolicyService;
 use App\Domain\Staff\Services\SalaryCalculationService;
 use Carbon\Carbon;
@@ -19,16 +20,24 @@ class MovementSheetGenerationService
     public function __construct(
         protected SalaryCalculationService $salaryCalculationService,
         protected PromotionPolicyService $promotionPolicyService,
+        protected QualificationCeilingService $qualificationCeilingService,
         protected RetirementPolicyService $retirementPolicyService,
         protected MovementSummaryService $movementSummaryService,
     ) {
     }
 
-    public function generateForMda(int $mdaId, int $year, ?int $generatedBy = null): MovementWorkbook
+    public function generateForMda(
+        int $mdaId,
+        int $year,
+        ?int $generatedBy = null,
+        ?string $name = null,
+        ?int $budgetYear = null,
+        int $budgetMinimumStep = 5,
+    ): MovementWorkbook
     {
         $mda = Mda::query()->findOrFail($mdaId);
 
-        return DB::transaction(function () use ($mda, $year, $generatedBy): MovementWorkbook {
+        return DB::transaction(function () use ($mda, $year, $generatedBy, $name, $budgetYear, $budgetMinimumStep): MovementWorkbook {
             $existingWorkbook = MovementWorkbook::query()
                 ->where('mda_id', $mda->id)
                 ->where('year', $year)
@@ -44,6 +53,9 @@ class MovementSheetGenerationService
                     'year' => $year,
                 ],
                 [
+                    'name' => $name ?? "{$year} Movement Sheet",
+                    'budget_year' => $budgetYear ?? ($year + 1),
+                    'budget_minimum_step' => $budgetMinimumStep,
                     'status' => 'draft',
                     'generated_by' => $generatedBy,
                     'generated_at' => now(),
@@ -58,11 +70,11 @@ class MovementSheetGenerationService
                     'employments' => fn ($query) => $query->where('is_current', true),
                     'salaryPlacements' => fn ($query) => $query->where('is_current', true)->with('salaryScale'),
                     'allowanceAssignments.allowanceType',
+                    'qualifications.qualificationType',
                 ])
                 ->where('mda_id', $mda->id)
                 ->whereNull('deleted_at')
-                ->orderBy('id')
-                ->get();
+                ->orderBy('id');
 
             $summary = [
                 'staff_considered' => 0,
@@ -73,36 +85,38 @@ class MovementSheetGenerationService
                 'blocked' => 0,
             ];
 
-            foreach ($staffMembers as $staff) {
-                $summary['staff_considered']++;
-                $movementLine = $this->generateLinePayload($staff, $year);
+            $staffMembers->chunkById(100, function ($staffChunk) use (&$summary, $workbook, $year, $budgetYear, $budgetMinimumStep): void {
+                foreach ($staffChunk as $staff) {
+                    $summary['staff_considered']++;
+                    $movementLine = $this->generateLinePayload($staff, $year, $budgetYear ?? ($year + 1), $budgetMinimumStep);
 
-                if ($movementLine['eligibility_status'] === 'due') {
-                    $summary['due_for_promotion']++;
+                    if ($movementLine['eligibility_status'] === 'due') {
+                        $summary['due_for_promotion']++;
+                    }
+
+                    if ($movementLine['retirement_status'] === 'retiring') {
+                        $summary['retiring_in_year']++;
+                    }
+
+                    if ($movementLine['retirement_status'] === 'retired') {
+                        $summary['already_retired']++;
+                    }
+
+                    if ($movementLine['eligibility_status'] === 'blocked_by_policy') {
+                        $summary['blocked']++;
+                    }
+
+                    MovementLine::query()->updateOrCreate(
+                        [
+                            'workbook_id' => $workbook->id,
+                            'staff_id' => $staff->id,
+                        ],
+                        $movementLine,
+                    );
+
+                    $summary['lines_generated']++;
                 }
-
-                if ($movementLine['retirement_status'] === 'retiring') {
-                    $summary['retiring_in_year']++;
-                }
-
-                if ($movementLine['retirement_status'] === 'retired') {
-                    $summary['already_retired']++;
-                }
-
-                if ($movementLine['eligibility_status'] === 'blocked_by_policy') {
-                    $summary['blocked']++;
-                }
-
-                MovementLine::query()->updateOrCreate(
-                    [
-                        'workbook_id' => $workbook->id,
-                        'staff_id' => $staff->id,
-                    ],
-                    $movementLine,
-                );
-
-                $summary['lines_generated']++;
-            }
+            });
 
             $this->movementSummaryService->regenerate($workbook);
 
@@ -117,7 +131,7 @@ class MovementSheetGenerationService
     /**
      * @return array<string, mixed>
      */
-    protected function generateLinePayload(Staff $staff, int $year): array
+    protected function generateLinePayload(Staff $staff, int $year, int $budgetYear, int $budgetMinimumStep): array
     {
         /** @var StaffEmployment|null $employment */
         $employment = $staff->employments->first();
@@ -155,6 +169,7 @@ class MovementSheetGenerationService
         $retirementMonth = null;
         $startOfYear = Carbon::create($year, 1, 1)->startOfDay();
         $endOfYear = Carbon::create($year, 12, 31)->endOfDay();
+        $promotionAssessmentDate = Carbon::create($budgetYear, 12, 31)->endOfDay();
 
         if ($retirementDate instanceof Carbon && $retirementDate->lt($startOfYear)) {
             $retirementStatus = 'retired';
@@ -169,25 +184,36 @@ class MovementSheetGenerationService
         $proposedLevel = $currentLevel;
         $proposedStep = $currentStep;
         $eligibilityStatus = 'not_due';
+        $nextPromotionDate = $employment?->next_promotion_date
+            ? Carbon::parse($employment->next_promotion_date)
+            : null;
 
         if ($currentScaleCode !== null && $currentLevel !== null && $currentStep !== null && $retirementStatus === 'active') {
-            if ($employment?->date_last_promotion) {
-                $promotionDue = $this->promotionPolicyService->isPromotionDue(
+            if ($nextPromotionDate === null && $employment?->date_last_promotion) {
+                $nextPromotionDate = $this->promotionPolicyService->calculateNextPromotionDate(
                     Carbon::parse($employment->date_last_promotion),
                     $currentScaleCode,
                     $currentLevel,
-                    $endOfYear,
                 );
-            } elseif ($employment?->next_promotion_date) {
-                $promotionDue = Carbon::parse($employment->next_promotion_date)->lte($endOfYear);
             }
 
-            if ($promotionDue) {
-                $candidateLevel = $currentLevel + 1;
-                $candidateRate = $this->salaryCalculationService->getRate($currentScaleCode, $candidateLevel, $currentStep);
+            $promotionDue = $nextPromotionDate?->lte($promotionAssessmentDate) ?? false;
 
-                if ($candidateRate) {
+            if ($promotionDue) {
+                $candidateLevel = $this->nextPromotionLevel($currentScaleCode, $currentLevel);
+                $candidateStep = max($currentStep, $budgetMinimumStep);
+                $scaleMaxLevel = $placement?->salaryScale?->max_level;
+                $qualificationCode = $staff->qualifications
+                    ->firstWhere('is_highest', true)?->qualificationType?->code;
+                $qualificationMaxLevel = $qualificationCode
+                    ? $this->qualificationCeilingService->getMaxLevelFor($qualificationCode, $currentScaleCode)
+                    : null;
+                $withinScale = $scaleMaxLevel === null || $candidateLevel <= $scaleMaxLevel;
+                $withinQualification = $qualificationMaxLevel === null || $candidateLevel <= $qualificationMaxLevel;
+
+                if ($withinScale && $withinQualification) {
                     $proposedLevel = $candidateLevel;
+                    $proposedStep = $candidateStep;
                     $eligibilityStatus = 'due';
                 } else {
                     $eligibilityStatus = 'blocked_by_policy';
@@ -233,11 +259,21 @@ class MovementSheetGenerationService
             'decision_trace' => [
                 'eligible_allowance_codes' => $eligibleAllowanceCodes,
                 'promotion_due' => $promotionDue,
+                'next_promotion_date' => $nextPromotionDate?->toDateString(),
+                'promotion_assessment_date' => $promotionAssessmentDate->toDateString(),
+                'budget_minimum_step' => $budgetMinimumStep,
                 'retirement_date' => $retirementDate?->toDateString(),
                 'current_status' => $staff->status,
                 'employment_status' => $employment?->employment_status,
             ],
             'calculation_source' => 'salary_calculation_service',
         ];
+    }
+
+    protected function nextPromotionLevel(string $salaryScaleCode, int $currentLevel): int
+    {
+        $nextLevel = $currentLevel + 1;
+
+        return $salaryScaleCode === 'GL' && $nextLevel === 11 ? 12 : $nextLevel;
     }
 }

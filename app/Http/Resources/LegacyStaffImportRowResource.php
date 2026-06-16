@@ -13,6 +13,12 @@ class LegacyStaffImportRowResource extends JsonResource
     {
         /** @var LegacyStaffImportRow $row */
         $row = $this->resource;
+        $activeIssues = $row->errors->filter(
+            fn ($issue): bool => $issue->resolved_at === null && $issue->ignored_at === null
+        );
+        $reviewedIssues = $row->errors->filter(
+            fn ($issue): bool => $issue->resolved_at !== null || $issue->ignored_at !== null
+        );
 
         return [
             'id' => $row->id,
@@ -58,14 +64,16 @@ class LegacyStaffImportRowResource extends JsonResource
                 'id' => $row->rank_id,
                 'name' => $row->rank?->name ?? $row->rank_name ?? data_get($row->normalized_payload, 'rank_name'),
             ],
-            'warnings' => LegacyStaffImportErrorResource::collection($row->errors->where('severity', 'warning'))->resolve(),
-            'errors' => LegacyStaffImportErrorResource::collection($row->errors->where('severity', 'error'))->resolve(),
+            'warnings' => LegacyStaffImportErrorResource::collection($activeIssues->where('severity', 'warning'))->resolve(),
+            'errors' => LegacyStaffImportErrorResource::collection($activeIssues->where('severity', 'error'))->resolve(),
+            'reviewed_issues' => LegacyStaffImportErrorResource::collection($reviewedIssues)->resolve(),
             'raw_payload' => $row->raw_payload,
             'normalized_payload' => $row->normalized_payload,
             'issue_summary' => [
-                'warnings_count' => $row->errors->where('severity', 'warning')->count(),
-                'errors_count' => $row->errors->where('severity', 'error')->count(),
-                'unresolved_call_allowance' => $row->errors->contains(fn ($error) => $error->error_code === 'call_allowance_unresolved' && $error->ignored_at === null),
+                'warnings_count' => $activeIssues->where('severity', 'warning')->count(),
+                'errors_count' => $activeIssues->where('severity', 'error')->count(),
+                'reviewed_count' => $reviewedIssues->count(),
+                'unresolved_call_allowance' => $activeIssues->contains(fn ($error) => $error->error_code === 'call_allowance_unresolved'),
             ],
             'publication_status' => [
                 'is_published' => $row->published_staff_id !== null,

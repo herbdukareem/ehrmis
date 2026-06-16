@@ -132,6 +132,19 @@ class LegacyStaffImportController extends Controller
         return response()->json(['message' => 'Mapping resolved successfully.']);
     }
 
+    public function resolveIdentifier(Request $request, LegacyStaffImportBatch $batch, LegacyStaffImportRow $row, LegacyStaffImportIssueResolutionService $resolutionService): JsonResponse
+    {
+        $this->ensureRowBelongsToBatch($batch, $row);
+        $this->authorize('resolveMapping', $row);
+        $validated = $request->validate([
+            'staff_number' => ['required', 'string', 'max:255'],
+            'notes' => ['nullable', 'string', 'max:1000'],
+        ]);
+        $resolutionService->resolveIdentifier($row, $validated['staff_number'], $request->user(), $validated['notes'] ?? null);
+
+        return response()->json(['message' => 'Staff identifier resolved successfully.']);
+    }
+
     public function publishRow(Request $request, LegacyStaffImportBatch $batch, LegacyStaffImportRow $row, LegacyStaffImportPublicationService $publicationService): JsonResponse
     {
         $this->ensureRowBelongsToBatch($batch, $row);

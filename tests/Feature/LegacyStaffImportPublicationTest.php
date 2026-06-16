@@ -6,12 +6,15 @@ use App\Domain\Legacy\Models\LegacyStaffImportBatch;
 use App\Domain\Legacy\Models\LegacyStaffImportError;
 use App\Domain\Legacy\Models\LegacyStaffImportRow;
 use App\Domain\Legacy\Services\LegacyStaffImportApprovalService;
+use App\Domain\Legacy\Services\LegacyStaffImportPublicationService;
 use App\Domain\Legacy\Services\LegacyStaffImportService;
 use App\Domain\Organization\Models\Mda;
 use App\Domain\Staff\Models\Staff;
+use App\Jobs\PublishLegacyStaffImportBatch;
 use App\Models\User;
 use Database\Seeders\RolesAndPermissionsSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Queue;
 use Tests\Concerns\BuildsLegacyStaffImportFixtures;
 use Tests\TestCase;
 
@@ -92,19 +95,46 @@ class LegacyStaffImportPublicationTest extends TestCase
 
     public function test_authorized_user_can_publish_batch_and_duplicate_publication_does_not_duplicate_staff(): void
     {
+        Queue::fake();
         $this->submitAndApproveBatch();
 
         $this->actingAs($this->mohPublisher)
             ->postJson(route('api.legacy-staff-imports.publish', $this->batch))
-            ->assertOk();
+            ->assertAccepted();
+
+        Queue::assertPushed(PublishLegacyStaffImportBatch::class, function (PublishLegacyStaffImportBatch $job): bool {
+            return $job->batchId === $this->batch->id && $job->userId === $this->mohPublisher->id;
+        });
+
+        (new PublishLegacyStaffImportBatch($this->batch->id, $this->mohPublisher->id))
+            ->handle(app(LegacyStaffImportPublicationService::class));
 
         $firstCount = Staff::withoutGlobalScopes()->count();
 
         $this->actingAs($this->mohPublisher)
             ->postJson(route('api.legacy-staff-imports.publish', $this->batch))
-            ->assertOk();
+            ->assertAccepted();
+
+        (new PublishLegacyStaffImportBatch($this->batch->id, $this->mohPublisher->id))
+            ->handle(app(LegacyStaffImportPublicationService::class));
 
         $this->assertSame($firstCount, Staff::withoutGlobalScopes()->count());
+    }
+
+    public function test_batch_cannot_be_queued_twice_while_publication_is_running(): void
+    {
+        Queue::fake();
+        $this->submitAndApproveBatch();
+
+        $this->actingAs($this->mohPublisher)
+            ->postJson(route('api.legacy-staff-imports.publish', $this->batch))
+            ->assertAccepted();
+
+        $this->actingAs($this->mohPublisher)
+            ->postJson(route('api.legacy-staff-imports.publish', $this->batch))
+            ->assertForbidden();
+
+        Queue::assertPushed(PublishLegacyStaffImportBatch::class, 1);
     }
 
     public function test_batch_must_be_approved_before_publication(): void
@@ -116,6 +146,7 @@ class LegacyStaffImportPublicationTest extends TestCase
 
     public function test_rows_with_blocking_errors_are_skipped_during_batch_publication(): void
     {
+        Queue::fake();
         $this->submitAndApproveBatch($this->globalPublisher);
 
         $invalidRow = LegacyStaffImportRow::query()->create([
@@ -148,7 +179,10 @@ class LegacyStaffImportPublicationTest extends TestCase
 
         $this->actingAs($this->globalPublisher)
             ->postJson(route('api.legacy-staff-imports.publish', $this->batch))
-            ->assertOk();
+            ->assertAccepted();
+
+        (new PublishLegacyStaffImportBatch($this->batch->id, $this->globalPublisher->id))
+            ->handle(app(LegacyStaffImportPublicationService::class));
 
         $this->assertSame('invalid', $invalidRow->fresh()->status);
         $this->assertNull($invalidRow->fresh()->published_staff_id);

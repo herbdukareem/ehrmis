@@ -29,9 +29,13 @@ class LegacyStaffImportQueryService
                     ->whereNotNull('published_staff_id'),
                 'errors as visible_warnings_count' => fn (Builder $errorQuery) => $errorQuery
                     ->where('severity', 'warning')
+                    ->whereNull('resolved_at')
+                    ->whereNull('ignored_at')
                     ->whereHas('row', fn (Builder $rowQuery) => $this->scopeRowsForUser($rowQuery, $user)),
                 'errors as visible_errors_count' => fn (Builder $errorQuery) => $errorQuery
                     ->where('severity', 'error')
+                    ->whereNull('resolved_at')
+                    ->whereNull('ignored_at')
                     ->whereHas('row', fn (Builder $rowQuery) => $this->scopeRowsForUser($rowQuery, $user)),
             ])
             ->latest('id');
@@ -53,6 +57,8 @@ class LegacyStaffImportQueryService
 
         $errorsQuery = LegacyStaffImportError::query()
             ->where('batch_id', $batch->id)
+            ->whereNull('resolved_at')
+            ->whereNull('ignored_at')
             ->whereHas('row', fn (Builder $rowQuery) => $this->scopeRowsForUser($rowQuery, $user));
 
         $severityCounts = (clone $errorsQuery)
@@ -156,13 +162,13 @@ class LegacyStaffImportQueryService
                     ->where('severity', 'error')
                     ->whereNull('resolved_at')))
             ->when($filters['severity'] ?? null, fn (Builder $query, string $severity) => $query->whereHas('errors', function (Builder $errorQuery) use ($severity): void {
-                $errorQuery->where('severity', $severity);
+                $errorQuery->where('severity', $severity)->whereNull('resolved_at')->whereNull('ignored_at');
             }))
             ->when($filters['warning_code'] ?? null, fn (Builder $query, string $warningCode) => $query->whereHas('errors', function (Builder $errorQuery) use ($warningCode): void {
-                $errorQuery->where('severity', 'warning')->where('error_code', $warningCode);
+                $errorQuery->where('severity', 'warning')->where('error_code', $warningCode)->whereNull('resolved_at')->whereNull('ignored_at');
             }))
             ->when($filters['error_code'] ?? null, fn (Builder $query, string $errorCode) => $query->whereHas('errors', function (Builder $errorQuery) use ($errorCode): void {
-                $errorQuery->where('error_code', $errorCode);
+                $errorQuery->where('error_code', $errorCode)->whereNull('resolved_at')->whereNull('ignored_at');
             }))
             ->when((bool) ($filters['missing_mda'] ?? false), fn (Builder $query) => $query->whereHas('errors', fn (Builder $errorQuery) => $this->scopeUnresolvedIssueCode($errorQuery, 'missing_mda')))
             ->when((bool) ($filters['missing_department'] ?? false), fn (Builder $query) => $query->whereHas('errors', fn (Builder $errorQuery) => $this->scopeUnresolvedIssueCode($errorQuery, 'missing_department')))
@@ -179,6 +185,8 @@ class LegacyStaffImportQueryService
     {
         $issues = LegacyStaffImportError::query()
             ->where('batch_id', $batch->id)
+            ->whereNull('resolved_at')
+            ->whereNull('ignored_at')
             ->whereHas('row', fn (Builder $rowQuery) => $this->scopeRowsForUser($rowQuery, $user))
             ->select('severity', 'error_code')
             ->distinct()

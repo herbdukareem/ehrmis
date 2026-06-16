@@ -10,10 +10,12 @@ use App\Domain\Organization\Models\Station;
 use App\Domain\Staff\Models\Cadre;
 use App\Domain\Staff\Models\QualificationType;
 use App\Domain\Staff\Models\Rank;
+use App\Domain\Staff\Models\Staff;
 use App\Models\User;
 use App\Services\AuditLogService;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\ValidationException;
 use InvalidArgumentException;
 
 class LegacyStaffImportIssueResolutionService
@@ -42,8 +44,6 @@ class LegacyStaffImportIssueResolutionService
                 $this->extractRowSnapshotAttributes($field, $target, $resolvedFields),
                 ['normalized_payload' => $payload]
             ));
-
-            $this->refreshRowStatus($row);
             $row->save();
 
             $this->markErrorsResolved(
@@ -57,6 +57,8 @@ class LegacyStaffImportIssueResolutionService
                     'target_type' => $target::class,
                 ],
             );
+            $this->refreshRowStatus($row);
+            $row->save();
 
             $this->auditLogService->log(
                 'legacy_staff_import.mapping.resolved',
@@ -113,6 +115,73 @@ class LegacyStaffImportIssueResolutionService
         );
 
         return $warning->fresh();
+    }
+
+    public function resolveIdentifier(LegacyStaffImportRow $row, string $staffNumber, User $user, ?string $notes = null): LegacyStaffImportRow
+    {
+        return DB::transaction(function () use ($row, $staffNumber, $user, $notes): LegacyStaffImportRow {
+            $staffNumber = trim($staffNumber);
+
+            if ($row->mda_id === null) {
+                throw ValidationException::withMessages([
+                    'staff_number' => 'Resolve the row MDA before assigning a staff number.',
+                ]);
+            }
+
+            $liveDuplicate = Staff::withoutGlobalScopes()
+                ->where('mda_id', $row->mda_id)
+                ->where('staff_number', $staffNumber)
+                ->exists();
+            $stagedDuplicate = LegacyStaffImportRow::query()
+                ->where('mda_id', $row->mda_id)
+                ->where('staff_number', $staffNumber)
+                ->whereKeyNot($row->id)
+                ->exists();
+
+            if ($liveDuplicate || $stagedDuplicate) {
+                throw ValidationException::withMessages([
+                    'staff_number' => 'This staff number already exists within the row MDA.',
+                ]);
+            }
+
+            $beforePayload = $row->normalized_payload ?? [];
+            $beforeRow = $row->toArray();
+            $payload = array_merge($beforePayload, [
+                'staff_number' => $staffNumber,
+                'dedupe_key' => $staffNumber,
+            ]);
+
+            $row->forceFill([
+                'staff_number' => $staffNumber,
+                'dedupe_key' => $staffNumber,
+                'normalized_payload' => $payload,
+            ])->save();
+
+            $this->markErrorsResolved($row, 'missing_identifier', $user, $notes, [
+                'action' => 'manual_identifier_resolution',
+                'staff_number' => $staffNumber,
+            ]);
+            $this->markErrorsResolved($row, 'provisional_identifier', $user, $notes, [
+                'action' => 'manual_identifier_resolution',
+                'staff_number' => $staffNumber,
+            ]);
+            $this->refreshRowStatus($row);
+            $row->save();
+
+            $this->auditLogService->log(
+                'legacy_staff_import.identifier.resolved',
+                $row,
+                $beforeRow,
+                $row->fresh()?->toArray() ?? $row->toArray(),
+                [
+                    'notes' => $notes,
+                    'before_payload' => $beforePayload,
+                    'after_payload' => $payload,
+                ],
+            );
+
+            return $row->fresh(['errors', 'mda', 'department', 'station', 'cadre', 'rank', 'salaryScale', 'matchedStaff', 'publishedStaff']);
+        });
     }
 
     protected function resolveTarget(LegacyStaffImportRow $row, string $field, int $targetId): array
