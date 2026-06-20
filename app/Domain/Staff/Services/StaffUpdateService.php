@@ -2,11 +2,14 @@
 
 namespace App\Domain\Staff\Services;
 
+use App\Domain\Legacy\Models\LegacyStaffImportError;
+use App\Domain\Staff\Models\QualificationType;
 use App\Domain\Staff\Models\Staff;
 use App\Domain\Staff\Models\StaffEmployment;
 use App\Domain\Staff\Models\StaffPersonalDetail;
 use App\Domain\Staff\Models\StaffQualification;
 use App\Domain\Staff\Models\StaffStatusHistory;
+use App\Models\User;
 use App\Services\AuditLogService;
 use Illuminate\Support\Facades\DB;
 
@@ -14,6 +17,7 @@ class StaffUpdateService
 {
     public function __construct(
         protected AuditLogService $auditLogService,
+        protected StaffAllowanceService $staffAllowanceService,
     ) {
     }
 
@@ -111,6 +115,108 @@ class StaffUpdateService
             ]);
 
             return $qualification;
+        });
+    }
+
+    /**
+     * @param  array<string, mixed>  $updates
+     */
+    public function resolveFlaggedIssues(Staff $staff, array $updates, User $user): Staff
+    {
+        return DB::transaction(function () use ($staff, $updates, $user): Staff {
+            $resolvedFields = [];
+
+            if (! empty($updates['date_of_birth'])) {
+                $staff->forceFill(['date_of_birth' => $updates['date_of_birth']])->save();
+            }
+
+            $currentEmployment = $staff->currentEmployment()->first();
+            $cadreId = $updates['cadre_id'] ?? null;
+            $rankId = $updates['rank_id'] ?? null;
+
+            if ($currentEmployment && ($cadreId || $rankId)) {
+                $nextCadreId = $cadreId ?: $currentEmployment->cadre_id;
+                $nextRankId = $rankId ?: $currentEmployment->rank_id;
+
+                if ($nextCadreId !== $currentEmployment->cadre_id || $nextRankId !== $currentEmployment->rank_id) {
+                    $this->createEmploymentRecord($staff, [
+                        'mda_id' => $currentEmployment->mda_id,
+                        'department_id' => $currentEmployment->department_id,
+                        'station_id' => $currentEmployment->station_id,
+                        'location_name' => $currentEmployment->location_name,
+                        'cadre_id' => $nextCadreId,
+                        'rank_id' => $nextRankId,
+                        'staff_category' => $currentEmployment->staff_category,
+                        'initial_rank' => $currentEmployment->initial_rank,
+                        'date_first_appointment' => $currentEmployment->date_first_appointment,
+                        'date_last_promotion' => $currentEmployment->date_last_promotion,
+                        'expected_retirement_date' => $currentEmployment->expected_retirement_date,
+                        'next_promotion_date' => $currentEmployment->next_promotion_date,
+                        'employment_status' => $currentEmployment->employment_status,
+                    ]);
+                }
+
+                if ($cadreId) {
+                    $resolvedFields[] = 'cadre';
+                }
+
+                if ($rankId) {
+                    $resolvedFields[] = 'rank';
+                }
+            }
+
+            if ($updates['qualification_type_id'] ?? null) {
+                $qualificationType = QualificationType::query()->findOrFail($updates['qualification_type_id']);
+
+                $this->storeQualification($staff, [
+                    'qualification_type_id' => $qualificationType->id,
+                    'qualification_name' => $qualificationType->name,
+                    'highest_qualification_name' => $qualificationType->name,
+                    'is_highest' => true,
+                    'source' => 'staff_management',
+                ]);
+
+                $resolvedFields[] = 'qualification';
+            }
+
+            if ($updates['allowances'] ?? null) {
+                $this->staffAllowanceService->syncAssignments($staff, collect($updates['allowances'])
+                    ->map(fn (array $assignment): array => [
+                        'allowance_type_id' => $assignment['allowance_type_id'],
+                        'is_eligible' => (bool) ($assignment['is_eligible'] ?? false),
+                        'source' => 'staff_management',
+                        'effective_from' => now()->toDateString(),
+                    ])
+                    ->all());
+
+                $resolvedFields[] = 'call_allowance';
+            }
+
+            if ($resolvedFields !== []) {
+                LegacyStaffImportError::query()
+                    ->whereIn('row_id', $staff->importRows()->pluck('id'))
+                    ->whereIn('field', $resolvedFields)
+                    ->whereNull('resolved_at')
+                    ->whereNull('ignored_at')
+                    ->update([
+                        'resolved_at' => now(),
+                        'resolved_by' => $user->id,
+                        'resolution_notes' => 'Resolved via staff record update.',
+                        'updated_at' => now(),
+                    ]);
+            }
+
+            return $staff->fresh([
+                'mda',
+                'personalDetail',
+                'currentEmployment.department',
+                'currentEmployment.station',
+                'currentEmployment.cadre',
+                'currentEmployment.rank',
+                'currentSalaryPlacement.salaryScale',
+                'qualifications.qualificationType',
+                'allowanceAssignments.allowanceType',
+            ]);
         });
     }
 

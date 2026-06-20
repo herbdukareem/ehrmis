@@ -56,7 +56,7 @@ class LegacyStaffImportService
 
             foreach ($rows as $legacyRow) {
                 $masterRow = $source === 'staff_list' ? $this->normalizer->findMasterRow($legacyRow) : null;
-                $normalized = $this->normalizer->normalize($legacyRow, $source, $masterRow);
+                $normalized = $this->normalizer->normalize($legacyRow, $source, $masterRow, $publish);
                 $issues = $this->validator->validate($normalized);
                 $hasErrors = $this->validator->hasErrors($issues);
                 $matchedStaff = $this->identityMatcher->match($normalized);
@@ -226,6 +226,8 @@ class LegacyStaffImportService
             'missing_qualification' => 0,
             'missing_level' => 0,
             'missing_step' => 0,
+            'cadre_auto_created' => 0,
+            'rank_auto_created' => 0,
             'edor_mismatch_count' => 0,
             'next_promotion_mismatch_count' => 0,
             'call_allowance_resolved' => 0,
@@ -306,6 +308,8 @@ class LegacyStaffImportService
                 'next_promotion_mismatch' => $summary['next_promotion_mismatch_count']++,
                 'matched_existing_staff' => $summary['matched_existing_staff_count']++,
                 'call_allowance_unresolved' => $summary['call_allowance_unresolved']++,
+                'cadre_auto_created' => $summary['cadre_auto_created']++,
+                'rank_auto_created' => $summary['rank_auto_created']++,
                 default => null,
             };
         }

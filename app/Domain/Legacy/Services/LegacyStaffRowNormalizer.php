@@ -42,7 +42,7 @@ class LegacyStaffRowNormalizer
     /**
      * @return array<string, mixed>
      */
-    public function normalize(array $legacyRow, string $sourceTable, ?array $masterRow = null): array
+    public function normalize(array $legacyRow, string $sourceTable, ?array $masterRow = null, bool $allowCreate = false): array
     {
         $issues = [];
         $mda = $this->resolveMda($legacyRow['mda'] ?? null, $masterRow['mda'] ?? null);
@@ -82,20 +82,22 @@ class LegacyStaffRowNormalizer
 
         $department = $this->resolveDepartment($mda?->id, $legacyRow['department'] ?? ($masterRow['department'] ?? null));
         $station = $this->resolveStation($mda?->id, $legacyRow['station'] ?? ($masterRow['station'] ?? null), $mda);
-        $cadre = $this->resolveCadre(
-            $legacyRow['cadre'] ?? ($legacyRow['initial_cadre'] ?? ($masterRow['cadre'] ?? null)),
-            $salaryScale?->id,
-            $department?->id,
-        );
-        $rank = $this->resolveRank(
-            $legacyRow['rank'] ?? ($legacyRow['initial_rank'] ?? ($masterRow['rank'] ?? null)),
-            $cadre?->id,
-            $level,
-            $salaryScale?->id,
-        );
+        $cadreName = $legacyRow['cadre'] ?? ($legacyRow['initial_cadre'] ?? ($masterRow['cadre'] ?? null));
+        $cadre = $this->resolveCadre($cadreName, $salaryScale?->id, $department?->id);
+
+        $rankName = $legacyRow['rank'] ?? ($legacyRow['initial_rank'] ?? ($masterRow['rank'] ?? null));
+        $rank = $this->resolveRank($rankName, $cadre?->id, $level, $salaryScale?->id);
 
         if ($rank && (! $cadre || $rank->cadre_id !== $cadre->id)) {
             $cadre = $rank->cadre;
+        }
+
+        if (! $cadre && $allowCreate) {
+            $cadre = $this->createCadre($cadreName, $salaryScale?->id, $department?->id, $issues);
+        }
+
+        if (! $rank && $allowCreate && $cadre) {
+            $rank = $this->createRank($rankName, $cadre, $level, $issues);
         }
         $qualificationName = $this->cleanString($legacyRow['qualification'] ?? ($masterRow['qualifications'] ?? null));
         $highestQualificationName = $this->cleanString($legacyRow['highest_qualification'] ?? ($masterRow['highest_qualification'] ?? null));
@@ -461,6 +463,61 @@ class LegacyStaffRowNormalizer
         $fallbackRanks = $fallbackQuery->limit(2)->get();
 
         return $this->rankCache[$cacheKey] = ($fallbackRanks->count() === 1 ? $fallbackRanks->first() : null);
+    }
+
+    protected function createCadre(?string $cadreName, ?int $salaryScaleId, ?int $departmentId, array &$issues): ?Cadre
+    {
+        $name = $this->cleanString($cadreName);
+
+        if ($name === null || ! $salaryScaleId) {
+            return null;
+        }
+
+        $cadre = Cadre::query()->create([
+            'salary_scale_id' => $salaryScaleId,
+            'department_id' => $departmentId,
+            'name' => $name,
+            'status' => 'active',
+        ]);
+
+        $this->cadreCache[strtolower($name).'|'.$salaryScaleId.'|'.($departmentId ?? '')] = $cadre;
+
+        $issues[] = $this->warning(
+            'cadre',
+            'cadre_auto_created',
+            'Cadre `'.$name.'` did not exist and was created automatically during import. Verify its department and salary scale.',
+        );
+
+        return $cadre;
+    }
+
+    protected function createRank(?string $rankName, Cadre $cadre, ?int $level, array &$issues): ?Rank
+    {
+        $name = $this->cleanString($rankName);
+
+        if ($name === null) {
+            return null;
+        }
+
+        $rank = Rank::query()->create([
+            'cadre_id' => $cadre->id,
+            'salary_scale_id' => $cadre->salary_scale_id,
+            'name' => $name,
+            'level' => $level,
+            'status' => 'active',
+        ]);
+
+        $rank->setRelation('cadre', $cadre);
+
+        $this->rankCache[strtolower($name).'|'.$cadre->id.'|'.($level ?? '').'|'.($cadre->salary_scale_id ?? '')] = $rank;
+
+        $issues[] = $this->warning(
+            'rank',
+            'rank_auto_created',
+            'Rank `'.$name.'` did not exist under cadre `'.$cadre->name.'` and was created automatically during import. Verify its level and salary scale.',
+        );
+
+        return $rank;
     }
 
     protected function resolveQualificationType(?string $qualificationName): ?QualificationType

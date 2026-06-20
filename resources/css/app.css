@@ -313,6 +313,11 @@ button, a { -webkit-tap-highlight-color: transparent; }
 .civic-document-list section > div:first-child { display: grid; gap: 4px; }
 .civic-document-list small { color: var(--civic-muted); font-size: 9px; }
 .civic-preview-overlay { position: fixed; z-index: 120; inset: 0; display: grid; place-items: center; padding: 24px; background: rgb(13 24 43 / .78); }
+.civic-flagged-staff-list { display: grid; gap: 14px; }
+.civic-flagged-staff-list > li { padding: 12px 14px; background: #f6f4ee; border: 1px solid var(--civic-line); }
+.civic-flagged-staff-list ul { display: grid; gap: 4px; padding-left: 18px; margin: 0; font-size: 13px; list-style: disc; }
+.civic-flagged-staff-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.civic-flagged-staff-row small { display: block; margin: 2px 0 8px; color: var(--civic-muted); }
 .civic-preview-panel { width: min(1100px, 100%); height: min(90vh, 850px); overflow: hidden; background: #fff; }
 .civic-preview-panel img, .civic-preview-panel iframe { display: block; width: 100%; height: calc(100% - 62px); object-fit: contain; border: 0; }
 

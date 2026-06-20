@@ -5,7 +5,9 @@ namespace App\Http\Controllers\Api;
 use App\Domain\Organization\Models\Department;
 use App\Domain\Organization\Models\Mda;
 use App\Domain\Organization\Models\Station;
+use App\Domain\Staff\Models\AllowanceType;
 use App\Domain\Staff\Models\Cadre;
+use App\Domain\Staff\Models\QualificationType;
 use App\Domain\Staff\Models\Rank;
 use App\Domain\Staff\Models\SalaryScale;
 use App\Domain\Staff\Models\Staff;
@@ -13,6 +15,7 @@ use App\Domain\Staff\Services\StaffQueryService;
 use App\Domain\Staff\Services\StaffUpdateService;
 use App\Domain\Staff\Services\StaffAllowanceService;
 use App\Http\Controllers\Controller;
+use App\Http\Requests\Staff\ResolveStaffFlaggedIssueRequest;
 use App\Http\Requests\Staff\UpdateStaffAllowanceAssignmentRequest;
 use App\Http\Requests\Staff\UpdateStaffRequest;
 use App\Http\Resources\StaffDetailResource;
@@ -131,6 +134,65 @@ class StaffController extends Controller
         ]);
     }
 
+    public function flaggedIssues(Request $request): JsonResponse
+    {
+        $this->authorize('viewAny', Staff::class);
+        $user = $request->user();
+        $flaggedFields = ['cadre', 'rank', 'qualification', 'call_allowance'];
+
+        $unresolvedErrors = function ($query) use ($flaggedFields) {
+            $query->whereNull('resolved_at')->whereNull('ignored_at')->whereIn('field', $flaggedFields);
+        };
+
+        $staff = Staff::query()
+            ->when(! $user->hasGlobalMdaAccess(), fn ($query) => $query->where('mda_id', $user->mda_id))
+            ->whereHas('importRows.errors', $unresolvedErrors)
+            ->with(['mda', 'importRows.errors' => $unresolvedErrors])
+            ->limit(100)
+            ->get();
+
+        $data = $staff->map(fn (Staff $record): array => [
+            'id' => $record->id,
+            'staff_number' => $record->staff_number,
+            'full_name' => $record->full_name,
+            'mda' => $record->mda?->name,
+            'issues' => $record->importRows
+                ->flatMap(fn ($row) => $row->errors)
+                ->map(fn ($error): array => [
+                    'field' => $error->field,
+                    'message' => $error->message,
+                    'severity' => $error->severity,
+                ])
+                ->unique(fn (array $issue): string => $issue['field'].'|'.$issue['message'])
+                ->values(),
+        ]);
+
+        return response()->json(['data' => $data]);
+    }
+
+    public function resolveFlaggedIssue(
+        ResolveStaffFlaggedIssueRequest $request,
+        Staff $staff,
+        StaffUpdateService $staffUpdateService,
+    ): JsonResponse {
+        $validated = $request->validated();
+
+        $staff = $staffUpdateService->resolveFlaggedIssues($staff, [
+            'date_of_birth' => $validated['date_of_birth'] ?? null,
+            'cadre_id' => isset($validated['cadre_id']) ? (int) $validated['cadre_id'] : null,
+            'rank_id' => isset($validated['rank_id']) ? (int) $validated['rank_id'] : null,
+            'qualification_type_id' => isset($validated['qualification_type_id']) ? (int) $validated['qualification_type_id'] : null,
+            'allowances' => $validated['allowances'] ?? null,
+        ], $request->user());
+
+        $staff->load(['qualifications.qualificationType', 'allowanceAssignments.allowanceType', 'documents.pages']);
+
+        return response()->json([
+            'message' => 'Staff record updated and flagged issues resolved.',
+            'data' => StaffDetailResource::make($staff)->resolve(),
+        ]);
+    }
+
     public function options(Request $request): JsonResponse
     {
         $this->authorize('viewAny', Staff::class);
@@ -152,6 +214,8 @@ class StaffController extends Controller
                 'cadres' => $cadres,
                 'ranks' => Rank::query()->whereIn('cadre_id', $cadres->pluck('id'))->orderBy('name')->get(['id', 'cadre_id', 'salary_scale_id', 'name', 'level']),
                 'salary_scales' => SalaryScale::query()->orderBy('code')->get(['id', 'code', 'name']),
+                'qualification_types' => QualificationType::query()->orderBy('name')->get(['id', 'code', 'name']),
+                'allowance_types' => AllowanceType::query()->orderBy('name')->get(['id', 'code', 'name']),
                 'statuses' => ['active', 'retired', 'duplicate', 'inactive'],
             ],
         ]);

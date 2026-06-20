@@ -312,6 +312,73 @@ class StaffModuleTest extends TestCase
             ->assertNotFound();
     }
 
+    public function test_flagged_issues_lists_staff_with_unresolved_warnings(): void
+    {
+        $this->actingAs($this->mdaUser)
+            ->getJson('/api/staff/flagged-issues')
+            ->assertOk()
+            ->assertJsonPath('data.0.id', $this->staffA->id)
+            ->assertJsonPath('data.0.issues.0.field', 'call_allowance')
+            ->assertJsonCount(1, 'data');
+    }
+
+    public function test_resolving_flagged_issues_updates_staff_and_removes_it_from_the_list(): void
+    {
+        $newCadre = Cadre::query()->create([
+            'salary_scale_id' => $this->salaryScale->id,
+            'department_id' => $this->staffA->currentEmployment->department_id,
+            'name' => 'NURSING OFFICER',
+            'status' => 'active',
+        ]);
+        $newRank = Rank::query()->create([
+            'cadre_id' => $newCadre->id,
+            'salary_scale_id' => $this->salaryScale->id,
+            'name' => 'SNO',
+            'level' => 10,
+            'status' => 'active',
+        ]);
+        $qualification = QualificationType::query()->where('code', 'HND')->firstOrFail();
+
+        $response = $this->actingAs($this->mdaUser)
+            ->putJson(route('api.staff.flagged-issues.resolve', $this->staffA), [
+                'date_of_birth' => '1985-05-05',
+                'cadre_id' => $newCadre->id,
+                'rank_id' => $newRank->id,
+                'qualification_type_id' => $qualification->id,
+                'allowances' => [
+                    ['allowance_type_id' => $this->hazardType->id, 'is_eligible' => true],
+                ],
+            ]);
+
+        $response->assertOk()->assertJsonPath('data.date_of_birth', '1985-05-05');
+
+        $this->assertDatabaseHas('staff_employments', [
+            'staff_id' => $this->staffA->id,
+            'cadre_id' => $newCadre->id,
+            'rank_id' => $newRank->id,
+            'is_current' => true,
+        ]);
+        $this->assertDatabaseHas('staff_qualifications', [
+            'staff_id' => $this->staffA->id,
+            'qualification_type_id' => $qualification->id,
+            'is_highest' => true,
+        ]);
+        $this->assertDatabaseHas('staff_allowance_assignments', [
+            'staff_id' => $this->staffA->id,
+            'allowance_type_id' => $this->hazardType->id,
+            'is_eligible' => true,
+        ]);
+        $this->assertDatabaseHas('legacy_staff_import_errors', [
+            'field' => 'call_allowance',
+            'resolved_by' => $this->mdaUser->id,
+        ]);
+
+        $this->actingAs($this->mdaUser)
+            ->getJson('/api/staff/flagged-issues')
+            ->assertOk()
+            ->assertJsonCount(0, 'data');
+    }
+
     protected function setUpStaffFixtures(): void
     {
         $this->mdaA = Mda::query()->create([

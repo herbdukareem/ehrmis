@@ -35,10 +35,12 @@ Route::middleware('auth')->group(function (): void {
     Route::put('/access-management/users/{managedUser}', [AccessManagementController::class, 'updateUser'])->name('api.access-management.users.update');
 
     Route::get('/staff/options', [StaffController::class, 'options'])->name('api.staff.options');
+    Route::get('/staff/flagged-issues', [StaffController::class, 'flaggedIssues'])->name('api.staff.flagged-issues');
     Route::get('/staff', [StaffController::class, 'index'])->name('api.staff.index');
     Route::get('/staff/{staff}', [StaffController::class, 'show'])->name('api.staff.show');
     Route::put('/staff/{staff}', [StaffController::class, 'update'])->name('api.staff.update');
     Route::put('/staff/{staff}/allowances', [StaffController::class, 'updateAllowances'])->name('api.staff.allowances.update');
+    Route::put('/staff/{staff}/flagged-issues', [StaffController::class, 'resolveFlaggedIssue'])->name('api.staff.flagged-issues.resolve');
     Route::post('/staff/{staff}/passport', [StaffMediaController::class, 'storePassport'])->name('api.staff.passport.store');
     Route::get('/staff/{staff}/passport', [StaffMediaController::class, 'passport'])->name('api.staff.passport.show');
     Route::post('/staff/{staff}/documents', [StaffMediaController::class, 'storeDocument'])->name('api.staff.documents.store');

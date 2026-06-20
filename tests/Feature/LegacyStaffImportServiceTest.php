@@ -418,7 +418,9 @@ class LegacyStaffImportServiceTest extends TestCase
         ]);
 
         $this->assertSame(5, $summary['rows_published']);
-        $this->assertSame(1, $summary['missing_rank']);
+        $this->assertSame(0, $summary['missing_rank']);
+        $this->assertSame(1, $summary['cadre_auto_created']);
+        $this->assertSame(1, $summary['rank_auto_created']);
 
         $staff = Staff::withoutGlobalScopes()->where('legacy_cno_psn', 'C006P006')->firstOrFail();
         $employment = StaffEmployment::query()->where('staff_id', $staff->id)->firstOrFail();
