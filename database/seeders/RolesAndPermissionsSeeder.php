@@ -2,9 +2,9 @@
 
 namespace Database\Seeders;
 
+use App\Models\Role;
 use Illuminate\Database\Seeder;
 use Spatie\Permission\Models\Permission;
-use Spatie\Permission\Models\Role;
 use Spatie\Permission\PermissionRegistrar;
 
 class RolesAndPermissionsSeeder extends Seeder
@@ -18,10 +18,21 @@ class RolesAndPermissionsSeeder extends Seeder
             'create-mdas',
             'update-mdas',
             'delete-mdas',
+            'create-users',
+            'update-users',
+            'deactivate-users',
             'view-departments',
             'create-departments',
             'update-departments',
             'delete-departments',
+            'manage-departments',
+            'manage-stations',
+            'manage-cadres',
+            'manage-ranks',
+            'manage-allowance-types',
+            'manage-salary-scales',
+            'manage-qualification-types',
+            'manage-salary-structure',
             'view-staff',
             'create-staff',
             'update-staff',
@@ -55,11 +66,23 @@ class RolesAndPermissionsSeeder extends Seeder
 
         $roleMap = [
             'Super Admin' => $permissions,
+            'Platform Admin' => $permissions,
             'MIS Admin' => array_values(array_diff($permissions, ['manage-settings'])),
             'MDA Admin' => [
                 'view-departments',
                 'create-departments',
                 'update-departments',
+                'create-users',
+                'update-users',
+                'deactivate-users',
+                'manage-departments',
+                'manage-stations',
+                'manage-cadres',
+                'manage-ranks',
+                'manage-allowance-types',
+                'manage-salary-scales',
+                'manage-qualification-types',
+                'manage-salary-structure',
                 'view-staff',
                 'create-staff',
                 'update-staff',
@@ -70,8 +93,12 @@ class RolesAndPermissionsSeeder extends Seeder
                 'resolve-staff-import-issues',
                 'publish-own-mda-staff-imports',
                 'view-movement-sheets',
+                'create-movement-sheets',
                 'view-budgets',
+                'create-budgets',
                 'view-reports',
+                'export-reports',
+                'manage-roles',
                 'manage-users',
                 'manage-mda-settings',
             ],
@@ -114,7 +141,15 @@ class RolesAndPermissionsSeeder extends Seeder
         ];
 
         foreach ($roleMap as $roleName => $rolePermissions) {
-            $role = Role::findOrCreate($roleName, 'web');
+            $role = Role::query()->firstOrNew([
+                'name' => $roleName,
+                'guard_name' => 'web',
+                'scope' => Role::SCOPE_GLOBAL,
+                'mda_id' => null,
+            ]);
+            $role->scope = Role::SCOPE_GLOBAL;
+            $role->mda_id = null;
+            $role->save();
             $role->syncPermissions($rolePermissions);
         }
     }

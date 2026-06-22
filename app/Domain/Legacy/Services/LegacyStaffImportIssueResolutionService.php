@@ -192,7 +192,7 @@ class LegacyStaffImportIssueResolutionService
             'station' => $this->resolveStationTarget($row, $targetId),
             'cadre' => $this->resolveCadreTarget($row, $targetId),
             'rank' => $this->resolveRankTarget($row, $targetId),
-            'qualification_type' => $this->resolveQualificationTypeTarget($targetId),
+            'qualification_type' => $this->resolveQualificationTypeTarget($row, $targetId),
             default => throw new InvalidArgumentException('Unsupported mapping field `'.$field.'`.'),
         };
     }
@@ -272,9 +272,10 @@ class LegacyStaffImportIssueResolutionService
         ]];
     }
 
-    protected function resolveQualificationTypeTarget(int $targetId): array
+    protected function resolveQualificationTypeTarget(LegacyStaffImportRow $row, int $targetId): array
     {
-        $target = QualificationType::query()->findOrFail($targetId);
+        $rowMdaId = $this->requireRowMda($row, 'qualification type');
+        $target = QualificationType::query()->forMda($rowMdaId)->findOrFail($targetId);
 
         return [[
             'error_code' => 'missing_qualification',

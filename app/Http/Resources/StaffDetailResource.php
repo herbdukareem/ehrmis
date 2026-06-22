@@ -59,6 +59,7 @@ class StaffDetailResource extends JsonResource
             'qualifications' => StaffQualificationResource::collection($staff->qualifications)->resolve(),
             'allowance_assignments' => StaffAllowanceAssignmentResource::collection($effectiveAllowanceAssignments)->resolve(),
             'allowance_types' => AllowanceType::query()
+                ->forMda((int) $staff->mda_id)
                 ->where('status', 'active')
                 ->orderBy('name')
                 ->get(['id', 'code', 'name'])
@@ -127,6 +128,7 @@ class StaffDetailResource extends JsonResource
             (int) $placement->level,
             (int) $placement->step,
             $eligibleAllowanceCodes,
+            (int) $staff->mda_id,
         );
 
         return [

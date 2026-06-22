@@ -25,7 +25,7 @@ class StaffAllowanceService
     {
         DB::transaction(function () use ($staff, $assignments): void {
             $before = $staff->allowanceAssignments()->with('allowanceType')->get()->toArray();
-            $typeIds = AllowanceType::query()->pluck('id')->all();
+            $typeIds = AllowanceType::query()->forMda((int) $staff->mda_id)->pluck('id')->all();
 
             foreach ($assignments as $assignment) {
                 if (array_key_exists('allowance_code', $assignment)) {
@@ -103,6 +103,7 @@ class StaffAllowanceService
             (int) $placement->level,
             (int) $placement->step,
             $eligibleAllowanceCodes,
+            (int) $staff->mda_id,
         );
 
         if ($calculation['basic_salary'] === null || $calculation['calculated_gross'] === null) {

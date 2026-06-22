@@ -149,7 +149,7 @@ class MovementSheetGenerationService
         $currentStep = $placement?->step;
 
         $currentAmounts = $currentScaleCode !== null && $currentLevel !== null && $currentStep !== null
-            ? $this->salaryCalculationService->calculateGrossForPlacement($currentScaleCode, $currentLevel, $currentStep, $eligibleAllowanceCodes)
+            ? $this->salaryCalculationService->calculateGrossForPlacement($currentScaleCode, $currentLevel, $currentStep, $eligibleAllowanceCodes, (int) $staff->mda_id)
             : [
                 'basic_salary' => $placement?->basic_salary !== null ? (float) $placement->basic_salary : null,
                 'allowance_breakdown' => [],
@@ -234,7 +234,7 @@ class MovementSheetGenerationService
         }
 
         $proposedAmounts = $currentScaleCode !== null && $proposedLevel !== null && $proposedStep !== null
-            ? $this->salaryCalculationService->calculateGrossForPlacement($currentScaleCode, $proposedLevel, $proposedStep, $eligibleAllowanceCodes)
+            ? $this->salaryCalculationService->calculateGrossForPlacement($currentScaleCode, $proposedLevel, $proposedStep, $eligibleAllowanceCodes, (int) $staff->mda_id)
             : $currentAmounts;
 
         return [

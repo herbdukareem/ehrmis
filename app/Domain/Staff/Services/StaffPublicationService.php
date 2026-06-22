@@ -109,6 +109,7 @@ class StaffPublicationService
                 (int) $normalizedRow['level'],
                 (int) $normalizedRow['step'],
                 $eligibleAllowanceCodes,
+                (int) $normalizedRow['mda_id'],
             );
         }
 
@@ -137,6 +138,7 @@ class StaffPublicationService
         );
 
         $allowanceTypes = AllowanceType::query()
+            ->forMda((int) $normalizedRow['mda_id'])
             ->whereIn('code', array_keys($normalizedRow['allowances'] ?? []))
             ->get()
             ->keyBy('code');

@@ -28,9 +28,9 @@ class DashboardIntelligenceTest extends TestCase
         $mda = Mda::query()->create(['code' => 'MOH', 'name' => 'Ministry of Health', 'status' => 'active']);
         $otherMda = Mda::query()->create(['code' => 'HMB', 'name' => 'Hospital Management Board', 'status' => 'active']);
         $department = Department::query()->create(['mda_id' => $mda->id, 'code' => 'CLIN', 'name' => 'Clinical Services', 'status' => 'active']);
-        $scale = SalaryScale::query()->create(['code' => 'GL', 'name' => 'Grade Level', 'min_level' => 1, 'max_level' => 17, 'min_step' => 1, 'max_step' => 15, 'status' => 'active']);
+        $scale = SalaryScale::query()->create(['mda_id' => $mda->id, 'code' => 'GL', 'name' => 'Grade Level', 'min_level' => 1, 'max_level' => 17, 'min_step' => 1, 'max_step' => 15, 'status' => 'active']);
         $cadre = Cadre::query()->create(['department_id' => $department->id, 'salary_scale_id' => $scale->id, 'name' => 'Medical Officer', 'status' => 'active']);
-        $hazard = AllowanceType::query()->create(['code' => 'hazard', 'name' => 'Hazard Allowance', 'status' => 'active']);
+        $hazard = AllowanceType::query()->create(['mda_id' => $mda->id, 'code' => 'hazard', 'name' => 'Hazard Allowance', 'status' => 'active']);
 
         $staff = Staff::withoutGlobalScopes()->create([
             'mda_id' => $mda->id, 'staff_number' => 'MOH-001', 'surname' => 'One',
@@ -73,10 +73,9 @@ class DashboardIntelligenceTest extends TestCase
         $mdaA = Mda::query()->create(['code' => 'MOH', 'name' => 'Ministry of Health', 'status' => 'active']);
         $mdaB = Mda::query()->create(['code' => 'HMB', 'name' => 'Hospital Management Board', 'status' => 'active']);
         $mdaC = Mda::query()->create(['code' => 'EDU', 'name' => 'Ministry of Education', 'status' => 'active']);
-        $scale = SalaryScale::query()->create(['code' => 'GL', 'name' => 'Grade Level', 'min_level' => 1, 'max_level' => 17, 'min_step' => 1, 'max_step' => 15, 'status' => 'active']);
-        $hazard = AllowanceType::query()->create(['code' => 'hazard', 'name' => 'Hazard Allowance', 'status' => 'active']);
-
         foreach ([[$mdaA, 'MOH-001'], [$mdaB, 'HMB-001'], [$mdaC, 'EDU-001']] as [$mda, $staffNumber]) {
+            $scale = SalaryScale::query()->create(['mda_id' => $mda->id, 'code' => 'GL', 'name' => 'Grade Level', 'min_level' => 1, 'max_level' => 17, 'min_step' => 1, 'max_step' => 15, 'status' => 'active']);
+            $hazard = AllowanceType::query()->create(['mda_id' => $mda->id, 'code' => 'hazard', 'name' => 'Hazard Allowance', 'status' => 'active']);
             $department = Department::query()->create(['mda_id' => $mda->id, 'code' => $mda->code, 'name' => $mda->name.' Admin', 'status' => 'active']);
             $cadre = Cadre::query()->create(['department_id' => $department->id, 'salary_scale_id' => $scale->id, 'name' => $mda->code.' Officer', 'status' => 'active']);
             $staff = Staff::withoutGlobalScopes()->create([

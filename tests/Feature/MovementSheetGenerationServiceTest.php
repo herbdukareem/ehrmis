@@ -40,6 +40,7 @@ class MovementSheetGenerationServiceTest extends TestCase
         ]);
 
         $salaryScale = SalaryScale::query()->create([
+            'mda_id' => $mda->id,
             'code' => 'GL',
             'name' => 'GRADE LEVEL',
             'min_level' => 1,
@@ -59,12 +60,14 @@ class MovementSheetGenerationServiceTest extends TestCase
         ]);
 
         $hazard = AllowanceType::query()->create([
+            'mda_id' => $mda->id,
             'code' => 'hazard',
             'name' => 'Hazard Allowance',
             'status' => 'active',
         ]);
 
         $levelNine = SalaryStructureRate::query()->create([
+            'mda_id' => $mda->id,
             'salary_scale_id' => $salaryScale->id,
             'level' => 9,
             'step' => 2,
@@ -74,6 +77,7 @@ class MovementSheetGenerationServiceTest extends TestCase
         ]);
 
         $levelTen = SalaryStructureRate::query()->create([
+            'mda_id' => $mda->id,
             'salary_scale_id' => $salaryScale->id,
             'level' => 10,
             'step' => 2,
@@ -83,6 +87,7 @@ class MovementSheetGenerationServiceTest extends TestCase
         ]);
 
         $levelTenBudgetStep = SalaryStructureRate::query()->create([
+            'mda_id' => $mda->id,
             'salary_scale_id' => $salaryScale->id,
             'level' => 10,
             'step' => 5,
@@ -92,6 +97,7 @@ class MovementSheetGenerationServiceTest extends TestCase
         ]);
 
         SalaryStructureRateAllowance::query()->create([
+            'mda_id' => $mda->id,
             'salary_structure_rate_id' => $levelNine->id,
             'allowance_type_id' => $hazard->id,
             'amount' => 5000,
@@ -99,6 +105,7 @@ class MovementSheetGenerationServiceTest extends TestCase
         ]);
 
         SalaryStructureRateAllowance::query()->create([
+            'mda_id' => $mda->id,
             'salary_structure_rate_id' => $levelTen->id,
             'allowance_type_id' => $hazard->id,
             'amount' => 6000,
@@ -106,6 +113,7 @@ class MovementSheetGenerationServiceTest extends TestCase
         ]);
 
         SalaryStructureRateAllowance::query()->create([
+            'mda_id' => $mda->id,
             'salary_structure_rate_id' => $levelTenBudgetStep->id,
             'allowance_type_id' => $hazard->id,
             'amount' => 7000,

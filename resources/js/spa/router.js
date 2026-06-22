@@ -20,6 +20,7 @@ const routes = [
     { path: '/budget-workbooks/:id', name: 'budgets.show', component: () => import('./views/BudgetShowView.vue') },
     { path: '/reports', name: 'reports', component: () => import('./views/ReportsView.vue') },
     { path: '/settings', name: 'settings', component: () => import('./views/SettingsView.vue') },
+    { path: '/setup-management', name: 'setup-management', component: () => import('./views/SetupManagementView.vue') },
     { path: '/access-management', name: 'access-management', component: () => import('./views/AccessManagementView.vue') },
     { path: '/:pathMatch(.*)*', redirect: '/dashboard' },
 ];
@@ -64,6 +65,7 @@ function routeTitle(name) {
         'budgets.show': 'Budget Workbook',
         reports: 'Reports',
         settings: 'Settings',
+        'setup-management': 'Setup Management',
         'access-management': 'Access Control',
     }[name] ?? 'HMB-eHRMIS';
 }

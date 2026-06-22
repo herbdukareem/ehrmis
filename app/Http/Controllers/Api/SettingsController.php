@@ -25,7 +25,7 @@ class SettingsController extends Controller
         return response()->json(['data' => [
             'platform' => $user->can('manage-platform-settings') && $user->hasPlatformAccess() ? PlatformSetting::query()->first() : null,
             'mdas' => $mdas,
-            'ranks' => Rank::query()->orderBy('name')->get(['id', 'name', 'level']),
+            'ranks' => Rank::query()->visibleToUser($user)->orderBy('name')->get(['id', 'name', 'level']),
         ]]);
     }
 
@@ -107,6 +107,11 @@ class SettingsController extends Controller
         if (! $staffId) {
             return;
         }
+
+        if ($rankId && ! Rank::query()->visibleToUser(request()->user())->whereKey($rankId)->exists()) {
+            abort(422, 'The selected head rank is not available for this MDA.');
+        }
+
         abort_unless(Staff::query()->whereKey($staffId)->where('mda_id', $mda->id)->whereHas('currentEmployment', fn ($query) => $query->where('rank_id', $rankId))->exists(), 422, 'The selected head must belong to this MDA and hold the selected rank.');
     }
 

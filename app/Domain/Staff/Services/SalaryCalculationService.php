@@ -8,7 +8,7 @@ use Illuminate\Support\Str;
 
 class SalaryCalculationService
 {
-    public function getRate(string $scaleCode, int $level, int $step): ?SalaryStructureRate
+    public function getRate(string $scaleCode, int $level, int $step, ?int $mdaId = null): ?SalaryStructureRate
     {
         $normalizedCode = $this->normalizeScaleCode($scaleCode);
 
@@ -16,7 +16,10 @@ class SalaryCalculationService
             return null;
         }
 
-        $salaryScale = SalaryScale::query()->where('code', $normalizedCode)->first();
+        $salaryScale = SalaryScale::query()
+            ->when($mdaId, fn ($query) => $query->forMda($mdaId))
+            ->where('code', $normalizedCode)
+            ->first();
 
         if (! $salaryScale) {
             return null;
@@ -24,6 +27,7 @@ class SalaryCalculationService
 
         return SalaryStructureRate::query()
             ->with(['rateAllowances.allowanceType', 'salaryScale'])
+            ->when($mdaId, fn ($query) => $query->forMda($mdaId))
             ->where('salary_scale_id', $salaryScale->id)
             ->where('level', $level)
             ->where('step', $step)
@@ -41,9 +45,9 @@ class SalaryCalculationService
      *   gross_difference: ?float
      * }
      */
-    public function calculateGrossForPlacement(string $scaleCode, int $level, int $step, array $eligibleAllowanceCodes = []): array
+    public function calculateGrossForPlacement(string $scaleCode, int $level, int $step, array $eligibleAllowanceCodes = [], ?int $mdaId = null): array
     {
-        $rate = $this->getRate($scaleCode, $level, $step);
+        $rate = $this->getRate($scaleCode, $level, $step, $mdaId);
 
         if (! $rate) {
             return [

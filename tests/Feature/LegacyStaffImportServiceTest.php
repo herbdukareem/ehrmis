@@ -74,7 +74,10 @@ class LegacyStaffImportServiceTest extends TestCase
         $this->assertSame(1, LegacyStaffImportPublication::query()->count());
 
         $staff = Staff::withoutGlobalScopes()->where('legacy_cno_psn', 'C001P001')->firstOrFail();
-        $callDoctorId = \App\Domain\Staff\Models\AllowanceType::query()->where('code', 'call_doctor')->value('id');
+        $callDoctorId = \App\Domain\Staff\Models\AllowanceType::query()
+            ->forMda($staff->mda_id)
+            ->where('code', 'call_doctor')
+            ->value('id');
         $this->assertDatabaseHas('staff_allowance_assignments', [
             'staff_id' => $staff->id,
             'allowance_type_id' => $callDoctorId,
@@ -205,13 +208,19 @@ class LegacyStaffImportServiceTest extends TestCase
 
         $this->assertDatabaseHas('staff_allowance_assignments', [
             'staff_id' => $doctor->id,
-            'allowance_type_id' => \App\Domain\Staff\Models\AllowanceType::query()->where('code', 'call_doctor')->value('id'),
+            'allowance_type_id' => \App\Domain\Staff\Models\AllowanceType::query()
+                ->forMda($doctor->mda_id)
+                ->where('code', 'call_doctor')
+                ->value('id'),
             'is_eligible' => true,
         ]);
 
         $this->assertDatabaseHas('staff_allowance_assignments', [
             'staff_id' => $pharmacist->id,
-            'allowance_type_id' => \App\Domain\Staff\Models\AllowanceType::query()->where('code', 'call_pharm_lab')->value('id'),
+            'allowance_type_id' => \App\Domain\Staff\Models\AllowanceType::query()
+                ->forMda($pharmacist->mda_id)
+                ->where('code', 'call_pharm_lab')
+                ->value('id'),
             'is_eligible' => true,
         ]);
     }

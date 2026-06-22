@@ -35,6 +35,7 @@ class LegacyStaffImportRowController extends Controller
         $this->authorize('view', $row);
 
         $row->load(['errors', 'mda', 'department', 'station', 'cadre', 'rank', 'salaryScale', 'matchedStaff', 'publishedStaff']);
+        $rowMdaId = $row->mda_id ? (int) $row->mda_id : null;
 
         return Inertia::render('LegacyStaffImports/Rows/Show', [
             'batch' => [
@@ -50,7 +51,11 @@ class LegacyStaffImportRowController extends Controller
                 'stations' => Station::query()->orderBy('name')->get(['id', 'mda_id', 'name'])->toArray(),
                 'cadres' => Cadre::query()->orderBy('name')->get(['id', 'department_id', 'salary_scale_id', 'name'])->toArray(),
                 'ranks' => Rank::query()->orderBy('name')->get(['id', 'cadre_id', 'salary_scale_id', 'name', 'level'])->toArray(),
-                'qualification_types' => QualificationType::query()->orderBy('name')->get(['id', 'code', 'name'])->toArray(),
+                'qualification_types' => QualificationType::query()
+                    ->when($rowMdaId, fn ($query) => $query->forMda($rowMdaId), fn ($query) => $query->whereRaw('1 = 0'))
+                    ->orderBy('name')
+                    ->get(['id', 'mda_id', 'code', 'name'])
+                    ->toArray(),
             ],
             'can' => [
                 'publish' => $request->user()->can('publish', $row),

@@ -291,11 +291,13 @@ class StaffModuleTest extends TestCase
     public function test_authorized_user_can_update_allowances_and_recompute_current_gross_pay(): void
     {
         $ruralType = AllowanceType::query()->create([
+            'mda_id' => $this->mdaA->id,
             'code' => 'rural',
             'name' => 'Rural Allowance',
             'status' => 'active',
         ]);
         $rate = SalaryStructureRate::query()->create([
+            'mda_id' => $this->mdaA->id,
             'salary_scale_id' => $this->salaryScale->id,
             'level' => 9,
             'step' => 2,
@@ -304,12 +306,14 @@ class StaffModuleTest extends TestCase
             'status' => 'active',
         ]);
         SalaryStructureRateAllowance::query()->create([
+            'mda_id' => $this->mdaA->id,
             'salary_structure_rate_id' => $rate->id,
             'allowance_type_id' => $this->hazardType->id,
             'amount' => 5000,
             'status' => 'active',
         ]);
         SalaryStructureRateAllowance::query()->create([
+            'mda_id' => $this->mdaA->id,
             'salary_structure_rate_id' => $rate->id,
             'allowance_type_id' => $ruralType->id,
             'amount' => 2000,
@@ -468,6 +472,7 @@ class StaffModuleTest extends TestCase
         ]);
 
         $this->salaryScale = SalaryScale::query()->create([
+            'mda_id' => $this->mdaA->id,
             'code' => 'GL',
             'name' => 'GRADE LEVEL',
             'min_level' => 1,
@@ -494,12 +499,14 @@ class StaffModuleTest extends TestCase
         ]);
 
         QualificationType::query()->create([
+            'mda_id' => $this->mdaA->id,
             'code' => 'HND',
             'name' => 'HND',
             'status' => 'active',
         ]);
 
         $this->hazardType = AllowanceType::query()->create([
+            'mda_id' => $this->mdaA->id,
             'code' => 'hazard',
             'name' => 'Hazard Allowance',
             'status' => 'active',

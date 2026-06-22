@@ -40,6 +40,7 @@ class StaffSalaryPlacementService
                 (int) $placementData['level'],
                 (int) $placementData['step'],
                 $eligibleAllowanceCodes,
+                (int) $staff->mda_id,
             );
 
             if ($currentPlacement) {

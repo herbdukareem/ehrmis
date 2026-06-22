@@ -46,7 +46,11 @@ class LegacyStaffRowNormalizer
     {
         $issues = [];
         $mda = $this->resolveMda($legacyRow['mda'] ?? null, $masterRow['mda'] ?? null);
-        $salaryScale = $this->resolveSalaryScale($legacyRow['salary_scale'] ?? null, $masterRow['salary_scale_code'] ?? ($masterRow['salary_scale'] ?? null));
+        $salaryScale = $this->resolveSalaryScale(
+            $legacyRow['salary_scale'] ?? null,
+            $masterRow['salary_scale_code'] ?? ($masterRow['salary_scale'] ?? null),
+            $mda?->id,
+        );
         $fullName = $this->buildFullName($legacyRow, $masterRow);
         [$surname, $firstName, $middleName] = $this->splitNameParts($legacyRow, $masterRow, $fullName);
 
@@ -101,7 +105,7 @@ class LegacyStaffRowNormalizer
         }
         $qualificationName = $this->cleanString($legacyRow['qualification'] ?? ($masterRow['qualifications'] ?? null));
         $highestQualificationName = $this->cleanString($legacyRow['highest_qualification'] ?? ($masterRow['highest_qualification'] ?? null));
-        $qualificationType = $this->resolveQualificationType($highestQualificationName ?? $qualificationName);
+        $qualificationType = $this->resolveQualificationType($highestQualificationName ?? $qualificationName, $mda?->id);
         $allowances = $this->normalizeAllowances($legacyRow, $masterRow, $issues);
         $isRetired = $this->truthy($legacyRow['is_retired'] ?? ($masterRow['is_retired'] ?? null));
         $isDuplicate = $this->truthy($legacyRow['duplicate'] ?? null);
@@ -352,9 +356,9 @@ class LegacyStaffRowNormalizer
         return null;
     }
 
-    protected function resolveSalaryScale(?string $primary, ?string $secondary): ?SalaryScale
+    protected function resolveSalaryScale(?string $primary, ?string $secondary, ?int $mdaId = null): ?SalaryScale
     {
-        $cacheKey = strtolower(trim(($primary ?? '').'|'.($secondary ?? '')));
+        $cacheKey = strtolower(trim(($primary ?? '').'|'.($secondary ?? ''))).'|'.($mdaId ?? 'global');
 
         if (array_key_exists($cacheKey, $this->salaryScaleCache)) {
             return $this->salaryScaleCache[$cacheKey];
@@ -383,7 +387,10 @@ class LegacyStaffRowNormalizer
                 $code = 'SG';
             }
 
-            $salaryScale = SalaryScale::query()->where('code', $code)->first();
+            $salaryScale = SalaryScale::query()
+                ->when($mdaId, fn ($query) => $query->forMda($mdaId))
+                ->where('code', $code)
+                ->first();
 
             if ($salaryScale) {
                 return $this->salaryScaleCache[$cacheKey] = $salaryScale;
@@ -520,7 +527,7 @@ class LegacyStaffRowNormalizer
         return $rank;
     }
 
-    protected function resolveQualificationType(?string $qualificationName): ?QualificationType
+    protected function resolveQualificationType(?string $qualificationName, ?int $mdaId = null): ?QualificationType
     {
         $name = $this->cleanString($qualificationName);
 
@@ -528,7 +535,7 @@ class LegacyStaffRowNormalizer
             return null;
         }
 
-        $cacheKey = strtolower($name);
+        $cacheKey = strtolower($name).'|'.($mdaId ?? 'global');
 
         if (array_key_exists($cacheKey, $this->qualificationTypeCache)) {
             return $this->qualificationTypeCache[$cacheKey];
@@ -537,8 +544,12 @@ class LegacyStaffRowNormalizer
         $code = Str::upper(Str::slug($name, '_'));
 
         return $this->qualificationTypeCache[$cacheKey] = QualificationType::query()
-            ->where('code', $code)
-            ->orWhereRaw('LOWER(name) = ?', [strtolower($name)])
+            ->when($mdaId, fn ($query) => $query->forMda($mdaId))
+            ->where(function ($query) use ($code, $name): void {
+                $query
+                    ->where('code', $code)
+                    ->orWhereRaw('LOWER(name) = ?', [strtolower($name)]);
+            })
             ->first();
     }
 

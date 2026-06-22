@@ -2,15 +2,19 @@
 
 namespace App\Domain\Staff\Models;
 
+use App\Domain\Organization\Models\Mda;
+use App\Models\Concerns\HasMdaScope;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
 class SalaryScale extends Model
 {
-    use SoftDeletes;
+    use HasMdaScope, SoftDeletes;
 
     protected $fillable = [
+        'mda_id',
         'legacy_id',
         'code',
         'name',
@@ -20,6 +24,11 @@ class SalaryScale extends Model
         'max_step',
         'status',
     ];
+
+    public function mda(): BelongsTo
+    {
+        return $this->belongsTo(Mda::class);
+    }
 
     public function cadres(): HasMany
     {

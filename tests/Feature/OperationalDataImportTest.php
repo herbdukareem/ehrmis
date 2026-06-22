@@ -37,7 +37,7 @@ class OperationalDataImportTest extends TestCase
         $this->otherMda = Mda::query()->create(['code' => 'HMB', 'name' => 'Hospital Management Board', 'status' => 'active']);
         $this->department = Department::withoutGlobalScopes()->create(['mda_id' => $this->mda->id, 'code' => 'CLIN', 'name' => 'Clinical Services', 'status' => 'active']);
         $this->otherDepartment = Department::withoutGlobalScopes()->create(['mda_id' => $this->otherMda->id, 'code' => 'ADMIN', 'name' => 'Administration', 'status' => 'active']);
-        $this->scale = SalaryScale::query()->create(['code' => 'CM', 'name' => 'Medical Scale', 'min_level' => 1, 'max_level' => 7, 'min_step' => 1, 'max_step' => 10, 'status' => 'active']);
+        $this->scale = SalaryScale::query()->create(['mda_id' => $this->mda->id, 'code' => 'CM', 'name' => 'Medical Scale', 'min_level' => 1, 'max_level' => 7, 'min_step' => 1, 'max_step' => 10, 'status' => 'active']);
         $this->user = User::factory()->mdaUser($this->mda)->create();
         $this->user->assignRole('MDA Admin');
     }

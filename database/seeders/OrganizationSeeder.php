@@ -14,7 +14,6 @@ class OrganizationSeeder extends Seeder
     {
         $mdas = [
             ['code' => 'HMB', 'name' => 'HOSPITAL MANAGEMENT BOARD'],
-            ['code' => 'MOH', 'name' => 'MINISTRY OF HEALTH'],
         ];
 
         foreach ($mdas as $mdaData) {

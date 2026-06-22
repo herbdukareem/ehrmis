@@ -166,7 +166,9 @@ class StaffUpdateService
             }
 
             if ($updates['qualification_type_id'] ?? null) {
-                $qualificationType = QualificationType::query()->findOrFail($updates['qualification_type_id']);
+                $qualificationType = QualificationType::query()
+                    ->forMda((int) $staff->mda_id)
+                    ->findOrFail($updates['qualification_type_id']);
 
                 $this->storeQualification($staff, [
                     'qualification_type_id' => $qualificationType->id,

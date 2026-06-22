@@ -8,18 +8,68 @@ const route = useRoute();
 const router = useRouter();
 const mobileOpen = ref(false);
 
-const nav = computed(() => [
-    { label: 'Overview', to: '/dashboard', mark: '01' },
-    { label: 'Staff registry', to: '/staff', mark: '02' },
-    { label: 'Data imports', to: '/legacy-staff-imports', mark: '03' },
-    { label: 'Movement', to: '/movement-workbooks', mark: '04' },
-    { label: 'Budget', to: '/budget-workbooks', mark: '05' },
-    { label: 'Reports', to: '/reports', mark: '06' },
-    ...(auth.user?.permissions?.some((permission) => ['manage-platform-settings', 'manage-mda-settings'].includes(permission)) ? [{ label: 'Settings', to: '/settings', mark: '07' }] : []),
-    ...(auth.user?.permissions?.some((permission) => ['manage-users', 'manage-roles'].includes(permission)) ? [{ label: 'Access control', to: '/access-management', mark: '08' }] : []),
-]);
+const hasAnyPermission = (permissions = []) => permissions.some((permission) => auth.user?.permissions?.includes(permission));
 
-const currentSection = computed(() => nav.find((item) => route.path.startsWith(item.to))?.label ?? 'Workspace');
+const navBlueprint = [
+    {
+        id: 'operations',
+        label: 'Operations',
+        items: [
+            { label: 'Overview', to: '/dashboard', permissionAny: [] },
+            { label: 'Staff registry', to: '/staff', permissionAny: [] },
+            { label: 'Data imports', to: '/legacy-staff-imports', permissionAny: [] },
+            { label: 'Movement', to: '/movement-workbooks', permissionAny: [] },
+            { label: 'Budget', to: '/budget-workbooks', permissionAny: [] },
+            { label: 'Reports', to: '/reports', permissionAny: [] },
+        ],
+    },
+    {
+        id: 'administration',
+        label: 'Administration',
+        items: [
+            { label: 'Settings', to: '/settings', permissionAny: ['manage-platform-settings', 'manage-mda-settings'] },
+            {
+                label: 'Setup',
+                to: '/setup-management',
+                permissionAny: [
+                    'manage-departments',
+                    'manage-stations',
+                    'manage-cadres',
+                    'manage-ranks',
+                    'manage-allowance-types',
+                    'manage-salary-scales',
+                    'manage-qualification-types',
+                    'manage-salary-structure',
+                ],
+            },
+            { label: 'Access control', to: '/access-management', permissionAny: ['manage-users', 'manage-roles'] },
+        ],
+    },
+];
+
+const navSections = computed(() => {
+    let mark = 1;
+
+    return navBlueprint
+        .map((section) => {
+            const items = section.items
+                .filter((item) => item.permissionAny.length === 0 || hasAnyPermission(item.permissionAny))
+                .map((item) => ({
+                    ...item,
+                    mark: String(mark++).padStart(2, '0'),
+                }));
+
+            return {
+                ...section,
+                items,
+            };
+        })
+        .filter((section) => section.items.length > 0);
+});
+
+const navItems = computed(() => navSections.value.flatMap((section) => section.items));
+const currentItem = computed(() => navItems.value.find((item) => route.path === item.to || route.path.startsWith(`${item.to}/`)) ?? null);
+const currentSection = computed(() => currentItem.value?.label ?? 'Workspace');
 
 const logout = async () => {
     await signOut();
@@ -45,16 +95,19 @@ const logout = async () => {
             </div>
 
             <nav class="civic-nav">
-                <RouterLink
-                    v-for="item in nav"
-                    :key="item.to"
-                    :to="item.to"
-                    class="civic-nav-link"
-                    @click="mobileOpen = false"
-                >
-                    <span class="civic-nav-mark">{{ item.mark }}</span>
-                    <span>{{ item.label }}</span>
-                </RouterLink>
+                <section v-for="section in navSections" :key="section.id" class="civic-nav-section">
+                    <div class="civic-nav-section-title">{{ section.label }}</div>
+                    <RouterLink
+                        v-for="item in section.items"
+                        :key="item.to"
+                        :to="item.to"
+                        class="civic-nav-link"
+                        @click="mobileOpen = false"
+                    >
+                        <span class="civic-nav-mark">{{ item.mark }}</span>
+                        <span>{{ item.label }}</span>
+                    </RouterLink>
+                </section>
             </nav>
 
             <div class="civic-identity">

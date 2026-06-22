@@ -11,6 +11,7 @@ use App\Http\Controllers\Api\MdaController;
 use App\Http\Controllers\Api\OperationalDataImportController;
 use App\Http\Controllers\Api\PublicContextController;
 use App\Http\Controllers\Api\SettingsController;
+use App\Http\Controllers\Api\SetupManagementController;
 use App\Http\Controllers\Api\MovementWorkbookController;
 use App\Http\Controllers\Api\SpaAuthController;
 use App\Http\Controllers\Api\StaffController;
@@ -31,8 +32,15 @@ Route::middleware('auth')->group(function (): void {
     Route::post('/settings/mdas/{mda}', [SettingsController::class, 'updateMda'])->name('api.settings.mda.update');
     Route::get('/settings/mdas/{mda}/eligible-heads', [SettingsController::class, 'eligibleHeads'])->name('api.settings.mda.eligible-heads');
     Route::get('/access-management', [AccessManagementController::class, 'index'])->name('api.access-management.index');
+    Route::post('/access-management/users', [AccessManagementController::class, 'storeUser'])->name('api.access-management.users.store');
+    Route::post('/access-management/roles', [AccessManagementController::class, 'storeRole'])->name('api.access-management.roles.store');
     Route::put('/access-management/roles/{role}', [AccessManagementController::class, 'updateRole'])->name('api.access-management.roles.update');
+    Route::delete('/access-management/roles/{role}', [AccessManagementController::class, 'destroyRole'])->name('api.access-management.roles.destroy');
     Route::put('/access-management/users/{managedUser}', [AccessManagementController::class, 'updateUser'])->name('api.access-management.users.update');
+    Route::get('/setup-management', [SetupManagementController::class, 'index'])->name('api.setup-management.index');
+    Route::post('/setup-management/{type}', [SetupManagementController::class, 'store'])->name('api.setup-management.store');
+    Route::put('/setup-management/{type}/{recordId}', [SetupManagementController::class, 'update'])->name('api.setup-management.update');
+    Route::delete('/setup-management/{type}/{recordId}', [SetupManagementController::class, 'destroy'])->name('api.setup-management.destroy');
 
     Route::get('/staff/options', [StaffController::class, 'options'])->name('api.staff.options');
     Route::get('/staff/flagged-issues', [StaffController::class, 'flaggedIssues'])->name('api.staff.flagged-issues');

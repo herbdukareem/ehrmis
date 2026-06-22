@@ -21,8 +21,8 @@ class StaffAllowanceServiceTest extends TestCase
     public function test_allowance_sync_uses_allowance_type_id_and_fixed_allowance_columns_do_not_exist(): void
     {
         $mda = Mda::query()->create(['code' => 'MOH', 'name' => 'MINISTRY OF HEALTH', 'status' => 'active']);
-        $hazard = AllowanceType::query()->create(['code' => 'hazard', 'name' => 'Hazard Allowance', 'status' => 'active']);
-        $rural = AllowanceType::query()->create(['code' => 'rural', 'name' => 'Rural Allowance', 'status' => 'active']);
+        $hazard = AllowanceType::query()->create(['mda_id' => $mda->id, 'code' => 'hazard', 'name' => 'Hazard Allowance', 'status' => 'active']);
+        $rural = AllowanceType::query()->create(['mda_id' => $mda->id, 'code' => 'rural', 'name' => 'Rural Allowance', 'status' => 'active']);
 
         $staff = Staff::withoutGlobalScopes()->create([
             'mda_id' => $mda->id,

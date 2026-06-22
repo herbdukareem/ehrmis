@@ -212,8 +212,9 @@ trait BuildsLegacyStaffImportFixtures
             'status' => 'active',
         ]);
 
-        $gl = SalaryScale::query()->create([
+        $mohGl = SalaryScale::query()->create([
             'legacy_id' => 3,
+            'mda_id' => $moh->id,
             'code' => 'GL',
             'name' => 'GRADE LEVEL',
             'min_level' => 1,
@@ -223,8 +224,20 @@ trait BuildsLegacyStaffImportFixtures
             'status' => 'active',
         ]);
 
-        $ch = SalaryScale::query()->create([
+        $hmbGl = SalaryScale::query()->create([
+            'mda_id' => $hmb->id,
+            'code' => 'GL',
+            'name' => 'GRADE LEVEL',
+            'min_level' => 1,
+            'max_level' => 17,
+            'min_step' => 1,
+            'max_step' => 15,
+            'status' => 'active',
+        ]);
+
+        $hmbCh = SalaryScale::query()->create([
             'legacy_id' => 2,
+            'mda_id' => $hmb->id,
             'code' => 'CH',
             'name' => 'CONHESS',
             'min_level' => 1,
@@ -236,8 +249,16 @@ trait BuildsLegacyStaffImportFixtures
 
         $adminCadre = Cadre::query()->create([
             'legacy_id' => 2,
-            'salary_scale_id' => $gl->id,
+            'salary_scale_id' => $mohGl->id,
             'department_id' => Department::query()->where('mda_id', $moh->id)->where('name', 'ADMIN')->value('id'),
+            'name' => 'ADMIN OFFICER',
+            'legacy_department_name' => 'ADMIN',
+            'status' => 'active',
+        ]);
+
+        $hmbAdminCadre = Cadre::query()->create([
+            'salary_scale_id' => $hmbGl->id,
+            'department_id' => Department::query()->where('mda_id', $hmb->id)->where('name', 'ADMIN')->value('id'),
             'name' => 'ADMIN OFFICER',
             'legacy_department_name' => 'ADMIN',
             'status' => 'active',
@@ -245,7 +266,7 @@ trait BuildsLegacyStaffImportFixtures
 
         Cadre::query()->create([
             'legacy_id' => 21,
-            'salary_scale_id' => $ch->id,
+            'salary_scale_id' => $hmbCh->id,
             'department_id' => Department::query()->where('mda_id', $hmb->id)->where('name', 'ADMIN')->value('id'),
             'name' => 'PHARMACIST',
             'legacy_department_name' => 'ADMIN',
@@ -255,7 +276,7 @@ trait BuildsLegacyStaffImportFixtures
         Rank::query()->create([
             'legacy_id' => 11,
             'cadre_id' => $adminCadre->id,
-            'salary_scale_id' => $gl->id,
+            'salary_scale_id' => $mohGl->id,
             'name' => 'A.O I',
             'level' => 9,
             'status' => 'active',
@@ -264,19 +285,35 @@ trait BuildsLegacyStaffImportFixtures
         Rank::query()->create([
             'legacy_id' => 10,
             'cadre_id' => $adminCadre->id,
-            'salary_scale_id' => $gl->id,
+            'salary_scale_id' => $mohGl->id,
             'name' => 'A.O II',
             'level' => 8,
             'status' => 'active',
         ]);
 
         QualificationType::query()->create([
+            'mda_id' => $moh->id,
             'code' => 'HND',
             'name' => 'HND',
             'status' => 'active',
         ]);
 
         QualificationType::query()->create([
+            'mda_id' => $moh->id,
+            'code' => 'PHD',
+            'name' => 'PHD',
+            'status' => 'active',
+        ]);
+
+        QualificationType::query()->create([
+            'mda_id' => $hmb->id,
+            'code' => 'HND',
+            'name' => 'HND',
+            'status' => 'active',
+        ]);
+
+        QualificationType::query()->create([
+            'mda_id' => $hmb->id,
             'code' => 'PHD',
             'name' => 'PHD',
             'status' => 'active',
@@ -298,6 +335,13 @@ trait BuildsLegacyStaffImportFixtures
             ['code' => 'other', 'name' => 'Other Allowance'],
         ] as $allowanceType) {
             AllowanceType::query()->create([
+                'mda_id' => $moh->id,
+                'code' => $allowanceType['code'],
+                'name' => $allowanceType['name'],
+                'status' => 'active',
+            ]);
+            AllowanceType::query()->create([
+                'mda_id' => $hmb->id,
                 'code' => $allowanceType['code'],
                 'name' => $allowanceType['name'],
                 'status' => 'active',
@@ -305,11 +349,19 @@ trait BuildsLegacyStaffImportFixtures
         }
 
         PromotionPolicy::query()->create([
-            'salary_scale_id' => $gl->id,
+            'salary_scale_id' => $mohGl->id,
             'min_level' => 7,
             'max_level' => 14,
             'required_years' => 3,
             'policy_type' => 'normal',
+            'status' => 'active',
+        ]);
+
+        Rank::query()->create([
+            'cadre_id' => $hmbAdminCadre->id,
+            'salary_scale_id' => $hmbGl->id,
+            'name' => 'A.O II',
+            'level' => 8,
             'status' => 'active',
         ]);
     }

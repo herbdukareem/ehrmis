@@ -16,7 +16,9 @@ class StaffSalaryPlacementController extends Controller
         $this->authorize('update', $staff);
 
         $validated = $request->validated();
-        $validated['salary_scale'] = SalaryScale::query()->findOrFail((int) $validated['salary_scale_id']);
+        $validated['salary_scale'] = SalaryScale::query()
+            ->forMda((int) $staff->mda_id)
+            ->findOrFail((int) $validated['salary_scale_id']);
 
         $staffSalaryPlacementService->createPlacement($staff, $validated);
 

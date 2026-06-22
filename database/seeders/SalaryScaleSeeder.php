@@ -9,6 +9,8 @@ class SalaryScaleSeeder extends Seeder
 {
     public function run(): void
     {
+        $mda = Mda::query()->where('code', 'HMB')->firstOrFail();
+        $mda_id = $mda->id;
         $salaryScales = [
             [
                 'legacy_id' => 1,
@@ -18,6 +20,7 @@ class SalaryScaleSeeder extends Seeder
                 'max_level' => 8,
                 'min_step' => 1,
                 'max_step' => 11,
+                'mda_id' => $mda_id,
             ],
             [
                 'legacy_id' => 2,
@@ -27,6 +30,7 @@ class SalaryScaleSeeder extends Seeder
                 'max_level' => 15,
                 'min_step' => 1,
                 'max_step' => 15,
+                'mda_id' => $mda_id,
             ],
             [
                 'legacy_id' => 3,
@@ -36,6 +40,7 @@ class SalaryScaleSeeder extends Seeder
                 'max_level' => 17,
                 'min_step' => 1,
                 'max_step' => 15,
+                'mda_id' => $mda_id,
             ],
             [
                 'legacy_id' => 4,
@@ -45,6 +50,7 @@ class SalaryScaleSeeder extends Seeder
                 'max_level' => 5,
                 'min_step' => 1,
                 'max_step' => 9,
+                'mda_id' => $mda_id,
             ],
         ];
 

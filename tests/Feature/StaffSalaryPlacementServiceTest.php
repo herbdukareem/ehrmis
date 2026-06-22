@@ -24,6 +24,7 @@ class StaffSalaryPlacementServiceTest extends TestCase
         $mda = Mda::query()->create(['code' => 'MOH', 'name' => 'MINISTRY OF HEALTH', 'status' => 'active']);
 
         $salaryScale = SalaryScale::query()->create([
+            'mda_id' => $mda->id,
             'code' => 'GL',
             'name' => 'GRADE LEVEL',
             'min_level' => 1,
@@ -34,12 +35,14 @@ class StaffSalaryPlacementServiceTest extends TestCase
         ]);
 
         $hazard = AllowanceType::query()->create([
+            'mda_id' => $mda->id,
             'code' => 'hazard',
             'name' => 'Hazard Allowance',
             'status' => 'active',
         ]);
 
         $oldRate = SalaryStructureRate::query()->create([
+            'mda_id' => $mda->id,
             'salary_scale_id' => $salaryScale->id,
             'level' => 8,
             'step' => 2,
@@ -49,6 +52,7 @@ class StaffSalaryPlacementServiceTest extends TestCase
         ]);
 
         $newRate = SalaryStructureRate::query()->create([
+            'mda_id' => $mda->id,
             'salary_scale_id' => $salaryScale->id,
             'level' => 9,
             'step' => 2,
@@ -58,6 +62,7 @@ class StaffSalaryPlacementServiceTest extends TestCase
         ]);
 
         SalaryStructureRateAllowance::query()->create([
+            'mda_id' => $mda->id,
             'salary_structure_rate_id' => $oldRate->id,
             'allowance_type_id' => $hazard->id,
             'amount' => 4000,
@@ -65,6 +70,7 @@ class StaffSalaryPlacementServiceTest extends TestCase
         ]);
 
         SalaryStructureRateAllowance::query()->create([
+            'mda_id' => $mda->id,
             'salary_structure_rate_id' => $newRate->id,
             'allowance_type_id' => $hazard->id,
             'amount' => 6000,

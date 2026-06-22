@@ -44,7 +44,7 @@ class OperationalDataImportService
 
         return match ($type) {
             'stations' => $this->importStations($rows, $user),
-            'highest-qualifications' => $this->importHighestQualifications($rows),
+            'highest-qualifications' => $this->importHighestQualifications($rows, $user),
             'cadres' => $this->importCadres($rows, $user),
             'ranks' => $this->importRanks($rows, $user),
             'staff-list' => $this->stageStaffList($rows, $user),
@@ -77,8 +77,8 @@ class OperationalDataImportService
                 [['HQ', 'Headquarters', $defaultMda?->code ?? 'MOH', 'Main administrative station', 'active']],
             ),
             'highest-qualifications' => new SpreadsheetTemplateExport(
-                ['code', 'name', 'description', 'status'],
-                [['MBBS', 'Bachelor of Medicine, Bachelor of Surgery', 'Medical degree', 'active']],
+                ['code', 'name', 'mda_code', 'description', 'status'],
+                [['MBBS', 'Bachelor of Medicine, Bachelor of Surgery', $defaultMda?->code ?? 'MOH', 'Medical degree', 'active']],
             ),
             'cadres' => new SpreadsheetTemplateExport(
                 ['name', 'mda_code', 'department_code', 'salary_scale_code', 'description', 'status'],
@@ -167,20 +167,23 @@ class OperationalDataImportService
         });
     }
 
-    protected function importHighestQualifications(array $rows): array
+    protected function importHighestQualifications(array $rows, User $user): array
     {
-        return DB::transaction(function () use ($rows): array {
+        return DB::transaction(function () use ($rows, $user): array {
             $created = 0;
             $updated = 0;
             $skipped = 0;
 
             foreach ($rows as $index => $row) {
+                $mda = $this->resolveMda($row, $user, $index);
                 $code = Str::upper($this->required($row, 'code', $index));
                 $name = $this->required($row, 'name', $index);
                 $qualificationByCode = QualificationType::query()
+                    ->forMda($mda->id)
                     ->whereRaw('LOWER(code) = ?', [strtolower($code)])
                     ->first();
                 $qualificationByName = QualificationType::query()
+                    ->forMda($mda->id)
                     ->whereRaw('LOWER(name) = ?', [strtolower($name)])
                     ->first();
 
@@ -198,6 +201,7 @@ class OperationalDataImportService
 
                 $qualification ??= new QualificationType();
                 $qualification->fill([
+                    'mda_id' => $mda->id,
                     'code' => $code,
                     'name' => $name,
                     'description' => $this->nullable($row['description'] ?? null),
@@ -228,7 +232,7 @@ class OperationalDataImportService
             foreach ($rows as $index => $row) {
                 $name = $this->required($row, 'name', $index);
                 $department = $this->resolveDepartment($row, $user, $index);
-                $scale = $this->resolveSalaryScale($row, $index);
+                $scale = $this->resolveSalaryScale($row, $index, (int) $department->mda_id);
                 $cadre = Cadre::withTrashed()
                     ->where('department_id', $department->id)
                     ->whereRaw('LOWER(name) = ?', [strtolower($name)])
@@ -271,7 +275,7 @@ class OperationalDataImportService
             foreach ($rows as $index => $row) {
                 $name = $this->required($row, 'name', $index);
                 $department = $this->resolveDepartment($row, $user, $index);
-                $scale = $this->resolveSalaryScale($row, $index);
+                $scale = $this->resolveSalaryScale($row, $index, (int) $department->mda_id);
                 $cadreName = $this->required($row, 'cadre_name', $index);
                 $cadre = Cadre::query()
                     ->where('department_id', $department->id)
@@ -465,10 +469,13 @@ class OperationalDataImportService
         $this->rowError($index, $mdaField, 'Reference data cannot target another MDA.');
     }
 
-    protected function resolveSalaryScale(array $row, int $index): SalaryScale
+    protected function resolveSalaryScale(array $row, int $index, ?int $mdaId = null): SalaryScale
     {
         $code = Str::upper($this->required($row, 'salary_scale_code', $index));
-        $scale = SalaryScale::query()->where('code', $code)->first();
+        $scale = SalaryScale::query()
+            ->when($mdaId, fn ($query) => $query->forMda((int) $mdaId))
+            ->where('code', $code)
+            ->first();
 
         if (! $scale) {
             $this->rowError($index, 'salary_scale_code', 'Salary scale code could not be resolved.');

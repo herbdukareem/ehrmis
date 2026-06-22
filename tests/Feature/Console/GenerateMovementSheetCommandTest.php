@@ -23,6 +23,7 @@ class GenerateMovementSheetCommandTest extends TestCase
         ]);
 
         $scale = SalaryScale::query()->create([
+            'mda_id' => $mda->id,
             'code' => 'GL',
             'name' => 'GRADE LEVEL',
             'min_level' => 1,
