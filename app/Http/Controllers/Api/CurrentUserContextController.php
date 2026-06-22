@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Api;
 
+use App\Domain\Organization\Models\Mda;
 use App\Http\Controllers\Controller;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -24,6 +25,10 @@ class CurrentUserContextController extends Controller
                 'permissions' => $user->getAllPermissions()->pluck('name')->values(),
                 'assigned_mda' => $user->mda?->only(['id', 'code', 'name', 'status']),
                 'has_global_access' => $user->hasGlobalMdaAccess(),
+                'accessible_mdas' => Mda::query()
+                    ->visibleToUser($user)
+                    ->orderBy('name')
+                    ->get(['id', 'code', 'name', 'status']),
                 'access_scopes' => $user->accessScopes()->with('mda')->get(),
                 'branding' => $context->publicProfile(),
             ],

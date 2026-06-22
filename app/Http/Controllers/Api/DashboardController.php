@@ -21,12 +21,9 @@ class DashboardController extends Controller
     public function show(Request $request): JsonResponse
     {
         $user = $request->user();
-        $scope = fn (Builder $query): Builder => $user->hasGlobalMdaAccess()
-            ? $query
-            : $query->where('mda_id', $user->mda_id);
+        $scope = fn (Builder $query, string $column = 'mda_id'): Builder => $user->scopeToAccessibleMdas($query, $column);
 
         $staffQuery = Staff::query();
-        $scope($staffQuery);
         $today = CarbonImmutable::today();
 
         $movementQuery = MovementWorkbook::query();
@@ -38,7 +35,7 @@ class DashboardController extends Controller
         $importQuery = LegacyStaffImportBatch::query()
             ->when(! $user->hasGlobalMdaAccess(), fn (Builder $query) => $query->whereHas(
                 'rows',
-                fn (Builder $rows) => $rows->where('mda_id', $user->mda_id)
+                fn (Builder $rows) => $scope($rows)
             ));
 
         return response()->json([
@@ -148,9 +145,12 @@ class DashboardController extends Controller
                 $query->whereNull('staff_allowance_assignments.effective_to')
                     ->orWhereDate('staff_allowance_assignments.effective_to', '>=', today());
             })
-            ->when(! $user->hasGlobalMdaAccess(), fn ($query) => $query->where('staff.mda_id', $user->mda_id))
             ->selectRaw('staff_employments.cadre_id, allowance_types.code, allowance_types.name, COUNT(DISTINCT staff_allowance_assignments.staff_id) as total')
-            ->groupBy('staff_employments.cadre_id', 'allowance_types.id', 'allowance_types.code', 'allowance_types.name')
+            ->groupBy('staff_employments.cadre_id', 'allowance_types.id', 'allowance_types.code', 'allowance_types.name');
+
+        $user->scopeToAccessibleMdas($allowances, 'staff.mda_id');
+
+        $allowances = $allowances
             ->get()
             ->groupBy(fn ($row) => (string) ($row->cadre_id ?? 'unassigned'));
 
@@ -194,9 +194,10 @@ class DashboardController extends Controller
                     CarbonImmutable::create($year)->startOfYear()->toDateString(),
                     CarbonImmutable::create($year)->endOfYear()->toDateString(),
                 ])
-                ->when(! $user->hasGlobalMdaAccess(), fn ($query) => $query->where('staff.mda_id', $user->mda_id))
-                ->distinct('staff_status_histories.staff_id')
-                ->count('staff_status_histories.staff_id');
+                ->distinct('staff_status_histories.staff_id');
+
+            $user->scopeToAccessibleMdas($total, 'staff.mda_id');
+            $total = $total->count('staff_status_histories.staff_id');
 
             return ['label' => (string) $year, 'total' => $total];
         })->all();
@@ -204,19 +205,25 @@ class DashboardController extends Controller
 
     protected function employmentQuery($user)
     {
-        return StaffEmployment::query()
+        $query = StaffEmployment::query()
             ->join('staff', 'staff.id', '=', 'staff_employments.staff_id')
             ->whereNull('staff.deleted_at')
-            ->where('staff_employments.is_current', true)
-            ->when(! $user->hasGlobalMdaAccess(), fn ($query) => $query->where('staff.mda_id', $user->mda_id));
+            ->where('staff_employments.is_current', true);
+
+        $user->scopeToAccessibleMdas($query, 'staff.mda_id');
+
+        return $query;
     }
 
     protected function salaryPlacementQuery($user)
     {
-        return StaffSalaryPlacement::query()
+        $query = StaffSalaryPlacement::query()
             ->join('staff', 'staff.id', '=', 'staff_salary_placements.staff_id')
             ->whereNull('staff.deleted_at')
-            ->where('staff_salary_placements.is_current', true)
-            ->when(! $user->hasGlobalMdaAccess(), fn ($query) => $query->where('staff.mda_id', $user->mda_id));
+            ->where('staff_salary_placements.is_current', true);
+
+        $user->scopeToAccessibleMdas($query, 'staff.mda_id');
+
+        return $query;
     }
 }

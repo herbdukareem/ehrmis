@@ -24,7 +24,7 @@ class BudgetWorkbookPageController extends Controller
             ->latest('year');
 
         if (! $user->hasGlobalMdaAccess()) {
-            $query->where('mda_id', $user->mda_id);
+            $user->scopeToAccessibleMdas($query, 'mda_id');
         }
 
         $workbooks = $query->get()->map(fn (BudgetWorkbook $workbook): array => [
@@ -54,11 +54,16 @@ class BudgetWorkbookPageController extends Controller
             ] : null,
         ])->values();
 
-        $movementOptions = MovementWorkbook::query()
-            ->when(! $user->hasGlobalMdaAccess(), fn ($query) => $query->where('mda_id', $user->mda_id))
+        $movementOptionsQuery = MovementWorkbook::query()
             ->whereIn('status', ['approved', 'locked'])
             ->with('mda')
-            ->latest('year')
+            ->latest('year');
+
+        if (! $user->hasGlobalMdaAccess()) {
+            $user->scopeToAccessibleMdas($movementOptionsQuery, 'mda_id');
+        }
+
+        $movementOptions = $movementOptionsQuery
             ->get()
             ->map(fn (MovementWorkbook $workbook): array => [
                 'id' => $workbook->id,
@@ -138,10 +143,7 @@ class BudgetWorkbookPageController extends Controller
             ->with(['summaries', 'mda'])
             ->findOrFail((int) $validated['movement_workbook_id']);
 
-        abort_unless(
-            $request->user()->hasGlobalMdaAccess() || (int) $request->user()->mda_id === (int) $movementWorkbook->mda_id,
-            403
-        );
+        abort_unless($request->user()->canAccessMda((int) $movementWorkbook->mda_id), 403);
 
         $budgetWorkbook = $service->generateFromMovementWorkbook($movementWorkbook, $request->user()?->id);
 

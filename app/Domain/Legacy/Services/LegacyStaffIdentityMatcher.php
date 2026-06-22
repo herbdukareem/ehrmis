@@ -14,9 +14,10 @@ class LegacyStaffIdentityMatcher
             return null;
         }
 
+        $query = Staff::query()->forMda((int) $mdaId);
+
         if (! empty($normalizedRow['legacy_cno_psn'])) {
-            $staff = Staff::withoutGlobalScopes()
-                ->where('mda_id', $mdaId)
+            $staff = (clone $query)
                 ->where('legacy_cno_psn', $normalizedRow['legacy_cno_psn'])
                 ->first();
 
@@ -26,8 +27,7 @@ class LegacyStaffIdentityMatcher
         }
 
         if (! empty($normalizedRow['legacy_cno'])) {
-            $staff = Staff::withoutGlobalScopes()
-                ->where('mda_id', $mdaId)
+            $staff = (clone $query)
                 ->where('legacy_cno', $normalizedRow['legacy_cno'])
                 ->first();
 
@@ -37,8 +37,7 @@ class LegacyStaffIdentityMatcher
         }
 
         if (! empty($normalizedRow['legacy_psn'])) {
-            $staff = Staff::withoutGlobalScopes()
-                ->where('mda_id', $mdaId)
+            $staff = (clone $query)
                 ->where('legacy_psn', $normalizedRow['legacy_psn'])
                 ->first();
 
@@ -48,8 +47,7 @@ class LegacyStaffIdentityMatcher
         }
 
         if (! empty($normalizedRow['full_name']) && ! empty($normalizedRow['date_of_birth'])) {
-            return Staff::withoutGlobalScopes()
-                ->where('mda_id', $mdaId)
+            return (clone $query)
                 ->whereRaw('LOWER(full_name) = ?', [strtolower($normalizedRow['full_name'])])
                 ->whereDate('date_of_birth', $normalizedRow['date_of_birth'])
                 ->first();

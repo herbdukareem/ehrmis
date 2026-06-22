@@ -24,8 +24,11 @@ class LegacyStaffImportPublicationService
         $this->ensureBatchIsApproved($batch);
 
         $rowsQuery = LegacyStaffImportRow::query()
-            ->where('batch_id', $batch->id)
-            ->when(! $user->hasGlobalMdaAccess(), fn (Builder $query) => $query->where('mda_id', $user->mda_id));
+            ->where('batch_id', $batch->id);
+
+        if (! $user->hasGlobalMdaAccess()) {
+            $user->scopeToAccessibleMdas($rowsQuery, 'mda_id');
+        }
 
         $summary = [
             'rows_considered' => (clone $rowsQuery)->count(),

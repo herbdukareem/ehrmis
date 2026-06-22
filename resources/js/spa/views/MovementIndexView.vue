@@ -69,8 +69,8 @@ onMounted(load);
         <div v-if="feedback" class="civic-error">{{ feedback }}</div>
         <form class="civic-form-grid" @submit.prevent="generate">
             <label class="civic-field civic-field-wide"><span>Workbook name</span><input v-model="form.name" required></label>
-            <label class="civic-field"><span>MDA</span><select v-model="form.mda_id" required :disabled="!auth.user?.has_global_access"><option v-for="mda in options.mdas" :key="mda.id" :value="mda.id">{{ mda.code }} - {{ mda.name }}</option></select></label>
-            <label class="civic-field"><span>Movement year</span><input v-model.number="form.year" type="number" min="2020" max="2100" required></label>
+            <label class="civic-field"><span>MDA</span><select v-model="form.mda_id" required :disabled="!auth.user?.has_global_access && options.mdas.length <= 1"><option v-for="mda in options.mdas" :key="mda.id" :value="mda.id">{{ mda.code }} - {{ mda.name }}</option></select></label>
+        <label class="civic-field"><span>Movement year</span><input v-model.number="form.year" type="number" min="2020" max="2100" required></label>
             <label class="civic-field"><span>Budget year</span><input v-model.number="form.budget_year" type="number" :min="form.year" max="2100" required></label>
             <label class="civic-field"><span>Budget minimum step</span><select v-model.number="form.budget_minimum_step"><option v-for="step in 15" :key="step" :value="step">Step {{ step }}</option></select></label>
             <div class="civic-field civic-form-action"><span>Generate detailed workbook</span><button class="civic-button civic-button-primary" :disabled="generating">{{ generating ? 'Generating...' : 'Create movement sheet' }}</button></div>

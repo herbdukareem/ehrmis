@@ -23,4 +23,23 @@ trait HasMdaScope
             ->withoutGlobalScope(MdaScope::class)
             ->where($this->qualifyColumn($this->getMdaScopeColumn()), $mdaId);
     }
+
+    public function scopeForMdas(Builder $query, iterable $mdaIds): Builder
+    {
+        $mdaIds = collect($mdaIds)
+            ->filter(fn (mixed $mdaId): bool => $mdaId !== null && $mdaId !== '')
+            ->map(fn (mixed $mdaId): int => (int) $mdaId)
+            ->unique()
+            ->values();
+
+        if ($mdaIds->isEmpty()) {
+            return $query
+                ->withoutGlobalScope(MdaScope::class)
+                ->whereRaw('1 = 0');
+        }
+
+        return $query
+            ->withoutGlobalScope(MdaScope::class)
+            ->whereIn($this->qualifyColumn($this->getMdaScopeColumn()), $mdaIds->all());
+    }
 }

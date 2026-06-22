@@ -14,6 +14,6 @@ class MdaPolicy
 
     public function view(User $user, Mda $mda): bool
     {
-        return $user->can('view-mdas') && ($user->hasGlobalMdaAccess() || $user->mda_id === $mda->id);
+        return $user->can('view-mdas') && $user->canAccessMda($mda->id);
     }
 }

@@ -75,6 +75,19 @@ class LegacyStaffImportManagementTest extends TestCase
         $this->assertSame(['MOH'], collect($rows)->pluck('mda.code')->unique()->values()->all());
     }
 
+    public function test_mda_user_cannot_open_another_mda_import_row(): void
+    {
+        $otherMdaId = Mda::query()->where('code', 'HMB')->value('id');
+        $row = LegacyStaffImportRow::query()
+            ->where('batch_id', $this->batch->id)
+            ->where('mda_id', $otherMdaId)
+            ->firstOrFail();
+
+        $this->actingAs($this->mohUser)
+            ->getJson(route('api.legacy-staff-imports.rows.show', [$this->batch, $row]))
+            ->assertForbidden();
+    }
+
     public function test_global_user_sees_all_import_batches(): void
     {
         app(LegacyStaffImportService::class)->import([
@@ -207,6 +220,46 @@ class LegacyStaffImportManagementTest extends TestCase
                 ->where('event_code', 'legacy_staff_import.mapping.resolved')
                 ->exists()
         );
+    }
+
+    public function test_mapping_options_are_scoped_to_the_row_mda(): void
+    {
+        $row = LegacyStaffImportRow::query()
+            ->where('legacy_cno_psn', 'C003P003')
+            ->firstOrFail();
+
+        $response = $this->actingAs($this->mohUser)
+            ->getJson(route('api.legacy-staff-imports.rows.show', [$this->batch, $row]))
+            ->assertOk();
+
+        $departments = collect($response->json('data.mapping_options.departments'));
+        $stations = collect($response->json('data.mapping_options.stations'));
+
+        $this->assertNotEmpty($departments);
+        $this->assertNotEmpty($stations);
+        $this->assertSame([$row->mda_id], $departments->pluck('mda_id')->unique()->values()->all());
+        $this->assertSame([$row->mda_id], $stations->pluck('mda_id')->unique()->values()->all());
+    }
+
+    public function test_station_mapping_cannot_target_another_mda(): void
+    {
+        $row = LegacyStaffImportRow::query()
+            ->where('legacy_cno_psn', 'C003P003')
+            ->firstOrFail();
+
+        $otherStationId = \App\Domain\Organization\Models\Station::withoutGlobalScopes()
+            ->where('mda_id', '!=', $row->mda_id)
+            ->value('id');
+
+        $this->assertNotNull($otherStationId);
+
+        $this->actingAs($this->mohUser)
+            ->postJson(route('api.legacy-staff-imports.rows.resolve-mapping', [$this->batch, $row]), [
+                'field' => 'station',
+                'target_id' => $otherStationId,
+                'notes' => 'Attempt cross-MDA mapping',
+            ])
+            ->assertNotFound();
     }
 
     public function test_missing_staff_identifier_can_be_resolved_safely(): void

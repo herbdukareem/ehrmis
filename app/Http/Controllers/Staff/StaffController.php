@@ -218,8 +218,8 @@ class StaffController extends Controller
     {
         return [
             'mdas' => Mda::query()->visibleToUser($user)->orderBy('name')->get(['id', 'code', 'name'])->toArray(),
-            'departments' => Department::query()->when(! $user->hasGlobalMdaAccess(), fn ($query) => $query->where('mda_id', $user->mda_id))->orderBy('name')->get(['id', 'mda_id', 'name'])->toArray(),
-            'stations' => Station::query()->when(! $user->hasGlobalMdaAccess(), fn ($query) => $query->where('mda_id', $user->mda_id))->orderBy('name')->get(['id', 'mda_id', 'name'])->toArray(),
+            'departments' => Department::query()->orderBy('name')->get(['id', 'mda_id', 'name'])->toArray(),
+            'stations' => Station::query()->orderBy('name')->get(['id', 'mda_id', 'name'])->toArray(),
             'cadres' => Cadre::query()->orderBy('name')->get(['id', 'department_id', 'salary_scale_id', 'name'])->toArray(),
             'ranks' => Rank::query()->orderBy('name')->get(['id', 'cadre_id', 'salary_scale_id', 'name', 'level'])->toArray(),
             'salary_scales' => SalaryScale::query()->orderBy('code')->get(['id', 'code', 'name'])->toArray(),
@@ -240,6 +240,6 @@ class StaffController extends Controller
 
     protected function ensureUserCanAccessMda($user, int $mdaId): void
     {
-        abort_unless($user->hasGlobalMdaAccess() || (int) $user->mda_id === $mdaId, 403);
+        abort_unless($user->canAccessMda($mdaId), 403);
     }
 }

@@ -93,6 +93,19 @@ class LegacyStaffImportPublicationTest extends TestCase
         ]);
     }
 
+    public function test_mda_publisher_cannot_publish_another_mda_row(): void
+    {
+        $row = LegacyStaffImportRow::query()
+            ->where('mda_id', Mda::query()->where('code', 'HMB')->value('id'))
+            ->firstOrFail();
+
+        $this->submitAndApproveBatch();
+
+        $this->actingAs($this->mohPublisher)
+            ->postJson(route('api.legacy-staff-imports.rows.publish', [$this->batch, $row]))
+            ->assertForbidden();
+    }
+
     public function test_authorized_user_can_publish_batch_and_duplicate_publication_does_not_duplicate_staff(): void
     {
         Queue::fake();

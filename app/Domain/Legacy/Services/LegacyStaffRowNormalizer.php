@@ -294,8 +294,8 @@ class LegacyStaffRowNormalizer
             return $this->departmentCache[$cacheKey];
         }
 
-        return $this->departmentCache[$cacheKey] = Department::withoutGlobalScopes()
-            ->where('mda_id', $mdaId)
+        return $this->departmentCache[$cacheKey] = Department::query()
+            ->forMda($mdaId)
             ->whereRaw('LOWER(name) = ?', [strtolower($name)])
             ->first();
     }
@@ -308,8 +308,8 @@ class LegacyStaffRowNormalizer
             return null;
         }
 
-        $stations = $this->stationsByMdaCache[$mdaId] ??= Station::withoutGlobalScopes()
-            ->where('mda_id', $mdaId)
+        $stations = $this->stationsByMdaCache[$mdaId] ??= Station::query()
+            ->forMda($mdaId)
             ->get();
         $exactMatch = $stations->first(
             fn (Station $station): bool => strtolower($station->name) === strtolower($name)

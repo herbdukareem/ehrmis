@@ -24,6 +24,7 @@ use App\Domain\Staff\Models\StaffQualification;
 use App\Domain\Staff\Models\StaffSalaryPlacement;
 use App\Domain\Staff\Models\StaffStatusHistory;
 use App\Models\User;
+use App\Models\UserAccessScope;
 use Database\Seeders\RolesAndPermissionsSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
@@ -127,6 +128,51 @@ class StaffModuleTest extends TestCase
             ->assertJsonPath('data.current_employment.rank_name', 'A.O I')
             ->assertJsonPath('data.current_salary_placement.salary_scale_code', 'GL')
             ->assertJsonPath('data.import_metadata.needs_call_allowance_clarification', true);
+    }
+
+    public function test_mda_user_cannot_view_or_update_other_mda_staff(): void
+    {
+        $payload = [
+            'mda_id' => $this->mdaB->id,
+            'staff_number' => $this->staffB->staff_number,
+            'legacy_cno' => $this->staffB->legacy_cno,
+            'legacy_psn' => $this->staffB->legacy_psn,
+            'surname' => $this->staffB->surname,
+            'first_name' => $this->staffB->first_name,
+            'middle_name' => $this->staffB->middle_name,
+            'full_name' => $this->staffB->full_name,
+            'sex' => $this->staffB->sex,
+            'date_of_birth' => optional($this->staffB->date_of_birth)->toDateString(),
+            'status' => $this->staffB->status,
+        ];
+
+        $this->actingAs($this->mdaUser)
+            ->getJson('/api/staff/'.$this->staffB->id)
+            ->assertNotFound();
+
+        $this->actingAs($this->mdaUser)
+            ->putJson(route('api.staff.update', $this->staffB), $payload)
+            ->assertNotFound();
+    }
+
+    public function test_multi_mda_user_gets_filter_options_for_each_assigned_mda_only(): void
+    {
+        $user = User::factory()->mdaUser($this->mdaA)->create();
+        $user->assignRole('MDA Admin');
+        UserAccessScope::query()->create([
+            'user_id' => $user->id,
+            'scope_type' => 'mda',
+            'mda_id' => $this->mdaB->id,
+        ]);
+
+        $response = $this->actingAs($user)
+            ->getJson('/api/staff/options')
+            ->assertOk();
+
+        $this->assertEqualsCanonicalizing(
+            [$this->mdaA->id, $this->mdaB->id],
+            array_values(array_unique(array_column($response->json('data.departments'), 'mda_id')))
+        );
     }
 
     public function test_staff_passport_and_multi_page_documents_are_private_and_mda_scoped(): void

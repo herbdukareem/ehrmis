@@ -58,7 +58,7 @@ class StaffQueryService
             }
         }
 
-        if ($user->hasGlobalMdaAccess() && ! empty($filters['mda_id'])) {
+        if (! empty($filters['mda_id'])) {
             $query->where('mda_id', (int) $filters['mda_id']);
         }
 

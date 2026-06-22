@@ -22,7 +22,7 @@ class MovementWorkbookPageController extends Controller
         $query = MovementWorkbook::query()->with(['mda', 'approvalWorkflow.steps'])->latest('year');
 
         if (! $user->hasGlobalMdaAccess()) {
-            $query->where('mda_id', $user->mda_id);
+            $user->scopeToAccessibleMdas($query, 'mda_id');
         }
 
         $workbooks = $query->get()->map(fn (MovementWorkbook $workbook): array => [
@@ -63,7 +63,7 @@ class MovementWorkbookPageController extends Controller
             'workbooks' => $workbooks,
             'mdaOptions' => $mdaOptions,
             'defaultYear' => now()->year,
-            'defaultMdaId' => $user->mda_id,
+            'defaultMdaId' => $user->primaryAccessibleMdaId(),
         ]);
     }
 
@@ -175,10 +175,7 @@ class MovementWorkbookPageController extends Controller
             'year' => ['required', 'integer', 'min:2020', 'max:2100'],
         ]);
 
-        abort_unless(
-            $request->user()->hasGlobalMdaAccess() || (int) $request->user()->mda_id === (int) $validated['mda_id'],
-            403
-        );
+        abort_unless($request->user()->canAccessMda((int) $validated['mda_id']), 403);
 
         $workbook = $service->generateForMda((int) $validated['mda_id'], (int) $validated['year'], $request->user()?->id);
 

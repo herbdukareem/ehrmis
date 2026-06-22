@@ -57,10 +57,10 @@ class LegacyStaffImportPolicy
             return true;
         }
 
-        if (! $user->mda_id) {
+        if (! $user->hasAnyMdaAccess()) {
             return false;
         }
 
-        return $batch->rows()->where('mda_id', $user->mda_id)->exists();
+        return $user->scopeToAccessibleMdas($batch->rows()->getQuery(), 'mda_id')->exists();
     }
 }

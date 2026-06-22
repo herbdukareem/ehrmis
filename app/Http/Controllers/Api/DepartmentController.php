@@ -14,10 +14,7 @@ class DepartmentController extends Controller
         $this->authorize('viewAny', Department::class);
 
         $departments = Department::query()
-            ->when(
-                $request->user()->hasGlobalMdaAccess() && $request->integer('mda_id'),
-                fn ($query) => $query->where('mda_id', $request->integer('mda_id'))
-            )
+            ->when($request->integer('mda_id'), fn ($query) => $query->where('mda_id', $request->integer('mda_id')))
             ->orderBy('name')
             ->get(['id', 'mda_id', 'code', 'name', 'description', 'status']);
 

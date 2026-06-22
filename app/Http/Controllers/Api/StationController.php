@@ -14,10 +14,7 @@ class StationController extends Controller
         $this->authorize('viewAny', Station::class);
 
         $stations = Station::query()
-            ->when(
-                $request->user()->hasGlobalMdaAccess() && $request->integer('mda_id'),
-                fn ($query) => $query->where('mda_id', $request->integer('mda_id'))
-            )
+            ->when($request->integer('mda_id'), fn ($query) => $query->where('mda_id', $request->integer('mda_id')))
             ->orderBy('name')
             ->get(['id', 'mda_id', 'code', 'name', 'description', 'status']);
 

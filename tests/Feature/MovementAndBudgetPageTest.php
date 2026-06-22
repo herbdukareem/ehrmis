@@ -9,6 +9,7 @@ use App\Domain\Organization\Models\Department;
 use App\Domain\Organization\Models\Mda;
 use App\Domain\Staff\Models\SalaryScale;
 use App\Models\User;
+use App\Models\UserAccessScope;
 use Database\Seeders\RolesAndPermissionsSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
@@ -180,6 +181,86 @@ class MovementAndBudgetPageTest extends TestCase
             ->get('/api/movement-workbooks/'.$response->json('data.id').'/detail-export')
             ->assertOk()
             ->assertDownload('2027-full-details-detail.xlsx');
+    }
+
+    public function test_multi_mda_budget_officer_can_use_only_assigned_mdas(): void
+    {
+        [$mdaA, $mdaB] = $this->createMdas();
+        $mdaC = Mda::query()->create([
+            'code' => 'EDU',
+            'name' => 'MINISTRY OF EDUCATION',
+            'status' => 'active',
+        ]);
+
+        Department::query()->create([
+            'mda_id' => $mdaC->id,
+            'code' => 'ADMIN',
+            'name' => 'ADMIN',
+            'status' => 'active',
+        ]);
+
+        $movementA = MovementWorkbook::query()->create([
+            'mda_id' => $mdaA->id,
+            'year' => 2026,
+            'status' => 'approved',
+        ]);
+        $movementB = MovementWorkbook::query()->create([
+            'mda_id' => $mdaB->id,
+            'year' => 2026,
+            'status' => 'approved',
+        ]);
+        $movementC = MovementWorkbook::query()->create([
+            'mda_id' => $mdaC->id,
+            'year' => 2026,
+            'status' => 'approved',
+        ]);
+
+        $user = User::factory()->mdaUser($mdaA)->create();
+        $user->assignRole('Budget Officer');
+        UserAccessScope::query()->create([
+            'user_id' => $user->id,
+            'scope_type' => 'mda',
+            'mda_id' => $mdaB->id,
+        ]);
+
+        $this->actingAs($user)
+            ->getJson('/api/movement-workbooks')
+            ->assertOk()
+            ->assertJsonFragment(['id' => $movementA->id, 'year' => 2026])
+            ->assertJsonFragment(['id' => $movementB->id, 'year' => 2026])
+            ->assertJsonMissing(['id' => $movementC->id]);
+
+        $this->actingAs($user)
+            ->postJson('/api/movement-workbooks', [
+                'mda_id' => $mdaB->id,
+                'name' => 'HMB Secondary Workbook',
+                'year' => 2027,
+                'budget_year' => 2028,
+                'budget_minimum_step' => 5,
+            ])
+            ->assertCreated();
+
+        $this->actingAs($user)
+            ->postJson('/api/budget-workbooks', [
+                'movement_workbook_id' => $movementB->id,
+            ])
+            ->assertCreated();
+
+        $this->actingAs($user)
+            ->postJson('/api/movement-workbooks', [
+                'mda_id' => $mdaC->id,
+                'name' => 'Blocked Workbook',
+                'year' => 2027,
+                'budget_year' => 2028,
+                'budget_minimum_step' => 5,
+            ])
+            ->assertForbidden();
+
+        $this->actingAs($user)
+            ->postJson('/api/budget-workbooks', [
+                'movement_workbook_id' => $movementC->id,
+            ])
+            ->assertForbidden();
     }
 
     protected function createMdas(): array

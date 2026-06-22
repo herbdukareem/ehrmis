@@ -23,10 +23,7 @@ class BudgetWorkbookController extends Controller
             ->with(['summaries', 'mda'])
             ->findOrFail((int) $validated['movement_workbook_id']);
 
-        abort_unless(
-            $request->user()->hasGlobalMdaAccess() || (int) $request->user()->mda_id === (int) $movementWorkbook->mda_id,
-            403
-        );
+        abort_unless($request->user()->canAccessMda((int) $movementWorkbook->mda_id), 403);
 
         $workbook = $service->generateFromMovementWorkbook($movementWorkbook, $request->user()->id);
 
@@ -40,7 +37,7 @@ class BudgetWorkbookController extends Controller
         $query = BudgetWorkbook::query()->with(['mda', 'approvalWorkflow.steps'])->latest('year');
 
         if (! $request->user()->hasGlobalMdaAccess()) {
-            $query->where('mda_id', $request->user()->mda_id);
+            $request->user()->scopeToAccessibleMdas($query, 'mda_id');
         }
 
         return response()->json([

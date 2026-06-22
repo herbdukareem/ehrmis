@@ -15,7 +15,7 @@ class OperationalDataImportController extends Controller
     {
         abort_unless(in_array($type, OperationalDataImportService::TYPES, true), 404);
         abort_unless($request->user()->can('import-staff'), 403);
-        abort_if(! $request->user()->hasGlobalMdaAccess() && ! $request->user()->mda_id, 403, 'An MDA assignment is required to import data.');
+        abort_if(! $request->user()->hasAnyMdaAccess(), 403, 'An MDA assignment is required to import data.');
 
         $validated = $request->validate([
             'file' => ['required', 'file', 'mimes:xlsx,xls,csv', 'max:10240'],
@@ -34,7 +34,7 @@ class OperationalDataImportController extends Controller
     {
         abort_unless(in_array($type, OperationalDataImportService::TYPES, true), 404);
         abort_unless($request->user()->can('import-staff'), 403);
-        abort_if(! $request->user()->hasGlobalMdaAccess() && ! $request->user()->mda_id, 403, 'An MDA assignment is required to download import templates.');
+        abort_if(! $request->user()->hasAnyMdaAccess(), 403, 'An MDA assignment is required to download import templates.');
 
         return Excel::download($service->template($type, $request->user()), $type.'-import-template.xlsx');
     }

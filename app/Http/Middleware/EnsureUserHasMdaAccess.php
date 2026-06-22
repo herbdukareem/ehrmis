@@ -16,7 +16,7 @@ class EnsureUserHasMdaAccess
             abort(401);
         }
 
-        if (! $user->hasGlobalMdaAccess() && ! $user->mda_id) {
+        if (! $user->hasAnyMdaAccess()) {
             abort(403, 'User is not assigned to an MDA.');
         }
 

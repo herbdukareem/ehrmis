@@ -48,11 +48,13 @@ class Mda extends Model
             return $query;
         }
 
-        if (! $user->mda_id) {
+        $accessibleMdaIds = $user->accessibleMdaIds();
+
+        if ($accessibleMdaIds->isEmpty()) {
             return $query->whereRaw('1 = 0');
         }
 
-        return $query->whereKey($user->mda_id);
+        return $query->whereKey($accessibleMdaIds->all());
     }
 
     protected static function newFactory(): MdaFactory

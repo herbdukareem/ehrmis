@@ -17,7 +17,7 @@ class MdaScope implements Scope
             return;
         }
 
-        if (! $user->mda_id) {
+        if (! $user->hasAnyMdaAccess()) {
             $builder->whereRaw('1 = 0');
 
             return;
@@ -27,6 +27,6 @@ class MdaScope implements Scope
             ? $model->getMdaScopeColumn()
             : 'mda_id';
 
-        $builder->where($model->qualifyColumn($column), $user->mda_id);
+        $user->scopeToAccessibleMdas($builder, $model->qualifyColumn($column));
     }
 }

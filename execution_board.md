@@ -2,6 +2,9 @@
 
 This board converts the current HRMIS backlog into executable phases and starts with the first practical module: Staff Management.
 
+Reference:
+- See [docs/mda-tenancy-rules.md](docs/mda-tenancy-rules.md) before changing any MDA-owned feature, query, dropdown, import, report, or policy.
+
 **Phase A: Staff Management Module**
 
 Goal:

@@ -226,12 +226,12 @@ class LegacyFoundationImportService
                 continue;
             }
 
-            $department = Department::withoutGlobalScopes()->updateOrCreate(
+            $department = Department::query()->forMda($mda->id)->updateOrCreate(
                 [
-                    'mda_id' => $mda->id,
                     'name' => $departmentName,
                 ],
                 [
+                    'mda_id' => $mda->id,
                     'code' => $this->resolveDepartmentCode($departmentName, $mda->id),
                     'description' => 'Imported from legacy staff_list and departments tables',
                     'status' => 'active',
@@ -569,12 +569,12 @@ class LegacyFoundationImportService
                 continue;
             }
 
-            $station = Station::withoutGlobalScopes()->updateOrCreate(
+            $station = Station::query()->forMda($mda->id)->updateOrCreate(
                 [
-                    'mda_id' => $mda->id,
                     'name' => $stationName,
                 ],
                 [
+                    'mda_id' => $mda->id,
                     'code' => $this->makeStationCode($legacyStation->id, $stationName),
                     'description' => $this->buildStationDescription($legacyStation),
                     'status' => 'active',
@@ -850,8 +850,8 @@ class LegacyFoundationImportService
         $counter = 1;
 
         while (
-            Department::withoutGlobalScopes()
-                ->where('mda_id', $mdaId)
+            Department::query()
+                ->forMda($mdaId)
                 ->where('code', $code)
                 ->where('name', '!=', $departmentName)
                 ->exists()

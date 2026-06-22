@@ -68,10 +68,13 @@ class OperationalDataImportService
 
     public function template(string $type, User $user): SpreadsheetTemplateExport
     {
+        $defaultMda = $this->defaultAccessibleMda($user);
+        $defaultDepartmentCode = $defaultMda?->departments()->value('code') ?? 'CLIN';
+
         return match ($type) {
             'stations' => new SpreadsheetTemplateExport(
                 ['code', 'name', 'mda_code', 'description', 'status'],
-                [['HQ', 'Headquarters', $user->mda?->code ?? 'MOH', 'Main administrative station', 'active']],
+                [['HQ', 'Headquarters', $defaultMda?->code ?? 'MOH', 'Main administrative station', 'active']],
             ),
             'highest-qualifications' => new SpreadsheetTemplateExport(
                 ['code', 'name', 'description', 'status'],
@@ -79,11 +82,11 @@ class OperationalDataImportService
             ),
             'cadres' => new SpreadsheetTemplateExport(
                 ['name', 'mda_code', 'department_code', 'salary_scale_code', 'description', 'status'],
-                [['Medical Officer', $user->mda?->code ?? 'MOH', $user->mda?->departments()->value('code') ?? 'CLIN', 'CM', 'Medical cadre', 'active']],
+                [['Medical Officer', $defaultMda?->code ?? 'MOH', $defaultDepartmentCode, 'CM', 'Medical cadre', 'active']],
             ),
             'ranks' => new SpreadsheetTemplateExport(
                 ['name', 'cadre_name', 'mda_code', 'department_code', 'salary_scale_code', 'level', 'description', 'status'],
-                [['Senior Medical Officer', 'Medical Officer', $user->mda?->code ?? 'MOH', $user->mda?->departments()->value('code') ?? 'CLIN', 'CM', 4, 'Senior clinical rank', 'active']],
+                [['Senior Medical Officer', 'Medical Officer', $defaultMda?->code ?? 'MOH', $defaultDepartmentCode, 'CM', 4, 'Senior clinical rank', 'active']],
             ),
             'staff-list' => new SpreadsheetTemplateExport(
                 [
@@ -94,7 +97,7 @@ class OperationalDataImportService
                 ],
                 [[
                     'C001', 'P001', 'Surname Firstname', 'female', '1985-01-31',
-                    $user->mda?->code ?? 'MOH', 'Clinical Services', 'Headquarters',
+                    $defaultMda?->code ?? 'MOH', 'Clinical Services', 'Headquarters',
                     'Medical Officer', 'Senior Medical Officer', 'CM', 4, 1,
                     '2010-02-01', '2024-01-01', '2045-01-31', 'MBBS', 'MBBS',
                     'General Medicine', 'Clinical', 0, 0, 1, 0, 0, 0, 'CALLDOC',
@@ -123,14 +126,14 @@ class OperationalDataImportService
                 $mda = $this->resolveMda($row, $user, $index);
                 $code = Str::upper($this->required($row, 'code', $index));
                 $name = $this->required($row, 'name', $index);
-                $stationByCode = Station::withoutGlobalScopes()
+                $stationByCode = Station::query()
+                    ->forMda($mda->id)
                     ->withTrashed()
-                    ->where('mda_id', $mda->id)
                     ->whereRaw('LOWER(code) = ?', [strtolower($code)])
                     ->first();
-                $stationByName = Station::withoutGlobalScopes()
+                $stationByName = Station::query()
+                    ->forMda($mda->id)
                     ->withTrashed()
-                    ->where('mda_id', $mda->id)
                     ->whereRaw('LOWER(name) = ?', [strtolower($name)])
                     ->first();
 
@@ -337,13 +340,8 @@ class OperationalDataImportService
 
             foreach ($rows as $index => $sourceRow) {
                 if (! $user->hasGlobalMdaAccess()) {
-                    $uploadedMda = Str::upper(trim((string) ($sourceRow['mda'] ?? '')));
-
-                    if ($uploadedMda !== '' && ! in_array($uploadedMda, [Str::upper($user->mda->code), Str::upper($user->mda->name)], true)) {
-                        $this->rowError($index, 'mda', 'Uploaded staff rows cannot target another MDA.');
-                    }
-
-                    $sourceRow['mda'] = $user->mda->code;
+                    $resolvedMda = $this->resolveMda(['mda_code' => $sourceRow['mda'] ?? null], $user, $index);
+                    $sourceRow['mda'] = $resolvedMda->code;
                 }
 
                 $normalizationRow = $sourceRow;
@@ -408,10 +406,8 @@ class OperationalDataImportService
     protected function resolveDepartment(array $row, User $user, int $index): Department
     {
         $value = $this->required($row, 'department_code', $index);
-        $query = Department::withoutGlobalScopes();
-
         $mda = $this->resolveMda($row, $user, $index);
-        $query->where('mda_id', $mda->id);
+        $query = Department::query()->forMda($mda->id);
 
         $department = $query
             ->where(fn ($query) => $query->whereRaw('LOWER(code) = ?', [strtolower($value)])->orWhereRaw('LOWER(name) = ?', [strtolower($value)]))
@@ -426,27 +422,47 @@ class OperationalDataImportService
 
     protected function resolveMda(array $row, User $user, int $index): Mda
     {
+        $mdaField = array_key_exists('mda_code', $row) ? 'mda_code' : 'mda';
+
         if ($user->hasGlobalMdaAccess()) {
-            $mdaCode = $this->required($row, 'mda_code', $index);
+            $mdaValue = $this->required($row, $mdaField, $index);
             $mda = Mda::query()
-                ->whereRaw('LOWER(code) = ?', [strtolower($mdaCode)])
-                ->orWhereRaw('LOWER(name) = ?', [strtolower($mdaCode)])
+                ->whereRaw('LOWER(code) = ?', [strtolower($mdaValue)])
+                ->orWhereRaw('LOWER(name) = ?', [strtolower($mdaValue)])
                 ->first();
 
             if (! $mda) {
-                $this->rowError($index, 'mda_code', 'MDA could not be resolved.');
+                $this->rowError($index, $mdaField, 'MDA could not be resolved.');
             }
 
             return $mda;
         }
 
-        $uploadedMda = $this->nullable($row['mda_code'] ?? null);
+        $mdaValue = $this->nullable($row[$mdaField] ?? null);
+        $defaultMda = $this->defaultAccessibleMda($user);
 
-        if ($uploadedMda && ! in_array(Str::upper($uploadedMda), [Str::upper($user->mda->code), Str::upper($user->mda->name)], true)) {
-            $this->rowError($index, 'mda_code', 'Reference data cannot target another MDA.');
+        if ($mdaValue === null) {
+            if ($defaultMda) {
+                return $defaultMda;
+            }
+
+            $this->rowError($index, $mdaField, 'No accessible MDA is assigned to this account.');
         }
 
-        return $user->mda;
+        $mda = Mda::query()
+            ->whereKey($user->accessibleMdaIds()->all())
+            ->where(function ($query) use ($mdaValue): void {
+                $query
+                    ->whereRaw('LOWER(code) = ?', [strtolower($mdaValue)])
+                    ->orWhereRaw('LOWER(name) = ?', [strtolower($mdaValue)]);
+            })
+            ->first();
+
+        if ($mda) {
+            return $mda;
+        }
+
+        $this->rowError($index, $mdaField, 'Reference data cannot target another MDA.');
     }
 
     protected function resolveSalaryScale(array $row, int $index): SalaryScale
@@ -495,5 +511,16 @@ class OperationalDataImportService
         throw ValidationException::withMessages([
             'file' => 'Spreadsheet row '.($index + 2).", {$field}: {$message}",
         ]);
+    }
+
+    protected function defaultAccessibleMda(User $user): ?Mda
+    {
+        if ($user->mda) {
+            return $user->mda;
+        }
+
+        $mdaId = $user->primaryAccessibleMdaId();
+
+        return $mdaId ? Mda::query()->find($mdaId) : null;
     }
 }

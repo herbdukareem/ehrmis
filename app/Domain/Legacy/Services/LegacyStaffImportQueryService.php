@@ -17,7 +17,7 @@ class LegacyStaffImportQueryService
         $query = LegacyStaffImportBatch::query()
             ->with(['approvalWorkflow.steps'])
             ->when(! $user->hasGlobalMdaAccess(), function (Builder $query) use ($user): void {
-                $query->whereHas('rows', fn (Builder $rowQuery) => $rowQuery->where('mda_id', $user->mda_id));
+                $query->whereHas('rows', fn (Builder $rowQuery) => $this->scopeRowsForUser($rowQuery, $user));
             })
             ->when($filters['status'] ?? null, fn (Builder $query, string $status) => $query->where('status', $status))
             ->when($filters['source_table'] ?? null, fn (Builder $query, string $sourceTable) => $query->where('source_table', $sourceTable))
@@ -215,11 +215,7 @@ class LegacyStaffImportQueryService
 
     protected function scopeRowsForUser(Builder $query, User $user): Builder
     {
-        if ($user->hasGlobalMdaAccess()) {
-            return $query;
-        }
-
-        return $query->where('mda_id', $user->mda_id);
+        return $user->scopeToAccessibleMdas($query, 'mda_id');
     }
 
     protected function scopeUnresolvedIssueCode(Builder $query, string $issueCode): Builder

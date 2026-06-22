@@ -46,8 +46,8 @@ class LegacyStaffImportRowController extends Controller
             'summary' => $queryService->summarizeBatch($batch, $request->user()),
             'mappingOptions' => [
                 'mdas' => Mda::query()->visibleToUser($request->user())->orderBy('name')->get(['id', 'code', 'name'])->toArray(),
-                'departments' => Department::query()->when(! $request->user()->hasGlobalMdaAccess(), fn ($query) => $query->where('mda_id', $request->user()->mda_id))->orderBy('name')->get(['id', 'mda_id', 'name'])->toArray(),
-                'stations' => Station::query()->when(! $request->user()->hasGlobalMdaAccess(), fn ($query) => $query->where('mda_id', $request->user()->mda_id))->orderBy('name')->get(['id', 'mda_id', 'name'])->toArray(),
+                'departments' => Department::query()->orderBy('name')->get(['id', 'mda_id', 'name'])->toArray(),
+                'stations' => Station::query()->orderBy('name')->get(['id', 'mda_id', 'name'])->toArray(),
                 'cadres' => Cadre::query()->orderBy('name')->get(['id', 'department_id', 'salary_scale_id', 'name'])->toArray(),
                 'ranks' => Rank::query()->orderBy('name')->get(['id', 'cadre_id', 'salary_scale_id', 'name', 'level'])->toArray(),
                 'qualification_types' => QualificationType::query()->orderBy('name')->get(['id', 'code', 'name'])->toArray(),

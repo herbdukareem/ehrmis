@@ -211,11 +211,8 @@ class LegacyStaffImportIssueResolutionService
 
     protected function resolveDepartmentTarget(LegacyStaffImportRow $row, int $targetId): array
     {
-        $target = Department::query()->findOrFail($targetId);
-
-        if ($row->mda_id !== null && (int) $target->mda_id !== (int) $row->mda_id) {
-            throw new InvalidArgumentException('Department mapping must remain within the row MDA.');
-        }
+        $rowMdaId = $this->requireRowMda($row, 'department');
+        $target = Department::query()->forMda($rowMdaId)->findOrFail($targetId);
 
         return [[
             'error_code' => 'missing_department',
@@ -227,11 +224,8 @@ class LegacyStaffImportIssueResolutionService
 
     protected function resolveStationTarget(LegacyStaffImportRow $row, int $targetId): array
     {
-        $target = Station::withoutGlobalScopes()->findOrFail($targetId);
-
-        if ($row->mda_id !== null && (int) $target->mda_id !== (int) $row->mda_id) {
-            throw new InvalidArgumentException('Station mapping must remain within the row MDA.');
-        }
+        $rowMdaId = $this->requireRowMda($row, 'station');
+        $target = Station::query()->forMda($rowMdaId)->findOrFail($targetId);
 
         return [[
             'error_code' => 'missing_station',
@@ -243,11 +237,11 @@ class LegacyStaffImportIssueResolutionService
 
     protected function resolveCadreTarget(LegacyStaffImportRow $row, int $targetId): array
     {
-        $target = Cadre::query()->with('department')->findOrFail($targetId);
-
-        if ($row->mda_id !== null && (int) $target->department?->mda_id !== (int) $row->mda_id) {
-            throw new InvalidArgumentException('Cadre mapping must remain within the row MDA.');
-        }
+        $rowMdaId = $this->requireRowMda($row, 'cadre');
+        $target = Cadre::query()
+            ->with('department')
+            ->whereHas('department', fn ($query) => $query->forMda($rowMdaId))
+            ->findOrFail($targetId);
 
         return [[
             'error_code' => 'missing_cadre',
@@ -260,11 +254,11 @@ class LegacyStaffImportIssueResolutionService
 
     protected function resolveRankTarget(LegacyStaffImportRow $row, int $targetId): array
     {
-        $target = Rank::query()->with('cadre.department')->findOrFail($targetId);
-
-        if ($row->mda_id !== null && (int) $target->cadre?->department?->mda_id !== (int) $row->mda_id) {
-            throw new InvalidArgumentException('Rank mapping must remain within the row MDA.');
-        }
+        $rowMdaId = $this->requireRowMda($row, 'rank');
+        $target = Rank::query()
+            ->with('cadre.department')
+            ->whereHas('cadre.department', fn ($query) => $query->forMda($rowMdaId))
+            ->findOrFail($targetId);
 
         return [[
             'error_code' => 'missing_rank',
@@ -363,5 +357,16 @@ class LegacyStaffImportIssueResolutionService
             ->exists();
 
         $row->status = $hasBlockingErrors ? 'invalid' : 'staged';
+    }
+
+    protected function requireRowMda(LegacyStaffImportRow $row, string $field): int
+    {
+        if ($row->mda_id) {
+            return (int) $row->mda_id;
+        }
+
+        throw ValidationException::withMessages([
+            'field' => 'Resolve the row MDA before mapping a '.$field.'.',
+        ]);
     }
 }

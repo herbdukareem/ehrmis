@@ -10,13 +10,24 @@ const selectedRoleId = ref(null);
 const feedback = ref('');
 const selectedUser = computed(() => data.value?.users.find((user) => user.id === selectedUserId.value));
 const selectedRole = computed(() => data.value?.roles.find((role) => role.id === selectedRoleId.value));
-const userForm = ref({ roles: [], scope_type: 'mda', state_code: 'NG-NI', mda_id: null });
+const userForm = ref({ roles: [], scope_type: 'mda', state_code: 'NG-NI', mda_id: null, mda_ids: [] });
 const rolePermissions = ref([]);
 const chooseUser = (id) => {
     selectedUserId.value = id;
     const user = selectedUser.value;
-    const scope = user.access_scopes?.[0];
-    userForm.value = { roles: user.roles.map((role) => role.name), scope_type: scope?.scope_type ?? 'mda', state_code: scope?.state_code ?? 'NG-NI', mda_id: scope?.mda_id ?? user.mda_id };
+    const mdaScopes = (user.access_scopes ?? [])
+        .filter((scope) => scope.scope_type === 'mda' && scope.mda_id)
+        .map((scope) => Number(scope.mda_id));
+    const primaryMdaId = Number(user.mda_id ?? mdaScopes[0] ?? data.value?.mdas?.[0]?.id ?? 0) || null;
+    const nonMdaScope = (user.access_scopes ?? []).find((scope) => scope.scope_type !== 'mda');
+
+    userForm.value = {
+        roles: user.roles.map((role) => role.name),
+        scope_type: nonMdaScope?.scope_type ?? (mdaScopes.length ? 'mda' : 'mda'),
+        state_code: nonMdaScope?.state_code ?? 'NG-NI',
+        mda_id: primaryMdaId,
+        mda_ids: mdaScopes.filter((mdaId) => mdaId !== primaryMdaId),
+    };
 };
 const chooseRole = (id) => { selectedRoleId.value = id; rolePermissions.value = selectedRole.value.permissions.map((permission) => permission.name); };
 const saveUser = async () => {
@@ -40,7 +51,8 @@ onMounted(load);
             <form v-if="selectedUser" class="civic-admin-editor" @submit.prevent="saveUser">
                 <h3>{{ selectedUser.name }}</h3>
                 <label class="civic-field"><span>Access scope</span><select v-model="userForm.scope_type"><option value="platform">Platform-wide</option><option value="state">State-wide</option><option value="mda">MDA-specific</option></select></label>
-                <label v-if="userForm.scope_type === 'mda'" class="civic-field"><span>MDA</span><select v-model="userForm.mda_id"><option v-for="mda in data.mdas" :key="mda.id" :value="mda.id">{{ mda.code }} - {{ mda.name }}</option></select></label>
+                <label v-if="userForm.scope_type === 'mda'" class="civic-field"><span>Primary MDA</span><select v-model="userForm.mda_id"><option v-for="mda in data.mdas" :key="mda.id" :value="mda.id">{{ mda.code }} - {{ mda.name }}</option></select></label>
+                <label v-if="userForm.scope_type === 'mda'" class="civic-field civic-field-wide"><span>Additional MDAs</span><select v-model="userForm.mda_ids" multiple size="5"><option v-for="mda in data.mdas.filter((candidate) => candidate.id !== userForm.mda_id)" :key="mda.id" :value="mda.id">{{ mda.code }} - {{ mda.name }}</option></select></label>
                 <div class="civic-check-grid"><label v-for="role in data.roles" :key="role.id" class="civic-check"><input v-model="userForm.roles" type="checkbox" :value="role.name"> {{ role.name }}</label></div>
                 <button class="civic-button civic-button-primary">Save user access</button>
             </form>

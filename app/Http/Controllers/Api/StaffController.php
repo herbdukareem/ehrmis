@@ -65,7 +65,7 @@ class StaffController extends Controller
     public function update(UpdateStaffRequest $request, Staff $staff, StaffUpdateService $staffUpdateService): JsonResponse
     {
         $validated = $request->validated();
-        abort_unless($request->user()->hasGlobalMdaAccess() || (int) $request->user()->mda_id === (int) $validated['mda_id'], 403);
+        abort_unless($request->user()->canAccessMda((int) $validated['mda_id']), 403);
 
         $staff = $staffUpdateService->updateStaff(
             $staff,
@@ -145,7 +145,6 @@ class StaffController extends Controller
         };
 
         $staff = Staff::query()
-            ->when(! $user->hasGlobalMdaAccess(), fn ($query) => $query->where('mda_id', $user->mda_id))
             ->whereHas('importRows.errors', $unresolvedErrors)
             ->with(['mda', 'importRows.errors' => $unresolvedErrors])
             ->limit(100)
@@ -198,7 +197,6 @@ class StaffController extends Controller
         $this->authorize('viewAny', Staff::class);
         $user = $request->user();
         $departments = Department::query()
-            ->when(! $user->hasGlobalMdaAccess(), fn ($query) => $query->where('mda_id', $user->mda_id))
             ->orderBy('name')
             ->get(['id', 'mda_id', 'name']);
         $cadres = Cadre::query()
@@ -210,7 +208,7 @@ class StaffController extends Controller
             'data' => [
                 'mdas' => Mda::query()->visibleToUser($user)->orderBy('name')->get(['id', 'code', 'name']),
                 'departments' => $departments,
-                'stations' => Station::query()->when(! $user->hasGlobalMdaAccess(), fn ($query) => $query->where('mda_id', $user->mda_id))->orderBy('name')->get(['id', 'mda_id', 'name']),
+                'stations' => Station::query()->orderBy('name')->get(['id', 'mda_id', 'name']),
                 'cadres' => $cadres,
                 'ranks' => Rank::query()->whereIn('cadre_id', $cadres->pluck('id'))->orderBy('name')->get(['id', 'cadre_id', 'salary_scale_id', 'name', 'level']),
                 'salary_scales' => SalaryScale::query()->orderBy('code')->get(['id', 'code', 'name']),

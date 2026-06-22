@@ -11,6 +11,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
+use Illuminate\Support\Collection;
 use Spatie\Permission\Traits\HasRoles;
 
 class User extends Authenticatable
@@ -89,23 +90,61 @@ class User extends Authenticatable
         ) || $this->accessScopes()->where('scope_type', 'platform')->exists();
     }
 
-    public function canAccessMda(int $mdaId): bool
+    public function accessibleMdaIds(): Collection
     {
+        $scopeIds = $this->relationLoaded('accessScopes')
+            ? $this->accessScopes
+                ->where('scope_type', 'mda')
+                ->pluck('mda_id')
+            : $this->accessScopes()
+                ->where('scope_type', 'mda')
+                ->pluck('mda_id');
+
+        return collect([$this->mda_id])
+            ->merge($scopeIds)
+            ->filter(fn ($mdaId) => $mdaId !== null)
+            ->map(fn ($mdaId): int => (int) $mdaId)
+            ->unique()
+            ->values();
+    }
+
+    public function primaryAccessibleMdaId(): ?int
+    {
+        return $this->accessibleMdaIds()->first();
+    }
+
+    public function hasAnyMdaAccess(): bool
+    {
+        return $this->hasGlobalMdaAccess() || $this->accessibleMdaIds()->isNotEmpty();
+    }
+
+    public function canAccessMda(?int $mdaId): bool
+    {
+        if ($mdaId === null) {
+            return false;
+        }
+
         return $this->hasGlobalMdaAccess()
-            || (int) $this->mda_id === $mdaId
-            || $this->accessScopes()->where('scope_type', 'mda')->where('mda_id', $mdaId)->exists();
+            || $this->accessibleMdaIds()->contains((int) $mdaId);
+    }
+
+    public function scopeToAccessibleMdas(Builder $query, string $column = 'mda_id'): Builder
+    {
+        if ($this->hasGlobalMdaAccess()) {
+            return $query;
+        }
+
+        $accessibleMdaIds = $this->accessibleMdaIds();
+
+        if ($accessibleMdaIds->isEmpty()) {
+            return $query->whereRaw('1 = 0');
+        }
+
+        return $query->whereIn($column, $accessibleMdaIds->all());
     }
 
     public function scopeVisibleTo(Builder $query, self $user): Builder
     {
-        if ($user->hasGlobalMdaAccess()) {
-            return $query;
-        }
-
-        if (! $user->mda_id) {
-            return $query->whereRaw('1 = 0');
-        }
-
-        return $query->where('mda_id', $user->mda_id);
+        return $user->scopeToAccessibleMdas($query, 'mda_id');
     }
 }

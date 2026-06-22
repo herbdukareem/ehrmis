@@ -46,32 +46,71 @@ class AccessManagementController extends Controller
 
     public function updateUser(Request $request, User $managedUser): JsonResponse
     {
-        abort_unless($request->user()->can('manage-users') && ($request->user()->hasPlatformAccess() || $request->user()->canAccessMda((int) $managedUser->mda_id)), 403);
+        $actor = $request->user();
+        $canManageUser = $managedUser->hasGlobalMdaAccess()
+            ? $actor->hasPlatformAccess()
+            : $actor->hasPlatformAccess()
+                || $managedUser->accessibleMdaIds()->contains(fn (int $mdaId): bool => $actor->canAccessMda($mdaId));
+
+        abort_unless($actor->can('manage-users') && $canManageUser, 403);
+
         $validated = $request->validate([
             'roles' => ['array'], 'roles.*' => ['string', 'exists:roles,name'],
             'scope_type' => ['required', Rule::in(['platform', 'state', 'mda'])],
             'state_code' => ['nullable', 'string', 'max:20'],
             'mda_id' => ['nullable', 'integer', 'exists:mdas,id'],
+            'mda_ids' => ['nullable', 'array'],
+            'mda_ids.*' => ['integer', 'exists:mdas,id'],
         ]);
-        abort_if($validated['scope_type'] === 'platform' && ! $request->user()->hasPlatformAccess(), 403);
-        abort_if(! $request->user()->hasPlatformAccess() && collect($validated['roles'] ?? [])->intersect(['Super Admin', 'MIS Admin'])->isNotEmpty(), 403);
+
+        abort_if($validated['scope_type'] === 'platform' && ! $actor->hasPlatformAccess(), 403);
+        abort_if(! $actor->hasPlatformAccess() && collect($validated['roles'] ?? [])->intersect(['Super Admin', 'MIS Admin'])->isNotEmpty(), 403);
+
         if ($validated['scope_type'] === 'mda') {
-            abort_unless($request->user()->canAccessMda((int) $validated['mda_id']), 403);
+            abort_unless(isset($validated['mda_id']), 422, 'A primary MDA is required for MDA-scoped users.');
+
+            $scopeMdaIds = collect([$validated['mda_id'], ...($validated['mda_ids'] ?? [])])
+                ->filter()
+                ->map(fn ($mdaId): int => (int) $mdaId)
+                ->unique()
+                ->values();
+
+            abort_unless($scopeMdaIds->isNotEmpty(), 422, 'At least one MDA must be assigned.');
+            abort_unless($scopeMdaIds->every(fn (int $mdaId): bool => $actor->canAccessMda($mdaId)), 403);
         }
 
         DB::transaction(function () use ($managedUser, $validated): void {
+            $scopeMdaIds = collect([$validated['mda_id'] ?? null, ...($validated['mda_ids'] ?? [])])
+                ->filter()
+                ->map(fn ($mdaId): int => (int) $mdaId)
+                ->unique()
+                ->values();
+
             $managedUser->syncRoles($validated['roles'] ?? []);
             $managedUser->accessScopes()->delete();
+
+            if ($validated['scope_type'] === 'mda') {
+                foreach ($scopeMdaIds as $mdaId) {
+                    $managedUser->accessScopes()->create([
+                        'scope_type' => 'mda',
+                        'state_code' => null,
+                        'mda_id' => $mdaId,
+                    ]);
+                }
+
+                $managedUser->update(['mda_id' => (int) $validated['mda_id']]);
+
+                return;
+            }
+
             $managedUser->accessScopes()->create([
                 'scope_type' => $validated['scope_type'],
                 'state_code' => $validated['state_code'] ?? null,
-                'mda_id' => $validated['scope_type'] === 'mda' ? $validated['mda_id'] : null,
+                'mda_id' => null,
             ]);
-            if ($validated['scope_type'] === 'mda') {
-                $managedUser->update(['mda_id' => $validated['mda_id']]);
-            }
+            $managedUser->update(['mda_id' => null]);
         });
 
-        return response()->json(['message' => 'User access updated.', 'data' => $managedUser->fresh(['roles', 'accessScopes.mda'])]);
+        return response()->json(['message' => 'User access updated.', 'data' => $managedUser->fresh(['mda', 'roles', 'accessScopes.mda'])]);
     }
 }

@@ -29,10 +29,7 @@ class MovementWorkbookController extends Controller
             'budget_minimum_step' => ['required', 'integer', 'min:1', 'max:15'],
         ]);
 
-        abort_unless(
-            $request->user()->hasGlobalMdaAccess() || (int) $request->user()->mda_id === (int) $validated['mda_id'],
-            403
-        );
+        abort_unless($request->user()->canAccessMda((int) $validated['mda_id']), 403);
 
         $workbook = $service->generateForMda(
             (int) $validated['mda_id'],
@@ -53,7 +50,7 @@ class MovementWorkbookController extends Controller
         $query = MovementWorkbook::query()->with(['mda', 'approvalWorkflow.steps'])->latest('year');
 
         if (! $request->user()->hasGlobalMdaAccess()) {
-            $query->where('mda_id', $request->user()->mda_id);
+            $request->user()->scopeToAccessibleMdas($query, 'mda_id');
         }
 
         return response()->json([

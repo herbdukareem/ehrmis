@@ -26,10 +26,17 @@ class StaffPublicationService
      */
     public function publish(array $normalizedRow, ?Staff $matchedStaff = null): array
     {
-        $staff = $matchedStaff ?? Staff::withoutGlobalScopes()->firstOrNew([
-            'mda_id' => $normalizedRow['mda_id'],
-            'staff_number' => $normalizedRow['staff_number'],
-        ]);
+        $mdaId = $normalizedRow['mda_id'] ?? null;
+
+        if (! $mdaId) {
+            throw new \InvalidArgumentException('Imported staff rows must resolve an MDA before publication.');
+        }
+
+        $staff = $matchedStaff ?? Staff::query()
+            ->forMda((int) $mdaId)
+            ->firstOrNew([
+                'staff_number' => $normalizedRow['staff_number'],
+            ]);
 
         $wasExisting = $staff->exists;
         $before = $wasExisting ? $staff->toArray() : [];

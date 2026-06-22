@@ -65,14 +65,14 @@ class MovementSheetGenerationService
 
             $workbook->lines()->delete();
 
-            $staffMembers = Staff::withoutGlobalScopes()
+            $staffMembers = Staff::query()
+                ->forMda($mda->id)
                 ->with([
                     'employments' => fn ($query) => $query->where('is_current', true),
                     'salaryPlacements' => fn ($query) => $query->where('is_current', true)->with('salaryScale'),
                     'allowanceAssignments.allowanceType',
                     'qualifications.qualificationType',
                 ])
-                ->where('mda_id', $mda->id)
                 ->whereNull('deleted_at')
                 ->orderBy('id');
 

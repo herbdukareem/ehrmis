@@ -84,6 +84,7 @@ class LegacyStaffImportController extends Controller
         $this->ensureRowBelongsToBatch($batch, $row);
         $this->authorize('view', $row);
         $row->load(['errors', 'mda', 'department', 'station', 'cadre', 'rank', 'salaryScale', 'matchedStaff', 'publishedStaff']);
+        $rowMdaId = $row->mda_id ? (int) $row->mda_id : null;
 
         return response()->json([
             'data' => [
@@ -92,10 +93,30 @@ class LegacyStaffImportController extends Controller
                 'summary' => LegacyStaffImportSummaryResource::make($queryService->summarizeBatch($batch, $request->user()))->resolve(),
                 'mapping_options' => [
                     'mdas' => Mda::query()->visibleToUser($request->user())->orderBy('name')->get(['id', 'code', 'name']),
-                    'departments' => Department::query()->when(! $request->user()->hasGlobalMdaAccess(), fn ($query) => $query->where('mda_id', $request->user()->mda_id))->orderBy('name')->get(['id', 'mda_id', 'name']),
-                    'stations' => Station::query()->when(! $request->user()->hasGlobalMdaAccess(), fn ($query) => $query->where('mda_id', $request->user()->mda_id))->orderBy('name')->get(['id', 'mda_id', 'name']),
-                    'cadres' => Cadre::query()->orderBy('name')->get(['id', 'department_id', 'salary_scale_id', 'name']),
-                    'ranks' => Rank::query()->orderBy('name')->get(['id', 'cadre_id', 'salary_scale_id', 'name', 'level']),
+                    'departments' => Department::query()
+                        ->when($rowMdaId, fn ($query) => $query->forMda($rowMdaId), fn ($query) => $query->whereRaw('1 = 0'))
+                        ->orderBy('name')
+                        ->get(['id', 'mda_id', 'name']),
+                    'stations' => Station::query()
+                        ->when($rowMdaId, fn ($query) => $query->forMda($rowMdaId), fn ($query) => $query->whereRaw('1 = 0'))
+                        ->orderBy('name')
+                        ->get(['id', 'mda_id', 'name']),
+                    'cadres' => Cadre::query()
+                        ->when(
+                            $rowMdaId,
+                            fn ($query) => $query->whereHas('department', fn ($departmentQuery) => $departmentQuery->forMda($rowMdaId)),
+                            fn ($query) => $query->whereRaw('1 = 0')
+                        )
+                        ->orderBy('name')
+                        ->get(['id', 'department_id', 'salary_scale_id', 'name']),
+                    'ranks' => Rank::query()
+                        ->when(
+                            $rowMdaId,
+                            fn ($query) => $query->whereHas('cadre.department', fn ($departmentQuery) => $departmentQuery->forMda($rowMdaId)),
+                            fn ($query) => $query->whereRaw('1 = 0')
+                        )
+                        ->orderBy('name')
+                        ->get(['id', 'cadre_id', 'salary_scale_id', 'name', 'level']),
                     'qualification_types' => QualificationType::query()->orderBy('name')->get(['id', 'code', 'name']),
                 ],
                 'can' => [
