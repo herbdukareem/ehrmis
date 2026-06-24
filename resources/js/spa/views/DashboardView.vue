@@ -83,7 +83,15 @@ onMounted(async () => { data.value = (await api.get('/dashboard')).data.data; })
             </div>
 
             <div v-if="activeView === 'retirement'" class="civic-analytics-panel">
-                <div class="civic-analysis-heading"><div><div class="civic-eyebrow">Ten-year retirement picture</div><h2>History and five-year projection</h2></div><span>History is based on recorded retirement status events</span></div>
+                <div class="civic-analysis-heading">
+                    <div>
+                        <div class="civic-eyebrow">
+                            Ten-year retirement picture
+                        </div>
+                        <h2>History and five-year projection</h2>
+                    </div>
+                    
+                    </div>
                 <div class="civic-timeline-chart">
                     <div v-for="row in data.retirement_trends.history" :key="`h-${row.label}`" class="civic-timeline-column history">
                         <div class="civic-timeline-value">{{ row.total }}</div><div class="civic-timeline-track"><span :style="{ height: `${Math.max((row.total / retirementMaximum) * 100, 3)}%` }"></span></div><strong>{{ row.label }}</strong><small>Actual</small>

@@ -30,6 +30,16 @@ class StaffPolicy
         return $user->can('update-staff') && $this->canAccessMda($user, $staff->mda_id);
     }
 
+    public function updateAppointment(User $user, Staff $staff): bool
+    {
+        return $user->can('update-staff-appointment') && $this->canAccessMda($user, $staff->mda_id);
+    }
+
+    public function updateAllowances(User $user, Staff $staff): bool
+    {
+        return $user->can('update-staff-allowances') && $this->canAccessMda($user, $staff->mda_id);
+    }
+
     public function delete(User $user, Staff $staff): bool
     {
         return $user->can('delete-staff') && $this->canAccessMda($user, $staff->mda_id);

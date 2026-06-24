@@ -75,6 +75,32 @@ class LegacyStaffImportManagementTest extends TestCase
         $this->assertSame(['MOH'], collect($rows)->pluck('mda.code')->unique()->values()->all());
     }
 
+    public function test_batch_creator_can_open_owned_queued_batch_before_rows_exist(): void
+    {
+        $queuedBatch = LegacyStaffImportBatch::query()->create([
+            'source_database' => 'spreadsheet_upload',
+            'source_table' => 'staff_list_upload',
+            'created_by' => $this->mohUser->id,
+            'status' => 'queued',
+            'started_at' => now(),
+            'summary' => [
+                'source' => 'staff_list_upload',
+                'rows_read' => 0,
+                'rows_staged' => 0,
+                'rows_published' => 0,
+                'rows_with_warnings' => 0,
+                'rows_with_errors' => 0,
+            ],
+        ]);
+
+        $response = $this->actingAs($this->mohUser)
+            ->getJson('/api/legacy-staff-imports/'.$queuedBatch->id)
+            ->assertOk();
+
+        $this->assertSame('queued', $response->json('data.batch.status'));
+        $this->assertSame([], $response->json('data.rows'));
+    }
+
     public function test_mda_user_cannot_open_another_mda_import_row(): void
     {
         $otherMdaId = Mda::query()->where('code', 'HMB')->value('id');

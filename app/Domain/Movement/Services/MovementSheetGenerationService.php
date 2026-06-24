@@ -12,6 +12,7 @@ use App\Domain\Staff\Services\PromotionPolicyService;
 use App\Domain\Staff\Services\QualificationCeilingService;
 use App\Domain\Staff\Services\RetirementPolicyService;
 use App\Domain\Staff\Services\SalaryCalculationService;
+use App\Domain\Staff\Services\StaffRetirementService;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\DB;
 
@@ -22,11 +23,33 @@ class MovementSheetGenerationService
         protected PromotionPolicyService $promotionPolicyService,
         protected QualificationCeilingService $qualificationCeilingService,
         protected RetirementPolicyService $retirementPolicyService,
+        protected StaffRetirementService $staffRetirementService,
         protected MovementSummaryService $movementSummaryService,
     ) {
     }
 
     public function generateForMda(
+        int $mdaId,
+        int $year,
+        ?int $generatedBy = null,
+        ?string $name = null,
+        ?int $budgetYear = null,
+        int $budgetMinimumStep = 5,
+    ): MovementWorkbook
+    {
+        $workbook = $this->initializeWorkbook($mdaId, $year, $generatedBy, $name, $budgetYear, $budgetMinimumStep);
+
+        $this->populateWorkbook($workbook, $year, $budgetYear ?? ($year + 1), $budgetMinimumStep);
+
+        return $workbook->fresh(['lines', 'summaries']);
+    }
+
+    /**
+     * Validate and (re)create the workbook shell synchronously. This is intentionally cheap -
+     * it does not touch staff records - so it can run inline in an HTTP request before the
+     * actual line generation is handed off to a queued job.
+     */
+    public function initializeWorkbook(
         int $mdaId,
         int $year,
         ?int $generatedBy = null,
@@ -56,17 +79,31 @@ class MovementSheetGenerationService
                     'name' => $name ?? "{$year} Movement Sheet",
                     'budget_year' => $budgetYear ?? ($year + 1),
                     'budget_minimum_step' => $budgetMinimumStep,
-                    'status' => 'draft',
+                    'status' => 'generating',
                     'generated_by' => $generatedBy,
                     'generated_at' => now(),
                     'locked_at' => null,
+                    'summary' => null,
                 ],
             );
 
             $workbook->lines()->delete();
 
+            return $workbook;
+        });
+    }
+
+    /**
+     * Run the heavy per-staff line generation for an already-initialized workbook. This is the
+     * part that scales with staff headcount, so callers running it inline (the console command,
+     * data repair tooling) accept the cost, while the API path runs it inside a queued job to
+     * stay clear of the web server's request timeout.
+     */
+    public function populateWorkbook(MovementWorkbook $workbook, int $year, int $budgetYear, int $budgetMinimumStep): void
+    {
+        DB::transaction(function () use ($workbook, $year, $budgetYear, $budgetMinimumStep): void {
             $staffMembers = Staff::query()
-                ->forMda($mda->id)
+                ->forMda($workbook->mda_id)
                 ->with([
                     'employments' => fn ($query) => $query->where('is_current', true),
                     'salaryPlacements' => fn ($query) => $query->where('is_current', true)->with('salaryScale'),
@@ -85,10 +122,14 @@ class MovementSheetGenerationService
                 'blocked' => 0,
             ];
 
-            $staffMembers->chunkById(100, function ($staffChunk) use (&$summary, $workbook, $year, $budgetYear, $budgetMinimumStep): void {
+            $now = now();
+
+            $staffMembers->chunkById(200, function ($staffChunk) use (&$summary, $workbook, $year, $budgetYear, $budgetMinimumStep, $now): void {
+                $rows = [];
+
                 foreach ($staffChunk as $staff) {
                     $summary['staff_considered']++;
-                    $movementLine = $this->generateLinePayload($staff, $year, $budgetYear ?? ($year + 1), $budgetMinimumStep);
+                    $movementLine = $this->generateLinePayload($staff, $year, $budgetYear, $budgetMinimumStep);
 
                     if ($movementLine['eligibility_status'] === 'due') {
                         $summary['due_for_promotion']++;
@@ -106,26 +147,40 @@ class MovementSheetGenerationService
                         $summary['blocked']++;
                     }
 
-                    MovementLine::query()->updateOrCreate(
-                        [
-                            'workbook_id' => $workbook->id,
-                            'staff_id' => $staff->id,
-                        ],
-                        $movementLine,
+                    $rows[] = array_merge(
+                        ['workbook_id' => $workbook->id, 'staff_id' => $staff->id],
+                        $this->encodeLineForBulkInsert($movementLine),
+                        ['created_at' => $now, 'updated_at' => $now],
                     );
 
                     $summary['lines_generated']++;
+                }
+
+                if ($rows !== []) {
+                    MovementLine::query()->insert($rows);
                 }
             });
 
             $this->movementSummaryService->regenerate($workbook);
 
             $workbook->forceFill([
+                'status' => 'draft',
                 'summary' => $summary,
             ])->save();
-
-            return $workbook->fresh(['lines', 'summaries']);
         });
+    }
+
+    /**
+     * @param  array<string, mixed>  $line
+     * @return array<string, mixed>
+     */
+    protected function encodeLineForBulkInsert(array $line): array
+    {
+        $line['current_amounts'] = json_encode($line['current_amounts']);
+        $line['proposed_amounts'] = json_encode($line['proposed_amounts']);
+        $line['decision_trace'] = json_encode($line['decision_trace']);
+
+        return $line;
     }
 
     /**
@@ -176,7 +231,12 @@ class MovementSheetGenerationService
         } elseif ($retirementDate instanceof Carbon && $retirementDate->betweenIncluded($startOfYear, $endOfYear)) {
             $retirementStatus = 'retiring';
             $retirementMonth = $retirementDate->month;
-        } elseif (($employment?->employment_status ?? null) === 'retired' || $staff->status === 'retired') {
+        } elseif ($this->staffRetirementService->isRetired(
+            $staff->status,
+            $employment?->employment_status,
+            $retirementDate,
+            $startOfYear,
+        )) {
             $retirementStatus = 'retired';
         }
 

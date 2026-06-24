@@ -2,6 +2,16 @@
 import AppCard from '@/Components/AppCard.vue';
 import AppStatusBadge from '@/Components/AppStatusBadge.vue';
 defineProps({ employment: Object });
+
+const formatDate = (value) => {
+    if (!value) return 'N/A';
+
+    return new Date(value).toLocaleDateString(undefined, {
+        year: 'numeric',
+        month: 'long',
+        day: 'numeric',
+    });
+};
 </script>
 
 <template>
@@ -17,8 +27,9 @@ defineProps({ employment: Object });
             <div><div class="text-xs font-medium text-ehrmis-muted">Cadre</div><div class="mt-1 text-ehrmis-text">{{ employment?.cadre_name ?? 'Unassigned' }}</div></div>
             <div><div class="text-xs font-medium text-ehrmis-muted">Rank</div><div class="mt-1 text-ehrmis-text">{{ employment?.rank_name ?? 'Unassigned' }}</div></div>
             <div><div class="text-xs font-medium text-ehrmis-muted">Location</div><div class="mt-1 text-ehrmis-text">{{ employment?.location_name ?? 'N/A' }}</div></div>
-            <div><div class="text-xs font-medium text-ehrmis-muted">First Appointment</div><div class="mt-1 text-ehrmis-text">{{ employment?.date_first_appointment ?? 'N/A' }}</div></div>
-            <div><div class="text-xs font-medium text-ehrmis-muted">Last Promotion</div><div class="mt-1 text-ehrmis-text">{{ employment?.date_last_promotion ?? 'N/A' }}</div></div>
+            <div><div class="text-xs font-medium text-ehrmis-muted">First Appointment</div><div class="mt-1 text-ehrmis-text">{{ formatDate(employment?.date_first_appointment) }}</div></div>
+            <div><div class="text-xs font-medium text-ehrmis-muted">Last Promotion</div><div class="mt-1 text-ehrmis-text">{{ formatDate(employment?.date_last_promotion) }}</div></div>
+            <div><div class="text-xs font-medium text-ehrmis-muted">Retirement Date</div><div class="mt-1 text-ehrmis-text">{{ formatDate(employment?.expected_retirement_date) }}</div></div>
         </div>
     </AppCard>
 </template>

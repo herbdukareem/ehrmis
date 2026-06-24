@@ -4,10 +4,12 @@ namespace App\Http\Resources;
 
 use App\Domain\Audit\Models\AuditLog;
 use App\Domain\Legacy\Models\LegacyStaffImportRow;
+use App\Domain\Organization\Models\Mda;
 use App\Domain\Staff\Models\Staff;
 use App\Domain\Staff\Models\AllowanceType;
 use App\Domain\Staff\Services\SalaryCalculationService;
 use App\Domain\Staff\Services\StaffAllowanceService;
+use App\Domain\Staff\Services\StaffRetirementService;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
@@ -20,6 +22,11 @@ class StaffDetailResource extends JsonResource
         $importRow = $this->resolveImportRow($staff);
         $effectiveAllowanceAssignments = app(StaffAllowanceService::class)->effectiveAssignments($staff);
         $salarySummary = $this->resolveSalarySummary($staff, $effectiveAllowanceAssignments);
+        $retirementState = app(StaffRetirementService::class)->state(
+            $staff->status,
+            $staff->currentEmployment?->employment_status,
+            $staff->currentEmployment?->expected_retirement_date,
+        );
         $auditLogs = AuditLog::query()
             ->where('auditable_type', Staff::class)
             ->where('auditable_id', $staff->id)
@@ -35,7 +42,7 @@ class StaffDetailResource extends JsonResource
             'legacy_cno_psn' => $staff->legacy_cno_psn,
             'legacy_staff_id' => $staff->legacy_staff_id,
             'legacy_master_staff_id' => $staff->legacy_master_staff_id,
-            'mda' => $staff->mda?->only(['id', 'code', 'name']),
+            'mda' => $this->resolveMdaSummary($staff->mda),
             'surname' => $staff->surname,
             'first_name' => $staff->first_name,
             'middle_name' => $staff->middle_name,
@@ -43,6 +50,7 @@ class StaffDetailResource extends JsonResource
             'sex' => $staff->sex,
             'date_of_birth' => optional($staff->date_of_birth)?->toDateString(),
             'status' => $staff->status,
+            'retirement_state' => $retirementState,
             'passport_url' => $staff->passport_path ? route('api.staff.passport.show', $staff, false) : null,
             'personal_detail' => $staff->personalDetail?->only([
                 'lga',
@@ -55,6 +63,12 @@ class StaffDetailResource extends JsonResource
             ]),
             'current_employment' => $staff->currentEmployment ? StaffEmploymentResource::make($staff->currentEmployment)->resolve() : null,
             'current_salary_placement' => $staff->currentSalaryPlacement ? StaffSalaryPlacementResource::make($staff->currentSalaryPlacement)->resolve() : null,
+            'retirement' => [
+                'state' => $retirementState,
+                'expected_date' => optional($staff->currentEmployment?->expected_retirement_date)?->toDateString(),
+                'employment_status' => $staff->currentEmployment?->employment_status,
+                'staff_status' => $staff->status,
+            ],
             'salary_summary' => $salarySummary,
             'qualifications' => StaffQualificationResource::collection($staff->qualifications)->resolve(),
             'allowance_assignments' => StaffAllowanceAssignmentResource::collection($effectiveAllowanceAssignments)->resolve(),
@@ -65,6 +79,8 @@ class StaffDetailResource extends JsonResource
                 ->get(['id', 'code', 'name'])
                 ->toArray(),
             'can_update' => $request->user()?->can('update', $staff) ?? false,
+            'can_update_appointment' => $request->user()?->can('updateAppointment', $staff) ?? false,
+            'can_update_allowances' => $request->user()?->can('updateAllowances', $staff) ?? false,
             'status_histories' => StaffStatusHistoryResource::collection($staff->statusHistories)->resolve(),
             'documents' => $staff->documents->map(fn ($document): array => [
                 'id' => $document->id,
@@ -156,5 +172,22 @@ class StaffDetailResource extends JsonResource
             })
             ->latest('id')
             ->first();
+    }
+
+    protected function resolveMdaSummary(?Mda $mda): ?array
+    {
+        if (! $mda) {
+            return null;
+        }
+
+        $logoPath = $mda->setting?->logo_path;
+
+        return [
+            'id' => $mda->id,
+            'code' => $mda->code,
+            'name' => $mda->name,
+            'acronym' => $mda->setting?->acronym ?: $mda->code,
+            'logo_url' => $logoPath ? asset('storage/'.$logoPath) : null,
+        ];
     }
 }

@@ -127,6 +127,9 @@ class StaffModuleTest extends TestCase
             ->assertJsonPath('data.current_employment.cadre_name', 'ADMIN OFFICER')
             ->assertJsonPath('data.current_employment.rank_name', 'A.O I')
             ->assertJsonPath('data.current_salary_placement.salary_scale_code', 'GL')
+            ->assertJsonPath('data.retirement_state', 'active')
+            ->assertJsonPath('data.can_update_appointment', true)
+            ->assertJsonPath('data.can_update_allowances', true)
             ->assertJsonPath('data.import_metadata.needs_call_allowance_clarification', true);
     }
 
@@ -153,6 +156,37 @@ class StaffModuleTest extends TestCase
         $this->actingAs($this->mdaUser)
             ->putJson(route('api.staff.update', $this->staffB), $payload)
             ->assertNotFound();
+    }
+
+    public function test_past_expected_retirement_date_is_treated_as_retired_for_filters_and_detail_state(): void
+    {
+        $overdueStaff = $this->makeStaff(
+            $this->mdaA,
+            $this->staffA->currentEmployment->department_id,
+            $this->staffA->currentEmployment->station_id,
+            $this->staffA->currentEmployment->cadre_id,
+            $this->staffA->currentEmployment->rank_id,
+            'STF900',
+            'CNO-OLD',
+            'PSN-OLD',
+            'Overdue Retirement',
+            'active',
+        );
+
+        $overdueStaff->currentEmployment()->update([
+            'expected_retirement_date' => '2011-07-01',
+            'employment_status' => 'active',
+        ]);
+
+        $this->actingAs($this->mdaUser)
+            ->getJson('/api/staff?retirement_state=retired')
+            ->assertOk()
+            ->assertJsonFragment(['id' => $overdueStaff->id]);
+
+        $this->actingAs($this->mdaUser)
+            ->getJson('/api/staff/'.$overdueStaff->id)
+            ->assertOk()
+            ->assertJsonPath('data.retirement_state', 'retired');
     }
 
     public function test_multi_mda_user_gets_filter_options_for_each_assigned_mda_only(): void
@@ -360,6 +394,164 @@ class StaffModuleTest extends TestCase
                 ],
             ])
             ->assertNotFound();
+    }
+
+    public function test_staff_allowance_updates_require_the_dedicated_permission(): void
+    {
+        $user = User::factory()->mdaUser($this->mdaA)->create();
+        $user->givePermissionTo('view-staff', 'update-staff');
+
+        $this->actingAs($user)
+            ->getJson('/api/staff/'.$this->staffA->id)
+            ->assertOk()
+            ->assertJsonPath('data.can_update_allowances', false);
+
+        $this->actingAs($user)
+            ->putJson(route('api.staff.allowances.update', $this->staffA), [
+                'assignments' => [
+                    ['allowance_type_id' => $this->hazardType->id, 'is_eligible' => true],
+                ],
+            ])
+            ->assertForbidden();
+    }
+
+    public function test_staff_appointment_updates_require_the_dedicated_permission(): void
+    {
+        $user = User::factory()->mdaUser($this->mdaA)->create();
+        $user->givePermissionTo('view-staff', 'update-staff');
+
+        $newCadre = Cadre::query()->create([
+            'salary_scale_id' => $this->salaryScale->id,
+            'department_id' => $this->staffA->currentEmployment->department_id,
+            'name' => 'SENIOR ADMIN OFFICER',
+            'status' => 'active',
+        ]);
+        $newRank = Rank::query()->create([
+            'cadre_id' => $newCadre->id,
+            'salary_scale_id' => $this->salaryScale->id,
+            'name' => 'SAO',
+            'level' => 12,
+            'status' => 'active',
+        ]);
+
+        $this->actingAs($user)
+            ->getJson('/api/staff/'.$this->staffA->id)
+            ->assertOk()
+            ->assertJsonPath('data.can_update_appointment', false);
+
+        $this->actingAs($user)
+            ->putJson(route('api.staff.flagged-issues.resolve', $this->staffA), [
+                'cadre_id' => $newCadre->id,
+                'rank_id' => $newRank->id,
+            ])
+            ->assertForbidden();
+    }
+
+    public function test_authorized_user_can_update_current_appointment_and_salary_position(): void
+    {
+        $user = User::factory()->mdaUser($this->mdaA)->create();
+        $user->givePermissionTo('view-staff', 'update-staff-appointment');
+
+        $department = Department::query()->create([
+            'mda_id' => $this->mdaA->id,
+            'code' => 'FIN',
+            'name' => 'FINANCE',
+            'status' => 'active',
+        ]);
+        $station = Station::withoutGlobalScopes()->create([
+            'mda_id' => $this->mdaA->id,
+            'code' => 'FIN_HQ',
+            'name' => 'FINANCE HQ',
+            'status' => 'active',
+        ]);
+        $scale = SalaryScale::query()->create([
+            'mda_id' => $this->mdaA->id,
+            'code' => 'CONHESS',
+            'name' => 'CONHESS',
+            'min_level' => 1,
+            'max_level' => 17,
+            'min_step' => 1,
+            'max_step' => 15,
+            'status' => 'active',
+        ]);
+        $cadre = Cadre::query()->create([
+            'salary_scale_id' => $scale->id,
+            'department_id' => $department->id,
+            'name' => 'ACCOUNT OFFICER',
+            'legacy_department_name' => 'FINANCE',
+            'status' => 'active',
+        ]);
+        $rank = Rank::query()->create([
+            'cadre_id' => $cadre->id,
+            'salary_scale_id' => $scale->id,
+            'name' => 'AO II',
+            'level' => 10,
+            'status' => 'active',
+        ]);
+        SalaryStructureRate::query()->create([
+            'mda_id' => $this->mdaA->id,
+            'salary_scale_id' => $scale->id,
+            'level' => 10,
+            'step' => 3,
+            'basic_salary' => 73000,
+            'legacy_gross_salary' => 76000,
+            'status' => 'active',
+        ]);
+
+        $this->actingAs($user)
+            ->putJson("/api/staff/{$this->staffA->id}/appointment", [
+                'department_id' => $department->id,
+                'station_id' => $station->id,
+                'location_name' => 'Central Accounts',
+                'cadre_id' => $cadre->id,
+                'rank_id' => $rank->id,
+                'date_first_appointment' => '2010-01-01',
+                'date_last_promotion' => '2024-05-01',
+                'expected_retirement_date' => '2049-01-01',
+                'employment_status' => 'active',
+                'effective_from' => '2026-06-01',
+                'salary_scale_id' => $scale->id,
+                'level' => 10,
+                'step' => 3,
+            ])
+            ->assertOk()
+            ->assertJsonPath('data.current_employment.department_name', 'FINANCE')
+            ->assertJsonPath('data.current_employment.station_name', 'FINANCE HQ')
+            ->assertJsonPath('data.current_employment.cadre_name', 'ACCOUNT OFFICER')
+            ->assertJsonPath('data.current_employment.rank_name', 'AO II')
+            ->assertJsonPath('data.current_salary_placement.salary_scale_code', 'CONHESS')
+            ->assertJsonPath('data.current_salary_placement.level', 10)
+            ->assertJsonPath('data.current_salary_placement.step', 3);
+
+        $this->assertDatabaseHas('staff_employments', [
+            'staff_id' => $this->staffA->id,
+            'department_id' => $department->id,
+            'station_id' => $station->id,
+            'cadre_id' => $cadre->id,
+            'rank_id' => $rank->id,
+            'is_current' => true,
+        ]);
+        $this->assertDatabaseHas('staff_salary_placements', [
+            'staff_id' => $this->staffA->id,
+            'salary_scale_id' => $scale->id,
+            'level' => 10,
+            'step' => 3,
+            'is_current' => true,
+        ]);
+    }
+
+    public function test_flagged_issue_allowance_changes_require_allowance_permission(): void
+    {
+        $user = User::factory()->mdaUser($this->mdaA)->create();
+        $user->givePermissionTo('view-staff', 'update-staff');
+
+        $this->actingAs($user)
+            ->putJson(route('api.staff.flagged-issues.resolve', $this->staffA), [
+                'allowances' => [
+                    ['allowance_type_id' => $this->hazardType->id, 'is_eligible' => true],
+                ],
+            ])
+            ->assertForbidden();
     }
 
     public function test_flagged_issues_lists_staff_with_unresolved_warnings(): void

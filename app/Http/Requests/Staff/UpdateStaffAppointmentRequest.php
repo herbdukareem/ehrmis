@@ -4,7 +4,7 @@ namespace App\Http\Requests\Staff;
 
 use Illuminate\Foundation\Http\FormRequest;
 
-class UpdateStaffEmploymentRequest extends FormRequest
+class UpdateStaffAppointmentRequest extends FormRequest
 {
     public function authorize(): bool
     {
@@ -16,7 +16,6 @@ class UpdateStaffEmploymentRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'mda_id' => ['required', 'integer', 'exists:mdas,id'],
             'department_id' => ['nullable', 'integer', 'exists:departments,id'],
             'station_id' => ['nullable', 'integer', 'exists:stations,id'],
             'location_name' => ['nullable', 'string', 'max:255'],
@@ -30,6 +29,9 @@ class UpdateStaffEmploymentRequest extends FormRequest
             'next_promotion_date' => ['nullable', 'date'],
             'employment_status' => ['required', 'string', 'max:30'],
             'effective_from' => ['nullable', 'date'],
+            'salary_scale_id' => ['nullable', 'integer', 'exists:salary_scales,id', 'required_with:level,step'],
+            'level' => ['nullable', 'integer', 'min:1', 'max:30', 'required_with:salary_scale_id,step'],
+            'step' => ['nullable', 'integer', 'min:1', 'max:30', 'required_with:salary_scale_id,level'],
         ];
     }
 }

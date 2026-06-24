@@ -10,6 +10,7 @@ use App\Domain\Staff\Models\StaffAllowanceAssignment;
 use App\Domain\Staff\Models\StaffEmployment;
 use App\Domain\Staff\Models\StaffSalaryPlacement;
 use App\Domain\Staff\Models\StaffStatusHistory;
+use App\Domain\Staff\Services\StaffRetirementService;
 use App\Http\Controllers\Controller;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\Builder;
@@ -18,6 +19,11 @@ use Illuminate\Http\Request;
 
 class DashboardController extends Controller
 {
+    public function __construct(
+        protected StaffRetirementService $staffRetirementService,
+    ) {
+    }
+
     public function show(Request $request): JsonResponse
     {
         $user = $request->user();
@@ -42,8 +48,8 @@ class DashboardController extends Controller
             'data' => [
                 'counts' => [
                     'staff' => $staffQuery->count(),
-                    'active_staff' => (clone $staffQuery)->where('status', 'active')->count(),
-                    'retired_staff' => (clone $staffQuery)->where('status', 'retired')->count(),
+                    'active_staff' => $this->activeStaffCount($user),
+                    'retired_staff' => $this->retiredStaffCount($user),
                     'other_staff' => (clone $staffQuery)->whereNotIn('status', ['active', 'retired'])->count(),
                     'import_batches' => $importQuery->count(),
                     'movement_workbooks' => $movementQuery->count(),
@@ -81,6 +87,35 @@ class DashboardController extends Controller
             ->where('staff.status', '!=', 'retired')
             ->where('staff_employments.employment_status', '!=', 'retired')
             ->whereBetween('staff_employments.expected_retirement_date', [$from->toDateString(), $to->toDateString()])
+            ->count();
+    }
+
+    protected function retiredStaffCount($user): int
+    {
+        $today = CarbonImmutable::today()->toDateString();
+
+        return $this->employmentQuery($user)
+            ->where(function (Builder $query) use ($today): void {
+                $query
+                    ->where('staff.status', 'retired')
+                    ->orWhere('staff_employments.employment_status', 'retired')
+                    ->orWhereDate('staff_employments.expected_retirement_date', '<=', $today);
+            })
+            ->count();
+    }
+
+    protected function activeStaffCount($user): int
+    {
+        $today = CarbonImmutable::today()->toDateString();
+
+        return $this->employmentQuery($user)
+            ->where('staff.status', 'active')
+            ->where('staff_employments.employment_status', '!=', 'retired')
+            ->where(function (Builder $query) use ($today): void {
+                $query
+                    ->whereNull('staff_employments.expected_retirement_date')
+                    ->orWhereDate('staff_employments.expected_retirement_date', '>', $today);
+            })
             ->count();
     }
 
@@ -186,18 +221,34 @@ class DashboardController extends Controller
     {
         return collect(range(5, 1))->map(function (int $offset) use ($user, $today): array {
             $year = $today->year - $offset;
-            $total = StaffStatusHistory::query()
-                ->join('staff', 'staff.id', '=', 'staff_status_histories.staff_id')
+            $yearStart = CarbonImmutable::create($year)->startOfYear()->toDateString();
+            $yearEnd = CarbonImmutable::create($year)->endOfYear()->toDateString();
+
+            $retiredHistory = StaffStatusHistory::query()
+                ->selectRaw('staff_id, MIN(effective_from) as retired_effective_from')
+                ->where('status', 'retired')
+                ->groupBy('staff_id');
+
+            $total = StaffEmployment::query()
+                ->join('staff', 'staff.id', '=', 'staff_employments.staff_id')
+                ->leftJoinSub($retiredHistory, 'retired_history', function ($join): void {
+                    $join->on('retired_history.staff_id', '=', 'staff.id');
+                })
                 ->whereNull('staff.deleted_at')
-                ->where('staff_status_histories.status', 'retired')
-                ->whereBetween('staff_status_histories.effective_from', [
-                    CarbonImmutable::create($year)->startOfYear()->toDateString(),
-                    CarbonImmutable::create($year)->endOfYear()->toDateString(),
-                ])
-                ->distinct('staff_status_histories.staff_id');
+                ->where('staff_employments.is_current', true)
+                ->where(function (Builder $query) use ($yearStart, $yearEnd): void {
+                    $query
+                        ->whereBetween('retired_history.retired_effective_from', [$yearStart, $yearEnd])
+                        ->orWhere(function (Builder $fallbackQuery) use ($yearStart, $yearEnd): void {
+                            $fallbackQuery
+                                ->whereNull('retired_history.retired_effective_from')
+                                ->whereBetween('staff_employments.expected_retirement_date', [$yearStart, $yearEnd]);
+                        });
+                })
+                ->distinct('staff.id');
 
             $user->scopeToAccessibleMdas($total, 'staff.mda_id');
-            $total = $total->count('staff_status_histories.staff_id');
+            $total = $total->count('staff.id');
 
             return ['label' => (string) $year, 'total' => $total];
         })->all();

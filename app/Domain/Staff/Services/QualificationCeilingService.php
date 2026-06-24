@@ -7,9 +7,18 @@ use Illuminate\Support\Str;
 
 class QualificationCeilingService
 {
+    /** @var array<string, int|null> */
+    protected array $maxLevelCache = [];
+
     public function getMaxLevelFor(string $qualificationCode, string $salaryScaleCode): ?int
     {
-        return QualificationScaleCeiling::query()
+        $cacheKey = $this->normalizeCode($qualificationCode).'|'.$this->normalizeCode($salaryScaleCode);
+
+        if (array_key_exists($cacheKey, $this->maxLevelCache)) {
+            return $this->maxLevelCache[$cacheKey];
+        }
+
+        return $this->maxLevelCache[$cacheKey] = QualificationScaleCeiling::query()
             ->where('status', 'active')
             ->whereHas('qualificationType', function ($query) use ($qualificationCode): void {
                 $query

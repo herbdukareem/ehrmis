@@ -122,4 +122,85 @@ class DashboardIntelligenceTest extends TestCase
 
         CarbonImmutable::setTestNow();
     }
+
+    public function test_dashboard_counts_overdue_expected_retirement_dates_as_retired(): void
+    {
+        CarbonImmutable::setTestNow('2026-06-13');
+
+        $mda = Mda::query()->create(['code' => 'MOH', 'name' => 'Ministry of Health', 'status' => 'active']);
+        $department = Department::query()->create(['mda_id' => $mda->id, 'code' => 'ADM', 'name' => 'Admin', 'status' => 'active']);
+        $scale = SalaryScale::query()->create(['mda_id' => $mda->id, 'code' => 'GL', 'name' => 'Grade Level', 'min_level' => 1, 'max_level' => 17, 'min_step' => 1, 'max_step' => 15, 'status' => 'active']);
+        $cadre = Cadre::query()->create(['department_id' => $department->id, 'salary_scale_id' => $scale->id, 'name' => 'Admin Officer', 'status' => 'active']);
+
+        $staff = Staff::withoutGlobalScopes()->create([
+            'mda_id' => $mda->id,
+            'staff_number' => 'MOH-RET',
+            'surname' => 'Retired',
+            'first_name' => 'ByDate',
+            'full_name' => 'Retired ByDate',
+            'sex' => 'female',
+            'status' => 'active',
+        ]);
+
+        StaffEmployment::query()->create([
+            'staff_id' => $staff->id,
+            'mda_id' => $mda->id,
+            'department_id' => $department->id,
+            'cadre_id' => $cadre->id,
+            'expected_retirement_date' => '2011-07-01',
+            'employment_status' => 'active',
+            'is_current' => true,
+        ]);
+
+        $user = User::factory()->mdaUser($mda)->create();
+
+        $this->actingAs($user)
+            ->getJson('/api/dashboard')
+            ->assertOk()
+            ->assertJsonPath('data.counts.staff', 1)
+            ->assertJsonPath('data.counts.active_staff', 0)
+            ->assertJsonPath('data.counts.retired_staff', 1);
+
+        CarbonImmutable::setTestNow();
+    }
+
+    public function test_dashboard_retirement_history_falls_back_to_expected_retirement_date_when_no_retired_status_history_exists(): void
+    {
+        CarbonImmutable::setTestNow('2026-06-13');
+
+        $mda = Mda::query()->create(['code' => 'MOH', 'name' => 'Ministry of Health', 'status' => 'active']);
+        $department = Department::query()->create(['mda_id' => $mda->id, 'code' => 'ADM', 'name' => 'Admin', 'status' => 'active']);
+        $scale = SalaryScale::query()->create(['mda_id' => $mda->id, 'code' => 'GL', 'name' => 'Grade Level', 'min_level' => 1, 'max_level' => 17, 'min_step' => 1, 'max_step' => 15, 'status' => 'active']);
+        $cadre = Cadre::query()->create(['department_id' => $department->id, 'salary_scale_id' => $scale->id, 'name' => 'Admin Officer', 'status' => 'active']);
+
+        $staff = Staff::withoutGlobalScopes()->create([
+            'mda_id' => $mda->id,
+            'staff_number' => 'MOH-HIST',
+            'surname' => 'History',
+            'first_name' => 'Fallback',
+            'full_name' => 'History Fallback',
+            'sex' => 'female',
+            'status' => 'active',
+        ]);
+
+        StaffEmployment::query()->create([
+            'staff_id' => $staff->id,
+            'mda_id' => $mda->id,
+            'department_id' => $department->id,
+            'cadre_id' => $cadre->id,
+            'expected_retirement_date' => '2025-04-01',
+            'employment_status' => 'active',
+            'is_current' => true,
+        ]);
+
+        $user = User::factory()->mdaUser($mda)->create();
+
+        $response = $this->actingAs($user)->getJson('/api/dashboard')->assertOk();
+
+        $history = collect($response->json('data.retirement_trends.history'))->keyBy('label');
+
+        $this->assertSame(1, $history->get('2025')['total']);
+
+        CarbonImmutable::setTestNow();
+    }
 }

@@ -61,6 +61,10 @@ class LegacyStaffImportPolicy
             return false;
         }
 
+        if ((int) ($batch->created_by ?? 0) === (int) $user->id) {
+            return true;
+        }
+
         return $user->scopeToAccessibleMdas($batch->rows()->getQuery(), 'mda_id')->exists();
     }
 }

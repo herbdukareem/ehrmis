@@ -9,6 +9,7 @@ use App\Domain\Movement\Services\MovementDepartmentSummaryService;
 use App\Domain\Movement\Services\MovementSheetGenerationService;
 use App\Domain\Organization\Models\Mda;
 use App\Http\Controllers\Controller;
+use App\Jobs\GenerateMovementWorkbook;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
@@ -31,7 +32,7 @@ class MovementWorkbookController extends Controller
 
         abort_unless($request->user()->canAccessMda((int) $validated['mda_id']), 403);
 
-        $workbook = $service->generateForMda(
+        $workbook = $service->initializeWorkbook(
             (int) $validated['mda_id'],
             (int) $validated['year'],
             $request->user()->id,
@@ -40,7 +41,17 @@ class MovementWorkbookController extends Controller
             (int) $validated['budget_minimum_step'],
         );
 
-        return response()->json(['message' => 'Movement workbook generated.', 'data' => ['id' => $workbook->id]], 201);
+        GenerateMovementWorkbook::dispatch(
+            $workbook->id,
+            (int) $validated['year'],
+            (int) $validated['budget_year'],
+            (int) $validated['budget_minimum_step'],
+        )->afterCommit();
+
+        return response()->json([
+            'message' => 'Movement workbook generation has started. You can leave this page while it runs.',
+            'data' => ['id' => $workbook->id],
+        ], 202);
     }
 
     public function index(Request $request): JsonResponse

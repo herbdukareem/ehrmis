@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onMounted, ref } from 'vue';
+import { computed, onMounted, ref, watch } from 'vue';
 import AppModal from '../components/AppModal.vue';
 import LoadingBlock from '../components/LoadingBlock.vue';
 import PageHeading from '../components/PageHeading.vue';
@@ -12,6 +12,7 @@ const selectedUserId = ref(null);
 const selectedRoleId = ref(null);
 const userSearch = ref('');
 const roleSearch = ref('');
+const permissionSearch = ref('');
 const modalState = ref({ entity: null, mode: null });
 const busy = ref(false);
 
@@ -94,6 +95,8 @@ const resetNewUserForm = () => {
     newUserForm.value = defaultUserForm();
 };
 
+const uniqueNumericIds = (values) => [...new Set((values ?? []).map((value) => Number(value)).filter(Boolean))];
+
 const buildUserForm = (user) => {
     const mdaScopes = (user.access_scopes ?? [])
         .filter((scope) => scope.scope_type === 'mda' && scope.mda_id)
@@ -135,14 +138,44 @@ const assignableRolesFor = (form) => {
 
 const assignableRoles = computed(() => assignableRolesFor(activeUserForm.value));
 
+const syncUserRoleSelection = (form) => {
+    const allowedRoleIds = new Set(assignableRolesFor(form).map((role) => Number(role.id)));
+    form.role_ids = uniqueNumericIds(form.role_ids).filter((roleId) => allowedRoleIds.has(roleId));
+};
+
+const syncUserScopeDefaults = (form) => {
+    if (!form) return;
+
+    if (form.scope_type === 'mda') {
+        if (!Number(form.mda_id ?? 0)) {
+            form.mda_id = Number(mdas.value[0]?.id ?? 0) || null;
+        }
+
+        form.mda_ids = uniqueNumericIds(form.mda_ids).filter((mdaId) => mdaId !== Number(form.mda_id));
+    } else {
+        form.mda_id = null;
+        form.mda_ids = [];
+    }
+
+    syncUserRoleSelection(form);
+};
+
 const permissionGroups = computed(() => {
     const allPermissions = permissions.value;
+    const term = permissionSearch.value.trim().toLowerCase();
+    const filterItems = (items) => !term
+        ? items
+        : items.filter((permission) => [
+            permission.name,
+            permission.guard_name,
+        ].filter(Boolean).join(' ').toLowerCase().includes(term));
+
     return [
         {
             id: 'safe',
             label: 'Assignable permissions',
             blurb: 'Permissions available for the current role scope.',
-            items: allPermissions.filter((permission) => activeRoleForm.value.scope === 'global' || mdaPermissionNames.value.includes(permission.name)),
+            items: filterItems(allPermissions.filter((permission) => activeRoleForm.value.scope === 'global' || mdaPermissionNames.value.includes(permission.name))),
         },
         {
             id: 'restricted',
@@ -150,21 +183,39 @@ const permissionGroups = computed(() => {
             blurb: 'Visible here so admins understand what stays reserved for higher scope.',
             items: activeRoleForm.value.scope === 'global'
                 ? []
-                : allPermissions.filter((permission) => !mdaPermissionNames.value.includes(permission.name)),
+                : filterItems(allPermissions.filter((permission) => !mdaPermissionNames.value.includes(permission.name))),
         },
     ];
 });
+
+const syncRoleScopeDefaults = (form) => {
+    if (!form) return;
+
+    if (form.scope === 'mda') {
+        if (!Number(form.mda_id ?? 0)) {
+            form.mda_id = Number(mdas.value[0]?.id ?? 0) || null;
+        }
+
+        form.permissions = (form.permissions ?? []).filter((permissionName) => mdaPermissionNames.value.includes(permissionName));
+        return;
+    }
+
+    form.mda_id = null;
+    form.permissions = [...new Set(form.permissions ?? [])];
+};
 
 const chooseUser = (id) => {
     selectedUserId.value = id;
     const user = data.value?.users.find((candidate) => candidate.id === id);
     userForm.value = user ? buildUserForm(user) : defaultUserForm();
+    syncUserScopeDefaults(userForm.value);
 };
 
 const chooseRole = (id) => {
     selectedRoleId.value = id;
     const role = manageableRoles.value.find((candidate) => candidate.id === id);
     roleForm.value = role ? buildRoleForm(role) : { name: '', scope: defaultRoleScope(), mda_id: defaultRoleMdaId(), permissions: [] };
+    syncRoleScopeDefaults(roleForm.value);
 };
 
 const openModal = (entity, mode) => {
@@ -172,12 +223,16 @@ const openModal = (entity, mode) => {
     if (entity === 'role' && mode === 'create') resetNewRoleForm();
     if (entity === 'user' && mode === 'edit' && selectedUser.value) userForm.value = buildUserForm(selectedUser.value);
     if (entity === 'role' && mode === 'edit' && selectedRole.value) roleForm.value = buildRoleForm(selectedRole.value);
+    if (entity === 'user') syncUserScopeDefaults(activeUserForm.value);
+    if (entity === 'role') syncRoleScopeDefaults(activeRoleForm.value);
+    permissionSearch.value = '';
     modalState.value = { entity, mode };
 };
 
 const closeModal = () => {
     modalState.value = { entity: null, mode: null };
     busy.value = false;
+    permissionSearch.value = '';
 };
 
 const buildUserPayload = (form) => {
@@ -259,6 +314,24 @@ const deleteRole = async () => {
         pushToast(apiMessage(error), 'error', 4200);
     }
 };
+
+watch(
+    () => activeRoleForm.value.scope,
+    () => {
+        if (modalState.value.entity === 'role') {
+            syncRoleScopeDefaults(activeRoleForm.value);
+        }
+    }
+);
+
+watch(
+    () => [activeUserForm.value.scope_type, activeUserForm.value.mda_id],
+    () => {
+        if (modalState.value.entity === 'user') {
+            syncUserScopeDefaults(activeUserForm.value);
+        }
+    }
+);
 
 const load = async () => {
     const previousUserId = selectedUserId.value;
@@ -507,11 +580,14 @@ onMounted(load);
                 <div class="civic-field civic-field-wide">
                     <span>Assignable roles</span>
                     <div class="civic-check-grid">
-                        <label v-for="role in assignableRoles" :key="role.id" class="civic-check">
+                        <label v-for="role in assignableRoles" :key="role.id" class="civic-check civic-check-card">
                             <input v-model="activeUserForm.role_ids" type="checkbox" :value="role.id" :disabled="busy">
-                            {{ role.name }}
-                            <small>{{ role.scope === 'global' ? 'Global' : role.mda?.code }}</small>
+                            <span class="civic-check-copy">
+                                <strong>{{ role.name }}</strong>
+                                <small>{{ role.scope === 'global' ? 'Global system role' : `${role.mda?.code ?? 'MDA'} role` }}</small>
+                            </span>
                         </label>
+                        <div v-if="assignableRoles.length === 0" class="civic-setup-empty">No roles are available for the current scope.</div>
                     </div>
                 </div>
             </form>
@@ -545,19 +621,26 @@ onMounted(load);
                         <option v-for="mda in mdas" :key="mda.id" :value="mda.id">{{ mda.code }} - {{ mda.name }}</option>
                     </select>
                 </label>
+                <label class="civic-field civic-field-wide">
+                    <span>Search permissions</span>
+                    <input v-model="permissionSearch" type="text" placeholder="Filter permissions by name" :disabled="busy">
+                </label>
 
                 <div v-for="group in permissionGroups" :key="group.id" class="civic-field civic-field-wide">
                     <span>{{ group.label }}</span>
                     <p class="civic-section-note">{{ group.blurb }}</p>
                     <div class="civic-check-grid">
-                        <label v-for="permission in group.items" :key="permission.id" class="civic-check" :class="{ 'civic-check-muted': group.id === 'restricted' }">
+                        <label v-for="permission in group.items" :key="permission.id" class="civic-check civic-check-card" :class="{ 'civic-check-muted': group.id === 'restricted' }">
                             <input
                                 v-model="activeRoleForm.permissions"
                                 type="checkbox"
                                 :value="permission.name"
                                 :disabled="busy || group.id === 'restricted'"
                             >
-                            {{ permission.name }}
+                            <span class="civic-check-copy">
+                                <strong>{{ permission.name }}</strong>
+                                <small>{{ group.id === 'restricted' ? 'Reserved for higher-scope administration.' : 'Assignable in this role scope.' }}</small>
+                            </span>
                         </label>
                         <div v-if="group.items.length === 0" class="civic-setup-empty">No permissions in this group.</div>
                     </div>

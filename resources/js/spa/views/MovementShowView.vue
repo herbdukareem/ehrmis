@@ -65,7 +65,7 @@ onMounted(load);
         <PageHeading :eyebrow="`${data.mda?.code} - Movement ${data.year} - Budget ${data.budget_year ?? data.year + 1}`" :title="data.name" description="Official staff-movement detail and proposed personnel cost snapshot.">
             <StatusPill :status="data.status" />
         </PageHeading>
-        <section class="civic-decision-bar">
+        <section v-if="!['generating', 'generation_failed'].includes(data.status)" class="civic-decision-bar">
             <div><span>Staff considered</span><strong>{{ data.summary?.staff_considered ?? 0 }}</strong></div>
             <div><span>Promotion due</span><strong>{{ data.summary?.due_for_promotion ?? 0 }}</strong></div>
             <div><span>Retiring</span><strong>{{ data.summary?.retiring_in_year ?? 0 }}</strong></div>
@@ -81,6 +81,14 @@ onMounted(load);
         </section>
         <div v-if="feedback" class="civic-feedback">{{ feedback }}</div>
 
+        <div v-if="data.status === 'generating'" class="civic-feedback">
+            This workbook is still generating in the background. Refresh this page in a moment to see the staff movement detail.
+        </div>
+        <div v-else-if="data.status === 'generation_failed'" class="civic-error">
+            {{ data.summary?.generation_failure ?? 'Workbook generation failed. Try generating it again.' }}
+        </div>
+
+        <template v-else>
         <AppTabs v-model="activeTab" :tabs="tabs" />
 
         <section v-if="activeTab === 'detail'" class="civic-movement-groups">
@@ -121,5 +129,6 @@ onMounted(load);
                 <DataTable :columns="summaryColumns" :rows="summaryRows(department.rows)" row-key="serial_number" />
             </details>
         </section>
+        </template>
     </template>
 </template>

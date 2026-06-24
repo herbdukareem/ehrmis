@@ -2,8 +2,10 @@
 
 namespace Database\Seeders;
 
+
 use App\Domain\Staff\Models\SalaryScale;
 use Illuminate\Database\Seeder;
+use App\Domain\Organization\Models\Mda;
 
 class SalaryScaleSeeder extends Seeder
 {

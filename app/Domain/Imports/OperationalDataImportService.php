@@ -18,7 +18,12 @@ use App\Domain\Staff\Models\SalaryScale;
 use App\Models\User;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
+use Symfony\Component\Process\PhpExecutableFinder;
+use Symfony\Component\Process\Process;
+use Throwable;
 use Illuminate\Validation\ValidationException;
 use Maatwebsite\Excel\Facades\Excel;
 
@@ -36,18 +41,15 @@ class OperationalDataImportService
     public function import(string $type, UploadedFile $file, User $user): array
     {
         $this->configureRuntime();
-        $rows = $this->readRows($file);
-
-        if ($rows === []) {
-            throw ValidationException::withMessages(['file' => 'The spreadsheet contains no data rows.']);
-        }
 
         return match ($type) {
-            'stations' => $this->importStations($rows, $user),
-            'highest-qualifications' => $this->importHighestQualifications($rows, $user),
-            'cadres' => $this->importCadres($rows, $user),
-            'ranks' => $this->importRanks($rows, $user),
-            'staff-list' => $this->stageStaffList($rows, $user),
+            'stations' => $this->importStations($this->readPopulatedRows($file), $user),
+            'highest-qualifications' => $this->importHighestQualifications($this->readPopulatedRows($file), $user),
+            'cadres' => $this->importCadres($this->readPopulatedRows($file), $user),
+            'ranks' => $this->importRanks($this->readPopulatedRows($file), $user),
+            'staff-list' => $this->shouldStageStaffListInBackground()
+                ? $this->queueStaffList($file, $user)
+                : $this->stageStaffList($this->readPopulatedRows($file), $user),
             default => throw ValidationException::withMessages(['type' => 'Unsupported import type.']),
         };
     }
@@ -107,12 +109,23 @@ class OperationalDataImportService
         };
     }
 
-    protected function readRows(UploadedFile $file): array
+    protected function readRows(UploadedFile|string $file): array
     {
         $import = new SpreadsheetRowsImport();
         Excel::import($import, $file);
 
         return $import->rows;
+    }
+
+    protected function readPopulatedRows(UploadedFile|string $file): array
+    {
+        $rows = $this->readRows($file);
+
+        if ($rows === []) {
+            throw ValidationException::withMessages(['file' => 'The spreadsheet contains no data rows.']);
+        }
+
+        return $rows;
     }
 
     protected function importStations(array $rows, User $user): array
@@ -327,84 +340,318 @@ class OperationalDataImportService
     protected function stageStaffList(array $rows, User $user): array
     {
         return DB::transaction(function () use ($rows, $user): array {
-            $summary = [
-                'source' => 'staff_list_upload',
-                'rows_read' => count($rows),
-                'rows_staged' => 0,
-                'rows_published' => 0,
-                'rows_with_warnings' => 0,
-                'rows_with_errors' => 0,
-            ];
             $batch = LegacyStaffImportBatch::query()->create([
                 'source_database' => 'spreadsheet_upload',
                 'source_table' => 'staff_list_upload',
+                'created_by' => $user->id,
                 'status' => 'staging',
                 'started_at' => now(),
+                'summary' => $this->emptyStaffListSummary(),
             ]);
 
-            foreach ($rows as $index => $sourceRow) {
-                if (! $user->hasGlobalMdaAccess()) {
-                    $resolvedMda = $this->resolveMda(['mda_code' => $sourceRow['mda'] ?? null], $user, $index);
-                    $sourceRow['mda'] = $resolvedMda->code;
-                }
-
-                $normalizationRow = $sourceRow;
-                $normalizationRow['_upload_row'] = $index + 2;
-                $normalized = $this->normalizer->normalize($normalizationRow, 'staff_list_upload');
-                $issues = $this->validator->validate($normalized);
-                $hasErrors = $this->validator->hasErrors($issues);
-                $matchedStaff = $this->identityMatcher->match($normalized);
-                $status = $hasErrors ? 'invalid' : 'staged';
-
-                $stagedRow = LegacyStaffImportRow::query()->create([
-                    'batch_id' => $batch->id,
-                    'legacy_staff_id' => null,
-                    'legacy_master_staff_id' => null,
-                    'mda_id' => $normalized['mda_id'],
-                    'staff_number' => $normalized['staff_number'],
-                    'legacy_cno' => $normalized['legacy_cno'],
-                    'legacy_psn' => $normalized['legacy_psn'],
-                    'legacy_cno_psn' => $normalized['legacy_cno_psn'],
-                    'full_name' => $normalized['full_name'],
-                    'raw_payload' => ['source_row' => $sourceRow, 'upload_row' => $index + 2],
-                    'normalized_payload' => $normalized,
-                    'dedupe_key' => $normalized['dedupe_key'],
-                    'status' => $status,
-                    'matched_staff_id' => $matchedStaff?->id,
-                    'department_id' => $normalized['department_id'],
-                    'department_name' => $normalized['department_name'],
-                    'station_id' => $normalized['station_id'],
-                    'station_name' => $normalized['station_name'],
-                    'cadre_id' => $normalized['cadre_id'],
-                    'cadre_name' => $normalized['cadre_name'],
-                    'rank_id' => $normalized['rank_id'],
-                    'rank_name' => $normalized['rank_name'],
-                    'salary_scale_id' => $normalized['salary_scale_id'],
-                    'salary_scale_code' => $normalized['salary_scale_code'],
-                    'level' => $normalized['level'],
-                    'step' => $normalized['step'],
-                ]);
-
-                foreach ($issues as $issue) {
-                    LegacyStaffImportError::query()->create([
-                        'batch_id' => $batch->id,
-                        'row_id' => $stagedRow->id,
-                        'field' => $issue['field'] ?? null,
-                        'error_code' => $issue['error_code'],
-                        'message' => $issue['message'],
-                        'severity' => $issue['severity'],
-                    ]);
-                }
-
-                $summary['rows_staged']++;
-                $summary['rows_with_warnings'] += collect($issues)->contains('severity', 'warning') ? 1 : 0;
-                $summary['rows_with_errors'] += $hasErrors ? 1 : 0;
-            }
+            $summary = $this->stageStaffListIntoBatch($rows, $user, $batch);
 
             $batch->update(['status' => 'staged', 'completed_at' => now(), 'summary' => $summary]);
 
             return ['type' => 'staff-list', 'batch_id' => $batch->id] + $summary;
         });
+    }
+
+    protected function queueStaffList(UploadedFile $file, User $user): array
+    {
+        $extension = $file->getClientOriginalExtension() ?: $file->extension() ?: 'xlsx';
+        $storedPath = $file->storeAs('imports/staff-list', Str::uuid().'.'.$extension);
+        $batch = LegacyStaffImportBatch::query()->create([
+            'source_database' => 'spreadsheet_upload',
+            'source_table' => 'staff_list_upload',
+            'created_by' => $user->id,
+            'status' => 'queued',
+            'started_at' => now(),
+            'summary' => $this->emptyStaffListSummary([
+                'queued_file_path' => $storedPath,
+            ]),
+        ]);
+        $this->dispatchQueuedStaffListImport($batch->id, $storedPath, $user->id);
+
+        return [
+            'type' => 'staff-list',
+            'batch_id' => $batch->id,
+            'status' => 'queued',
+        ] + $this->emptyStaffListSummary();
+    }
+
+    public function processQueuedStaffListImport(int $batchId, string $storedPath, int $userId): void
+    {
+        $batch = $this->claimQueuedStaffListBatch($batchId);
+        $user = User::query()->find($userId);
+
+        if (! $batch) {
+            Log::info('Skipped queued staff-list import because the batch is already being processed or has completed.', [
+                'batch_id' => $batchId,
+                'stored_path' => $storedPath,
+                'user_id' => $userId,
+            ]);
+
+            return;
+        }
+
+        if (! $user) {
+            $this->deleteStoredImport($storedPath);
+
+            return;
+        }
+
+        try {
+            $this->configureRuntime();
+
+            $rows = $this->readPopulatedRows(Storage::path($storedPath));
+            $summary = DB::transaction(function () use ($rows, $user, $batch): array {
+                $lockedBatch = LegacyStaffImportBatch::query()->lockForUpdate()->findOrFail($batch->id);
+                $this->clearExistingStagedRows($lockedBatch);
+
+                return $this->stageStaffListIntoBatch($rows, $user, $lockedBatch);
+            });
+
+            $batch->update([
+                'status' => 'staged',
+                'completed_at' => now(),
+                'summary' => $this->withoutQueuedFilePath($summary),
+            ]);
+        } catch (ValidationException $exception) {
+            $message = collect($exception->errors())->flatten()->first() ?? 'The spreadsheet contains no data rows.';
+
+            $batch->update([
+                'status' => 'failed',
+                'completed_at' => now(),
+                'summary' => $this->withoutQueuedFilePath($this->emptyStaffListSummary([
+                    'failure_message' => $message,
+                    'queued_file_path' => $storedPath,
+                ])),
+            ]);
+        } catch (Throwable $exception) {
+            Log::error('Queued staff-list import failed.', [
+                'batch_id' => $batchId,
+                'stored_path' => $storedPath,
+                'user_id' => $userId,
+                'exception' => $exception,
+            ]);
+
+            $batch->update([
+                'status' => 'failed',
+                'completed_at' => now(),
+                'summary' => $this->withoutQueuedFilePath($this->emptyStaffListSummary([
+                    'failure_message' => 'The spreadsheet could not be staged. Review the server logs for details.',
+                    'queued_file_path' => $storedPath,
+                ])),
+            ]);
+        } finally {
+            $this->deleteStoredImport($storedPath);
+        }
+    }
+
+    protected function claimQueuedStaffListBatch(int $batchId): ?LegacyStaffImportBatch
+    {
+        $claimed = LegacyStaffImportBatch::query()
+            ->whereKey($batchId)
+            ->whereIn('status', ['queued', 'failed'])
+            ->update([
+                'status' => 'staging',
+                'completed_at' => null,
+            ]);
+
+        if ($claimed === 1) {
+            return LegacyStaffImportBatch::query()->find($batchId);
+        }
+
+        $batch = LegacyStaffImportBatch::query()->find($batchId);
+
+        if (! $batch) {
+            return null;
+        }
+
+        if (in_array($batch->status, ['staged', 'completed', 'submitted', 'under_review', 'approved', 'rejected', 'publishing', 'partially_published', 'published'], true)) {
+            return null;
+        }
+
+        if ($batch->status === 'staging') {
+            return null;
+        }
+
+        return null;
+    }
+
+    protected function clearExistingStagedRows(LegacyStaffImportBatch $batch): void
+    {
+        LegacyStaffImportError::query()
+            ->where('batch_id', $batch->id)
+            ->delete();
+
+        LegacyStaffImportRow::query()
+            ->where('batch_id', $batch->id)
+            ->delete();
+    }
+
+    protected function stageStaffListIntoBatch(array $rows, User $user, LegacyStaffImportBatch $batch): array
+    {
+        $summary = $this->emptyStaffListSummary([
+            'rows_read' => count($rows),
+        ]);
+
+        foreach ($rows as $index => $sourceRow) {
+            if (! $user->hasGlobalMdaAccess()) {
+                $resolvedMda = $this->resolveMda(['mda_code' => $sourceRow['mda'] ?? null], $user, $index);
+                $sourceRow['mda'] = $resolvedMda->code;
+            }
+
+            $normalizationRow = $sourceRow;
+            $normalizationRow['_upload_row'] = $index + 2;
+            $normalized = $this->normalizer->normalize($normalizationRow, 'staff_list_upload');
+            $issues = $this->validator->validate($normalized);
+            $hasErrors = $this->validator->hasErrors($issues);
+            $matchedStaff = $this->identityMatcher->match($normalized);
+            $status = $hasErrors ? 'invalid' : 'staged';
+
+            $stagedRow = LegacyStaffImportRow::query()->create([
+                'batch_id' => $batch->id,
+                'legacy_staff_id' => null,
+                'legacy_master_staff_id' => null,
+                'mda_id' => $normalized['mda_id'],
+                'staff_number' => $normalized['staff_number'],
+                'legacy_cno' => $normalized['legacy_cno'],
+                'legacy_psn' => $normalized['legacy_psn'],
+                'legacy_cno_psn' => $normalized['legacy_cno_psn'],
+                'full_name' => $normalized['full_name'],
+                'raw_payload' => ['source_row' => $sourceRow, 'upload_row' => $index + 2],
+                'normalized_payload' => $normalized,
+                'dedupe_key' => $normalized['dedupe_key'],
+                'status' => $status,
+                'matched_staff_id' => $matchedStaff?->id,
+                'department_id' => $normalized['department_id'],
+                'department_name' => $normalized['department_name'],
+                'station_id' => $normalized['station_id'],
+                'station_name' => $normalized['station_name'],
+                'cadre_id' => $normalized['cadre_id'],
+                'cadre_name' => $normalized['cadre_name'],
+                'rank_id' => $normalized['rank_id'],
+                'rank_name' => $normalized['rank_name'],
+                'salary_scale_id' => $normalized['salary_scale_id'],
+                'salary_scale_code' => $normalized['salary_scale_code'],
+                'level' => $normalized['level'],
+                'step' => $normalized['step'],
+            ]);
+
+            foreach ($issues as $issue) {
+                LegacyStaffImportError::query()->create([
+                    'batch_id' => $batch->id,
+                    'row_id' => $stagedRow->id,
+                    'field' => $issue['field'] ?? null,
+                    'error_code' => $issue['error_code'],
+                    'message' => $issue['message'],
+                    'severity' => $issue['severity'],
+                ]);
+            }
+
+            $summary['rows_staged']++;
+            $summary['rows_with_warnings'] += collect($issues)->contains('severity', 'warning') ? 1 : 0;
+            $summary['rows_with_errors'] += $hasErrors ? 1 : 0;
+        }
+
+        return $summary;
+    }
+
+    protected function emptyStaffListSummary(array $overrides = []): array
+    {
+        return array_merge([
+            'source' => 'staff_list_upload',
+            'rows_read' => 0,
+            'rows_staged' => 0,
+            'rows_published' => 0,
+            'rows_with_warnings' => 0,
+            'rows_with_errors' => 0,
+        ], $overrides);
+    }
+
+    protected function shouldStageStaffListInBackground(): bool
+    {
+        return (bool) config('operational_imports.staff_list_background', true)
+            && ! app()->runningUnitTests();
+    }
+
+    protected function deleteStoredImport(string $storedPath): void
+    {
+        if (Storage::exists($storedPath)) {
+            Storage::delete($storedPath);
+        }
+    }
+
+    protected function dispatchQueuedStaffListImport(int $batchId, string $storedPath, int $userId): void
+    {
+        try {
+            $phpBinary = (new PhpExecutableFinder())->find(false) ?: PHP_BINARY;
+            Log::info('Dispatching queued staff-list import.', [
+                'batch_id' => $batchId,
+                'stored_path' => $storedPath,
+                'user_id' => $userId,
+                'php_binary' => $phpBinary,
+                'os_family' => PHP_OS_FAMILY,
+            ]);
+
+            if (PHP_OS_FAMILY === 'Windows') {
+                $command = sprintf(
+                    'start "" /B %s artisan operational-imports:stage-staff-list %s %s %s',
+                    escapeshellarg($phpBinary),
+                    escapeshellarg((string) $batchId),
+                    escapeshellarg($storedPath),
+                    escapeshellarg((string) $userId),
+                );
+
+                $process = Process::fromShellCommandline($command, base_path());
+                $process->run();
+            } else {
+                $process = new Process([
+                    $phpBinary,
+                    'artisan',
+                    'operational-imports:stage-staff-list',
+                    (string) $batchId,
+                    $storedPath,
+                    (string) $userId,
+                ], base_path());
+
+                $process->disableOutput();
+                $process->start();
+            }
+        } catch (Throwable $exception) {
+            LegacyStaffImportBatch::query()
+                ->whereKey($batchId)
+                ->update([
+                    'status' => 'failed',
+                    'completed_at' => now(),
+                    'summary' => $this->withoutQueuedFilePath($this->emptyStaffListSummary([
+                        'failure_message' => 'Unable to start the background staff-list importer.',
+                        'queued_file_path' => $storedPath,
+                    ])),
+                ]);
+
+            $this->deleteStoredImport($storedPath);
+
+            Log::error('Unable to dispatch queued staff-list import.', [
+                'batch_id' => $batchId,
+                'stored_path' => $storedPath,
+                'user_id' => $userId,
+                'exception' => $exception,
+            ]);
+
+            throw ValidationException::withMessages([
+                'file' => 'The background importer could not be started. Please try again.',
+            ]);
+        }
+    }
+
+    protected function withoutQueuedFilePath(array $summary): array
+    {
+        unset($summary['queued_file_path']);
+
+        return $summary;
     }
 
     protected function resolveDepartment(array $row, User $user, int $index): Department

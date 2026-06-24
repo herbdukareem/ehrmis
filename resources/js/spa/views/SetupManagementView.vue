@@ -195,7 +195,7 @@ const typeFields = computed(() => {
             ];
         case 'ranks':
             return [
-                { key: 'cadre_id', label: 'Cadre', type: 'select', options: data.value.cadres ?? [], optionLabel: (item) => `${item.name} / ${item.department?.code ?? 'Department'}` },
+                { key: 'cadre_id', label: 'Cadre', type: 'select', options: data.value.cadres ?? [], optionLabel: (item) => `${item.name} / ${item.department?.code ?? 'Department'} / ${item.salary_scale?.code ?? 'Scale'}` },
                 { key: 'salary_scale_id', label: 'Salary scale', type: 'select', options: scaleOptionsForMda(mdaForCadre(activeForm.value.cadre_id)), optionLabel: (item) => `${item.code} - ${item.name}` },
                 { key: 'name', label: 'Name', type: 'text' },
                 { key: 'level', label: 'Level', type: 'number' },
@@ -349,7 +349,7 @@ const displayLabel = (type, record) => {
         case 'cadres':
             return `${record.name} / ${record.department?.code ?? 'Department'}`;
         case 'ranks':
-            return `${record.name} / ${record.cadre?.name ?? 'Cadre'}`;
+            return `${record.name} / ${record.cadre?.name ?? 'Cadre'} / ${record.cadre?.department?.code ?? 'Department'} / ${record.salary_scale?.code ?? 'Scale'}`;
         case 'salary-structure-rates':
             return `${record.salary_scale?.code ?? 'Scale'} L${record.level} S${record.step}`;
         case 'salary-structure-rate-allowances':

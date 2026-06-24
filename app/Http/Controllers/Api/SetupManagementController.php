@@ -349,7 +349,17 @@ class SetupManagementController extends Controller
             'ranks' => $request->validate([
                 'cadre_id' => ['required', 'integer', 'exists:cadres,id'],
                 'salary_scale_id' => ['required', 'integer', 'exists:salary_scales,id'],
-                'name' => ['required', 'string', 'max:255'],
+                'name' => [
+                    'required',
+                    'string',
+                    'max:255',
+                    Rule::unique('ranks', 'name')
+                        ->ignore($record?->getKey())
+                        ->where(fn ($query) => $query
+                            ->where('cadre_id', $request->integer('cadre_id'))
+                            ->where('salary_scale_id', $request->integer('salary_scale_id'))
+                            ->where('level', $request->integer('level'))),
+                ],
                 'level' => ['required', 'integer', 'min:0'],
                 'description' => ['nullable', 'string'],
                 'status' => ['required', Rule::in(['active', 'inactive'])],
@@ -444,6 +454,20 @@ class SetupManagementController extends Controller
             if ((int) ($validated['salary_scale_id'] ?? $record?->salary_scale_id) !== (int) $cadre->salary_scale_id) {
                 throw ValidationException::withMessages([
                     'salary_scale_id' => 'The selected rank must use the same salary scale as its cadre.',
+                ]);
+            }
+
+            $exists = Rank::query()
+                ->where('cadre_id', $cadre->id)
+                ->where('salary_scale_id', (int) ($validated['salary_scale_id'] ?? $record?->salary_scale_id))
+                ->whereRaw('LOWER(name) = ?', [strtolower((string) ($validated['name'] ?? $record?->name))])
+                ->where('level', (int) ($validated['level'] ?? $record?->level))
+                ->when($record, fn (Builder $query) => $query->whereKeyNot($record->getKey()))
+                ->exists();
+
+            if ($exists) {
+                throw ValidationException::withMessages([
+                    'name' => 'A rank with this name, level, cadre, department, and salary scale already exists.',
                 ]);
             }
 

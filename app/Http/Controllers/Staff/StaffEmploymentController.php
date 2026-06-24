@@ -12,7 +12,7 @@ class StaffEmploymentController extends Controller
 {
     public function store(UpdateStaffEmploymentRequest $request, Staff $staff, StaffUpdateService $staffUpdateService): RedirectResponse
     {
-        $this->authorize('update', $staff);
+        $this->authorize('updateAppointment', $staff);
 
         $staffUpdateService->createEmploymentRecord($staff, $request->validated());
 

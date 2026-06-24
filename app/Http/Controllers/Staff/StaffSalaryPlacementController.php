@@ -13,7 +13,7 @@ class StaffSalaryPlacementController extends Controller
 {
     public function store(UpdateStaffSalaryPlacementRequest $request, Staff $staff, StaffSalaryPlacementService $staffSalaryPlacementService): RedirectResponse
     {
-        $this->authorize('update', $staff);
+        $this->authorize('updateAppointment', $staff);
 
         $validated = $request->validated();
         $validated['salary_scale'] = SalaryScale::query()

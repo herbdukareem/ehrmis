@@ -46,7 +46,9 @@ Route::middleware('auth')->group(function (): void {
     Route::get('/staff/flagged-issues', [StaffController::class, 'flaggedIssues'])->name('api.staff.flagged-issues');
     Route::get('/staff', [StaffController::class, 'index'])->name('api.staff.index');
     Route::get('/staff/{staff}', [StaffController::class, 'show'])->name('api.staff.show');
+    Route::get('/staff/{staff}/record-slip', [StaffController::class, 'recordSlip'])->name('api.staff.record-slip.show');
     Route::put('/staff/{staff}', [StaffController::class, 'update'])->name('api.staff.update');
+    Route::put('/staff/{staff}/appointment', [StaffController::class, 'updateAppointment'])->name('api.staff.appointment.update');
     Route::put('/staff/{staff}/allowances', [StaffController::class, 'updateAllowances'])->name('api.staff.allowances.update');
     Route::put('/staff/{staff}/flagged-issues', [StaffController::class, 'resolveFlaggedIssue'])->name('api.staff.flagged-issues.resolve');
     Route::post('/staff/{staff}/passport', [StaffMediaController::class, 'storePassport'])->name('api.staff.passport.store');

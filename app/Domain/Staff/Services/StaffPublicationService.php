@@ -11,12 +11,14 @@ use App\Domain\Staff\Models\StaffQualification;
 use App\Domain\Staff\Models\StaffSalaryPlacement;
 use App\Domain\Staff\Models\StaffStatusHistory;
 use App\Services\AuditLogService;
+use Illuminate\Support\Str;
 
 class StaffPublicationService
 {
     public function __construct(
         protected AuditLogService $auditLogService,
         protected SalaryCalculationService $salaryCalculationService,
+        protected AllowanceTypeProvisioningService $allowanceTypeProvisioningService,
     ) {
     }
 
@@ -32,18 +34,20 @@ class StaffPublicationService
             throw new \InvalidArgumentException('Imported staff rows must resolve an MDA before publication.');
         }
 
-        $staff = $matchedStaff ?? Staff::query()
-            ->forMda((int) $mdaId)
-            ->firstOrNew([
-                'staff_number' => $normalizedRow['staff_number'],
-            ]);
+        $matchedStaff = $this->resolveMatchedStaff($normalizedRow, $matchedStaff);
+        $staffNumber = $this->resolveStaffNumber($normalizedRow, $matchedStaff);
+
+        $staff = $matchedStaff
+            ?? $this->findExistingStaffByNumberAndName((int) $mdaId, $staffNumber, $normalizedRow['full_name'] ?? null)
+            ?? new Staff();
 
         $wasExisting = $staff->exists;
         $before = $wasExisting ? $staff->toArray() : [];
+        
 
         $staff->fill([
             'mda_id' => $normalizedRow['mda_id'],
-            'staff_number' => $normalizedRow['staff_number'],
+            'staff_number' => $staffNumber ?? $normalizedRow['staff_number'],
             'legacy_staff_id' => $normalizedRow['legacy_staff_id'],
             'legacy_master_staff_id' => $normalizedRow['legacy_master_staff_id'],
             'legacy_cno' => $normalizedRow['legacy_cno'],
@@ -137,13 +141,16 @@ class StaffPublicationService
             ],
         );
 
-        $allowanceTypes = AllowanceType::query()
-            ->forMda((int) $normalizedRow['mda_id'])
-            ->whereIn('code', array_keys($normalizedRow['allowances'] ?? []))
-            ->get()
-            ->keyBy('code');
+        $allowances = is_array($normalizedRow['allowances'] ?? null)
+            ? $normalizedRow['allowances']
+            : [];
 
-        foreach ($normalizedRow['allowances'] as $allowanceCode => $allowanceData) {
+        $allowanceTypes = collect(
+            $this->allowanceTypeProvisioningService
+                ->ensureForMda((int) $normalizedRow['mda_id'], array_keys($allowances))['types']
+        )->keyBy('code');
+
+        foreach ($allowances as $allowanceCode => $allowanceData) {
             $allowanceType = $allowanceTypes->get($allowanceCode);
 
             if (! $allowanceType) {
@@ -178,7 +185,7 @@ class StaffPublicationService
                 [
                     'staff_id' => $staff->id,
                     'status' => $status,
-                    'effective_from' => $normalizedRow['date_first_appointment'],
+                    'effective_from' => $this->resolveStatusEffectiveFrom($status, $normalizedRow),
                 ],
                 [
                     'reason' => 'Imported from legacy staff pipeline',
@@ -201,5 +208,175 @@ class StaffPublicationService
             'staff' => $staff,
             'created' => ! $wasExisting,
         ];
+    }
+
+    /**
+     * @param  array<string, mixed>  $normalizedRow
+     */
+    protected function resolveStatusEffectiveFrom(string $status, array $normalizedRow): ?string
+    {
+        if ($status === 'retired') {
+            return $normalizedRow['resolved_expected_retirement_date']
+                ?? $normalizedRow['legacy_expected_retirement_date']
+                ?? $normalizedRow['computed_expected_retirement_date']
+                ?? $normalizedRow['date_first_appointment'];
+        }
+
+        return $normalizedRow['date_first_appointment'];
+    }
+
+
+    protected function resolveStaffNumber(array $normalizedRow, ?Staff $matchedStaff = null): string
+    {
+        $staffNumber = $normalizedRow['staff_number']
+            ?? $normalizedRow['legacy_cno_psn']
+            ?? $normalizedRow['legacy_cno']
+            ?? $normalizedRow['legacy_psn']
+            ?? null;
+
+        $legacyCnoPsn = $normalizedRow['legacy_cno_psn'] ?? null;
+        $mdaId = $normalizedRow['mda_id'] ?? null;
+
+        if (! $staffNumber) {
+            throw new \InvalidArgumentException('Staff number is required for publication.');
+        }
+
+        if (! $mdaId) {
+            throw new \InvalidArgumentException('MDA is required before resolving staff number.');
+        }
+
+        $existingStaff = Staff::query()
+            ->forMda((int) $mdaId)
+            ->when($matchedStaff, fn ($query) => $query->whereKeyNot($matchedStaff->id))
+            ->where('staff_number', $staffNumber)
+            ->first();
+
+        if (! $existingStaff || $this->samePersonByName($existingStaff->full_name, $normalizedRow['full_name'] ?? null)) {
+            return $staffNumber;
+        }
+
+        if ($legacyCnoPsn) {
+            $legacyExistingStaff = Staff::query()
+                ->forMda((int) $mdaId)
+                ->when($matchedStaff, fn ($query) => $query->whereKeyNot($matchedStaff->id))
+                ->where('staff_number', $legacyCnoPsn)
+                ->first();
+
+            if (! $legacyExistingStaff || $this->samePersonByName($legacyExistingStaff->full_name, $normalizedRow['full_name'] ?? null)) {
+                return $legacyCnoPsn;
+            }
+        }
+
+        return $this->generateImportedStaffNumber($mdaId, $legacyCnoPsn ?: $staffNumber, $matchedStaff);
+    }
+
+    protected function findExistingStaffByNumberAndName(int $mdaId, string $staffNumber, ?string $fullName): ?Staff
+    {
+        $existingStaff = Staff::query()
+            ->forMda($mdaId)
+            ->where('staff_number', $staffNumber)
+            ->first();
+
+        if (! $existingStaff) {
+            return null;
+        }
+
+        return $this->samePersonByName($existingStaff->full_name, $fullName) ? $existingStaff : null;
+    }
+
+    protected function samePersonByName(?string $existingFullName, ?string $incomingFullName): bool
+    {
+        $existing = $this->normalizeComparableName($existingFullName);
+        $incoming = $this->normalizeComparableName($incomingFullName);
+
+        return $existing !== null && $incoming !== null && $existing === $incoming;
+    }
+
+    protected function normalizeComparableName(?string $fullName): ?string
+    {
+        $normalized = Str::of((string) $fullName)
+            ->trim()
+            ->lower()
+            ->replaceMatches('/[^a-z0-9]+/i', ' ')
+            ->squish()
+            ->value();
+
+        return $normalized === '' ? null : $normalized;
+    }
+
+    protected function resolveMatchedStaff(array $normalizedRow, ?Staff $matchedStaff = null): ?Staff
+    {
+        if ($matchedStaff) {
+            return $matchedStaff;
+        }
+
+        $mdaId = (int) ($normalizedRow['mda_id'] ?? 0);
+
+        if (! $mdaId) {
+            return null;
+        }
+
+        $query = Staff::query()->forMda($mdaId);
+
+        if (! empty($normalizedRow['legacy_cno_psn'])) {
+            $staff = (clone $query)
+                ->where('legacy_cno_psn', $normalizedRow['legacy_cno_psn'])
+                ->first();
+
+            if ($staff) {
+                return $staff;
+            }
+        }
+
+        if (! empty($normalizedRow['legacy_cno'])) {
+            $staff = (clone $query)
+                ->where('legacy_cno', $normalizedRow['legacy_cno'])
+                ->first();
+
+            if ($staff) {
+                return $staff;
+            }
+        }
+
+        if (! empty($normalizedRow['legacy_psn'])) {
+            $staff = (clone $query)
+                ->where('legacy_psn', $normalizedRow['legacy_psn'])
+                ->first();
+
+            if ($staff) {
+                return $staff;
+            }
+        }
+
+        $normalizedName = $this->normalizeComparableName($normalizedRow['full_name'] ?? null);
+        $dateOfBirth = $normalizedRow['date_of_birth'] ?? null;
+
+        if ($normalizedName !== null && $dateOfBirth) {
+            return (clone $query)
+                ->whereDate('date_of_birth', $dateOfBirth)
+                ->get()
+                ->first(fn (Staff $staff): bool => $this->samePersonByName($staff->full_name, $normalizedRow['full_name'] ?? null));
+        }
+
+        return null;
+    }
+
+    protected function generateImportedStaffNumber(int $mdaId, string $baseStaffNumber, ?Staff $matchedStaff = null): string
+    {
+        $base = Str::upper(Str::of($baseStaffNumber)->replaceMatches('/[^A-Z0-9]+/i', '')->value());
+        $base = $base !== '' ? $base : 'IMPORTED';
+        $candidate = $base;
+        $suffix = 2;
+
+        while (Staff::query()
+            ->forMda($mdaId)
+            ->when($matchedStaff, fn ($query) => $query->whereKeyNot($matchedStaff->id))
+            ->where('staff_number', $candidate)
+            ->exists()) {
+            $candidate = $base.'-ALT'.$suffix;
+            $suffix++;
+        }
+
+        return $candidate;
     }
 }

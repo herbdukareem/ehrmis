@@ -8,6 +8,9 @@ use Illuminate\Support\Str;
 
 class SalaryCalculationService
 {
+    /** @var array<string, SalaryStructureRate|null> */
+    protected array $rateCache = [];
+
     public function getRate(string $scaleCode, int $level, int $step, ?int $mdaId = null): ?SalaryStructureRate
     {
         $normalizedCode = $this->normalizeScaleCode($scaleCode);
@@ -16,16 +19,22 @@ class SalaryCalculationService
             return null;
         }
 
+        $cacheKey = implode('|', [$normalizedCode, $level, $step, $mdaId ?? 0]);
+
+        if (array_key_exists($cacheKey, $this->rateCache)) {
+            return $this->rateCache[$cacheKey];
+        }
+
         $salaryScale = SalaryScale::query()
             ->when($mdaId, fn ($query) => $query->forMda($mdaId))
             ->where('code', $normalizedCode)
             ->first();
 
         if (! $salaryScale) {
-            return null;
+            return $this->rateCache[$cacheKey] = null;
         }
 
-        return SalaryStructureRate::query()
+        return $this->rateCache[$cacheKey] = SalaryStructureRate::query()
             ->with(['rateAllowances.allowanceType', 'salaryScale'])
             ->when($mdaId, fn ($query) => $query->forMda($mdaId))
             ->where('salary_scale_id', $salaryScale->id)

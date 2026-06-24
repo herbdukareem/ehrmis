@@ -10,7 +10,25 @@ class ResolveStaffFlaggedIssueRequest extends FormRequest
     {
         $staff = $this->route('staff');
 
-        return $staff && ($this->user()?->can('update', $staff) ?? false);
+        if (! $staff) {
+            return false;
+        }
+
+        $user = $this->user();
+
+        if (! $user?->can('update', $staff)) {
+            return false;
+        }
+
+        if (($this->filled('cadre_id') || $this->filled('rank_id')) && ! $user->can('updateAppointment', $staff)) {
+            return false;
+        }
+
+        if ($this->filled('allowances') && ! $user->can('updateAllowances', $staff)) {
+            return false;
+        }
+
+        return true;
     }
 
     public function rules(): array

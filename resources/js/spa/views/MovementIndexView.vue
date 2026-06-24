@@ -7,6 +7,7 @@ import PageHeading from '../components/PageHeading.vue';
 import StatusPill from '../components/StatusPill.vue';
 import { api, apiMessage } from '../lib/api';
 import { auth, can } from '../stores/auth';
+import { pushToast } from '../stores/app';
 
 const router = useRouter();
 const rows = ref([]);
@@ -47,6 +48,7 @@ const generate = async () => {
     feedback.value = '';
     try {
         const response = await api.post('/movement-workbooks', form);
+        pushToast(response.data.message);
         await router.push(`/movement-workbooks/${response.data.data.id}`);
     } catch (error) {
         feedback.value = apiMessage(error);

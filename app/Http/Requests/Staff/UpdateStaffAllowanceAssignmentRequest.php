@@ -10,7 +10,7 @@ class UpdateStaffAllowanceAssignmentRequest extends FormRequest
     {
         $staff = $this->route('staff');
 
-        return $staff && ($this->user()?->can('update', $staff) ?? false);
+        return $staff && ($this->user()?->can('updateAllowances', $staff) ?? false);
     }
 
     public function rules(): array

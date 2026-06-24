@@ -3,14 +3,15 @@
 namespace App\Domain\Legacy\Services;
 
 use App\Domain\Legacy\Models\LegacyStaffImportRow;
-use App\Domain\Staff\Models\AllowanceType;
 use App\Domain\Staff\Models\StaffAllowanceAssignment;
+use App\Domain\Staff\Services\AllowanceTypeProvisioningService;
 use Illuminate\Support\Facades\DB;
 
 class LegacyAllowanceEligibilityRepairService
 {
     public function __construct(
         protected LegacyStaffRowNormalizer $normalizer,
+        protected AllowanceTypeProvisioningService $allowanceTypeProvisioningService,
     ) {
     }
 
@@ -25,14 +26,14 @@ class LegacyAllowanceEligibilityRepairService
             'assignments_updated' => 0,
             'assignments_created' => 0,
         ];
-        $allowanceTypes = AllowanceType::query()->pluck('id', 'code');
         $eligibilityByStaff = [];
         $effectiveFromByStaff = [];
+        $allowanceTypeIdsByStaff = [];
 
         LegacyStaffImportRow::query()
             ->whereNotNull('published_staff_id')
-            ->chunkById(100, function ($rows) use (&$summary, &$eligibilityByStaff, &$effectiveFromByStaff): void {
-                DB::transaction(function () use ($rows, &$summary, &$eligibilityByStaff, &$effectiveFromByStaff): void {
+            ->chunkById(100, function ($rows) use (&$summary, &$eligibilityByStaff, &$effectiveFromByStaff, &$allowanceTypeIdsByStaff): void {
+                DB::transaction(function () use ($rows, &$summary, &$eligibilityByStaff, &$effectiveFromByStaff, &$allowanceTypeIdsByStaff): void {
                     foreach ($rows as $row) {
                         $summary['rows_processed']++;
                         $rawPayload = $row->raw_payload ?? [];
@@ -48,10 +49,16 @@ class LegacyAllowanceEligibilityRepairService
                             $summary['rows_changed']++;
                         }
 
+                        $allowanceTypes = collect(
+                            $this->allowanceTypeProvisioningService
+                                ->ensureForMda((int) $row->mda_id, array_keys($result['allowances']))['types']
+                        )->keyBy('code');
+
                         foreach ($result['allowances'] as $code => $allowance) {
                             $eligibilityByStaff[$row->published_staff_id][$code] =
                                 ($eligibilityByStaff[$row->published_staff_id][$code] ?? false)
                                 || $allowance['is_eligible'];
+                            $allowanceTypeIdsByStaff[$row->published_staff_id][$code] ??= $allowanceTypes->get($code)?->id;
                         }
 
                         $effectiveFromByStaff[$row->published_staff_id] ??= $normalizedPayload['date_first_appointment'] ?? null;
@@ -59,10 +66,10 @@ class LegacyAllowanceEligibilityRepairService
                 });
             });
 
-        DB::transaction(function () use (&$summary, $allowanceTypes, $eligibilityByStaff, $effectiveFromByStaff): void {
+        DB::transaction(function () use (&$summary, $eligibilityByStaff, $effectiveFromByStaff, $allowanceTypeIdsByStaff): void {
             foreach ($eligibilityByStaff as $staffId => $allowances) {
                 foreach ($allowances as $code => $isEligible) {
-                    $allowanceTypeId = $allowanceTypes->get($code);
+                    $allowanceTypeId = $allowanceTypeIdsByStaff[$staffId][$code] ?? null;
 
                     if (! $allowanceTypeId) {
                         continue;

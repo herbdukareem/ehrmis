@@ -6,6 +6,7 @@ use App\Domain\Staff\Models\AllowanceType;
 use App\Domain\Staff\Models\SalaryScale;
 use App\Domain\Staff\Models\SalaryStructureRate;
 use App\Domain\Staff\Models\SalaryStructureRateAllowance;
+use App\Domain\Staff\Support\AllowanceTypeCatalog;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
@@ -197,21 +198,7 @@ class LegacySalaryStructureImportService
      */
     protected function allowanceTypeDefinitions(): array
     {
-        return [
-            ['code' => 'rural', 'name' => 'Rural Allowance', 'description' => 'Imported from legacy staff_salary.rural_allowance.'],
-            ['code' => 'teaching', 'name' => 'Teaching Allowance', 'description' => 'Imported from legacy staff_salary.teaching_allowance.'],
-            ['code' => 'call_doctor', 'name' => 'Call Allowance - Doctor', 'description' => 'Imported from legacy staff_salary.CallDoc.'],
-            ['code' => 'call_pharm_lab', 'name' => 'Call Allowance - Pharmacy/Lab', 'description' => 'Imported from legacy staff_salary.CallPharmLab.'],
-            ['code' => 'call_opt_odd', 'name' => 'Call Allowance - Optometry/ODD', 'description' => 'Imported from legacy staff_salary.CallOptOdd.'],
-            ['code' => 'call_nurse_others', 'name' => 'Call Allowance - Nurse/Others', 'description' => 'Imported from legacy staff_salary.CallNurseOthers.'],
-            ['code' => 'shift', 'name' => 'Shift Allowance', 'description' => 'Imported from legacy staff_salary.shift_allowance.'],
-            ['code' => 'specialty', 'name' => 'Specialty Allowance', 'description' => 'Imported from legacy staff_salary.specialty_allowance.'],
-            ['code' => 'hazard', 'name' => 'Hazard Allowance', 'description' => 'Imported from legacy staff_salary.hazard_allowance.'],
-            ['code' => 'domestic', 'name' => 'Domestic Allowance', 'description' => 'Reserved for future allowance configuration.'],
-            ['code' => 'professional', 'name' => 'Professional Allowance', 'description' => 'Reserved for future allowance configuration.'],
-            ['code' => 'responsibility', 'name' => 'Responsibility Allowance', 'description' => 'Reserved for future allowance configuration.'],
-            ['code' => 'other', 'name' => 'Other Allowance', 'description' => 'Reserved for future allowance configuration.'],
-        ];
+        return AllowanceTypeCatalog::definitions();
     }
 
     protected function normalizeScaleCode(mixed $value): ?string

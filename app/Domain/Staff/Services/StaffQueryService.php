@@ -9,6 +9,11 @@ use Illuminate\Database\Eloquent\Builder;
 
 class StaffQueryService
 {
+    public function __construct(
+        protected StaffRetirementService $staffRetirementService,
+    ) {
+    }
+
     /**
      * @param  array<string, mixed>  $filters
      */
@@ -68,18 +73,35 @@ class StaffQueryService
 
         if (! empty($filters['retirement_state'])) {
             $retirementState = (string) $filters['retirement_state'];
+            $today = now()->toDateString();
 
             if ($retirementState === 'retired') {
-                $query->where(function (Builder $retiredQuery): void {
+                $query->where(function (Builder $retiredQuery) use ($today): void {
                     $retiredQuery
                         ->where('status', 'retired')
-                        ->orWhereHas('currentEmployment', fn (Builder $employmentQuery) => $employmentQuery->where('employment_status', 'retired'));
+                        ->orWhereHas('currentEmployment', function (Builder $employmentQuery) use ($today): void {
+                            $employmentQuery
+                                ->where('employment_status', 'retired')
+                                ->orWhereDate('expected_retirement_date', '<=', $today);
+                        });
                 });
             }
 
             if ($retirementState === 'active') {
                 $query->where('status', '!=', 'retired')
-                    ->whereHas('currentEmployment', fn (Builder $employmentQuery) => $employmentQuery->where('employment_status', '!=', 'retired'));
+                    ->where(function (Builder $activeQuery) use ($today): void {
+                        $activeQuery
+                            ->whereDoesntHave('currentEmployment')
+                            ->orWhereHas('currentEmployment', function (Builder $employmentQuery) use ($today): void {
+                                $employmentQuery
+                                    ->where('employment_status', '!=', 'retired')
+                                    ->where(function (Builder $dateQuery) use ($today): void {
+                                        $dateQuery
+                                            ->whereNull('expected_retirement_date')
+                                            ->orWhereDate('expected_retirement_date', '>', $today);
+                                    });
+                            });
+                    });
             }
         }
 

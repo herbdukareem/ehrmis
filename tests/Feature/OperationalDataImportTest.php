@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Domain\Imports\OperationalDataImportService;
 use App\Domain\Legacy\Models\LegacyStaffImportBatch;
 use App\Domain\Legacy\Models\LegacyStaffImportRow;
 use App\Domain\Organization\Models\Department;
@@ -15,6 +16,7 @@ use App\Models\User;
 use Database\Seeders\RolesAndPermissionsSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\Storage;
 use Tests\TestCase;
 
 class OperationalDataImportTest extends TestCase
@@ -196,6 +198,42 @@ class OperationalDataImportTest extends TestCase
         $this->assertSame('staff_list_upload', $batch->source_table);
         $this->assertSame($this->mda->id, $row->mda_id);
         $this->assertSame('staged', $row->status);
+    }
+
+    public function test_queued_staff_list_batch_is_not_staged_twice_when_reprocessed(): void
+    {
+        $cadre = Cadre::query()->create(['department_id' => $this->department->id, 'salary_scale_id' => $this->scale->id, 'name' => 'Medical Officer', 'status' => 'active']);
+        Rank::query()->create(['cadre_id' => $cadre->id, 'salary_scale_id' => $this->scale->id, 'name' => 'Senior Medical Officer', 'level' => 4, 'status' => 'active']);
+
+        $storedPath = 'imports/staff-list/test-double-stage.csv';
+        Storage::put($storedPath, "cno,psn,name,sex,dob,mda,department,cadre,rank,salary_scale,level,step\nC001,P001,Officer One,female,1985-01-01,MOH,Clinical Services,Medical Officer,Senior Medical Officer,CM,4,1");
+
+        $batch = LegacyStaffImportBatch::query()->create([
+            'source_database' => 'spreadsheet_upload',
+            'source_table' => 'staff_list_upload',
+            'created_by' => $this->user->id,
+            'status' => 'queued',
+            'started_at' => now(),
+            'summary' => [
+                'source' => 'staff_list_upload',
+                'rows_read' => 0,
+                'rows_staged' => 0,
+                'rows_published' => 0,
+                'rows_with_warnings' => 0,
+                'rows_with_errors' => 0,
+                'queued_file_path' => $storedPath,
+            ],
+        ]);
+
+        $service = app(OperationalDataImportService::class);
+        $service->processQueuedStaffListImport($batch->id, $storedPath, $this->user->id);
+        $service->processQueuedStaffListImport($batch->id, $storedPath, $this->user->id);
+
+        $batch->refresh();
+
+        $this->assertSame('staged', $batch->status);
+        $this->assertSame(1, (int) ($batch->summary['rows_staged'] ?? 0));
+        $this->assertDatabaseCount('legacy_staff_import_rows', 1);
     }
 
     public function test_uploaded_staff_list_normalizes_allowance_eligibility_from_spreadsheet_headings(): void

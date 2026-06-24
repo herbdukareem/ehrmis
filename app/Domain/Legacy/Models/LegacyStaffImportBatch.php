@@ -3,7 +3,9 @@
 namespace App\Domain\Legacy\Models;
 
 use App\Domain\Approval\Models\ApprovalWorkflow;
+use App\Models\User;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\MorphOne;
 
@@ -12,6 +14,7 @@ class LegacyStaffImportBatch extends Model
     protected $fillable = [
         'source_database',
         'source_table',
+        'created_by',
         'status',
         'started_at',
         'completed_at',
@@ -30,6 +33,11 @@ class LegacyStaffImportBatch extends Model
     public function rows(): HasMany
     {
         return $this->hasMany(LegacyStaffImportRow::class, 'batch_id');
+    }
+
+    public function creator(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'created_by');
     }
 
     public function errors(): HasMany

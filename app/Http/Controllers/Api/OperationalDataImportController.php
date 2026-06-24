@@ -24,7 +24,9 @@ class OperationalDataImportController extends Controller
 
         return response()->json([
             'message' => $type === 'staff-list'
-                ? 'Staff list staged for review successfully.'
+                ? (($result['status'] ?? null) === 'queued'
+                    ? 'Staff list upload received. Staging will continue in the background.'
+                    : 'Staff list staged for review successfully.')
                 : ucfirst($type).' imported successfully.',
             'data' => $result,
         ]);

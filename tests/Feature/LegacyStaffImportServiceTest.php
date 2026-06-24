@@ -225,6 +225,114 @@ class LegacyStaffImportServiceTest extends TestCase
         ]);
     }
 
+    public function test_nursing_rank_alias_and_call_allowance_are_resolved_from_unique_context(): void
+    {
+        $hmb = Mda::query()->where('code', 'HMB')->firstOrFail();
+        $hmbAdminDepartmentId = \App\Domain\Organization\Models\Department::query()
+            ->where('name', 'ADMIN')
+            ->where('mda_id', $hmb->id)
+            ->value('id');
+        $hmbCh = \App\Domain\Staff\Models\SalaryScale::query()
+            ->forMda($hmb->id)
+            ->where('code', 'CH')
+            ->firstOrFail();
+
+        $nursingCadre = Cadre::query()->create([
+            'salary_scale_id' => $hmbCh->id,
+            'department_id' => $hmbAdminDepartmentId,
+            'name' => 'NURSING',
+            'legacy_department_name' => 'ADMIN',
+            'status' => 'active',
+        ]);
+
+        $nursingRank = Rank::query()->create([
+            'cadre_id' => $nursingCadre->id,
+            'salary_scale_id' => $hmbCh->id,
+            'name' => 'Nursing Supritendent',
+            'level' => 6,
+            'status' => 'active',
+        ]);
+
+        DB::connection('legacy')->table('staff_list')->insert([
+            'id' => 6,
+            'cno' => 'C006',
+            'name' => 'Nursing Alias User',
+            'psn' => 'P006',
+            'sex' => 'Female',
+            'mda' => 'HOSPITAL MANAGEMENT BOARD',
+            'station' => 'HMB HQTRS',
+            'location' => 'MINNA',
+            'salary_scale' => 'CH',
+            'highest_qualification' => 'HND',
+            'department' => 'ADMIN',
+            'dob' => '1987-01-01',
+            'dfa' => '2011-01-01',
+            'dpa' => '2021-01-01',
+            'edor' => '2047-01-01',
+            'cadre' => 'NURSING',
+            'rank' => 'SN',
+            'level' => 6,
+            'step' => 2,
+            'basic_salary' => 52000,
+            'gross' => 58000,
+            'cno_psn' => 'C006P006',
+            'status' => '1',
+        ]);
+
+        DB::connection('legacy')->table('master_staff_list')->insert([
+            'id' => 106,
+            'psn' => 'P006',
+            'cno' => 'C006',
+            'first_name' => 'Nursing',
+            'other_name' => 'Alias',
+            'surname' => 'User',
+            'date_of_birth' => '1987-01-01',
+            'sex' => 'Female',
+            'lga' => 'Bosso',
+            'state' => 'Niger',
+            'mda' => 'HOSPITAL MANAGEMENT BOARD',
+            'department' => 'ADMIN',
+            'station' => 'HMB HQTRS',
+            'location' => 'MINNA',
+            'date_of_first_appointment' => '2011-01-01',
+            'date_of_last_promotion' => '2021-01-01',
+            'date_of_retirement_by_age' => '2047-01-01',
+            'cadre' => 'NURSING',
+            'rank' => 'SN',
+            'highest_qualification' => 'HND',
+            'salary_scale' => 'CONHESS',
+            'salary_scale_code' => 'CH',
+            'level' => '6',
+            'step' => 2,
+            'call_allowance' => 'YES',
+            'status' => '1',
+        ]);
+
+        $summary = app(LegacyStaffImportService::class)->import([
+            'limit' => 100,
+            'publish' => true,
+        ]);
+
+        $this->assertSame(5, $summary['rows_published']);
+        $this->assertSame(0, $summary['missing_rank']);
+        $this->assertSame(2, $summary['call_allowance_resolved']);
+        $this->assertSame(0, $summary['call_allowance_unresolved']);
+
+        $staff = Staff::withoutGlobalScopes()->where('legacy_cno_psn', 'C006P006')->firstOrFail();
+        $employment = StaffEmployment::query()->where('staff_id', $staff->id)->firstOrFail();
+
+        $this->assertSame($nursingCadre->id, $employment->cadre_id);
+        $this->assertSame($nursingRank->id, $employment->rank_id);
+        $this->assertDatabaseHas('staff_allowance_assignments', [
+            'staff_id' => $staff->id,
+            'allowance_type_id' => \App\Domain\Staff\Models\AllowanceType::query()
+                ->forMda($staff->mda_id)
+                ->where('code', 'call_nurse_others')
+                ->value('id'),
+            'is_eligible' => true,
+        ]);
+    }
+
     public function test_include_retired_publish_publishes_retired_staff_and_status_history(): void
     {
         $summary = app(LegacyStaffImportService::class)->import([
@@ -241,12 +349,14 @@ class LegacyStaffImportServiceTest extends TestCase
 
         $this->assertSame('retired', $retiredStaff->status);
         $this->assertSame('retired', StaffEmployment::query()->where('staff_id', $retiredStaff->id)->value('employment_status'));
-        $this->assertTrue(
-            StaffStatusHistory::query()
-                ->where('staff_id', $retiredStaff->id)
-                ->where('status', 'retired')
-                ->exists()
-        );
+        $retiredHistory = StaffStatusHistory::query()
+            ->where('staff_id', $retiredStaff->id)
+            ->where('status', 'retired')
+            ->latest('effective_from')
+            ->first();
+
+        $this->assertNotNull($retiredHistory);
+        $this->assertSame('2020-01-01', substr((string) $retiredHistory->effective_from, 0, 10));
     }
 
     public function test_station_aliases_are_resolved_without_new_missing_station_warnings(): void
@@ -322,10 +432,12 @@ class LegacyStaffImportServiceTest extends TestCase
         $this->assertSame(6, $summary['rows_read']);
         $this->assertSame(1, $summary['missing_station']);
         $this->assertDatabaseHas('legacy_staff_import_rows', [
-            'dedupe_key' => 'C006P006',
+            'dedupe_key' => 'C006',
+            'legacy_cno_psn' => 'C006P006',
         ]);
         $this->assertDatabaseHas('legacy_staff_import_rows', [
-            'dedupe_key' => 'C007P007',
+            'dedupe_key' => 'C007',
+            'legacy_cno_psn' => 'C007P007',
         ]);
     }
 
@@ -461,7 +573,42 @@ class LegacyStaffImportServiceTest extends TestCase
 
         $this->assertSame(4, Staff::withoutGlobalScopes()->count());
         $this->assertSame('Doe John Alpha', Staff::withoutGlobalScopes()->where('legacy_cno_psn', 'C001P001')->firstOrFail()->full_name);
-        $this->assertNotNull(LegacyStaffImportRow::query()->where('dedupe_key', 'C001P001')->first()?->matched_staff_id);
+        $this->assertNotNull(LegacyStaffImportRow::query()->where('legacy_cno_psn', 'C001P001')->first()?->matched_staff_id);
+    }
+
+    public function test_same_staff_number_with_different_name_creates_a_new_staff_record(): void
+    {
+        $mda = Mda::query()->where('code', 'MOH')->firstOrFail();
+
+        Staff::withoutGlobalScopes()->create([
+            'mda_id' => $mda->id,
+            'staff_number' => 'C001',
+            'legacy_cno' => null,
+            'legacy_psn' => null,
+            'legacy_cno_psn' => null,
+            'surname' => 'Existing',
+            'first_name' => 'Officer',
+            'full_name' => 'Existing Officer',
+            'status' => 'active',
+        ]);
+
+        app(LegacyStaffImportService::class)->import([
+            'limit' => 100,
+            'publish' => true,
+        ]);
+
+        $this->assertSame(5, Staff::withoutGlobalScopes()->count());
+        $this->assertDatabaseHas('staff', [
+            'mda_id' => $mda->id,
+            'staff_number' => 'C001',
+            'full_name' => 'Existing Officer',
+        ]);
+        $this->assertDatabaseHas('staff', [
+            'mda_id' => $mda->id,
+            'staff_number' => 'C001P001',
+            'legacy_cno_psn' => 'C001P001',
+            'full_name' => 'Doe John Alpha',
+        ]);
     }
 
     public function test_mda_scoping_still_works_after_staff_import(): void

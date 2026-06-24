@@ -17,7 +17,11 @@ class LegacyStaffImportQueryService
         $query = LegacyStaffImportBatch::query()
             ->with(['approvalWorkflow.steps'])
             ->when(! $user->hasGlobalMdaAccess(), function (Builder $query) use ($user): void {
-                $query->whereHas('rows', fn (Builder $rowQuery) => $this->scopeRowsForUser($rowQuery, $user));
+                $query->where(function (Builder $innerQuery) use ($user): void {
+                    $innerQuery
+                        ->where('created_by', $user->id)
+                        ->orWhereHas('rows', fn (Builder $rowQuery) => $this->scopeRowsForUser($rowQuery, $user));
+                });
             })
             ->when($filters['status'] ?? null, fn (Builder $query, string $status) => $query->where('status', $status))
             ->when($filters['source_table'] ?? null, fn (Builder $query, string $sourceTable) => $query->where('source_table', $sourceTable))
@@ -201,7 +205,7 @@ class LegacyStaffImportQueryService
 
     public function batchStatusOptions(): array
     {
-        return ['pending', 'staging', 'staged', 'completed', 'submitted', 'under_review', 'approved', 'rejected', 'publishing', 'partially_published', 'published'];
+        return ['queued', 'failed', 'pending', 'staging', 'staged', 'completed', 'submitted', 'under_review', 'approved', 'rejected', 'publishing', 'partially_published', 'published'];
     }
 
     public function sourceTableOptions(): Collection

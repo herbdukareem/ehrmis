@@ -17,6 +17,8 @@ class AccessManagementRules
             'view-staff',
             'create-staff',
             'update-staff',
+            'update-staff-appointment',
+            'update-staff-allowances',
             'delete-staff',
             'import-staff',
             'view-staff-imports',

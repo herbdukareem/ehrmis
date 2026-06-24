@@ -119,7 +119,7 @@ class LegacyStaffRowNormalizer
         $legacyCno = $this->cleanString($legacyRow['cno'] ?? ($masterRow['cno'] ?? null));
         $legacyPsn = $this->cleanString($legacyRow['psn'] ?? ($masterRow['psn'] ?? null));
         $legacyCnoPsn = $this->cleanString($legacyRow['cno_psn'] ?? $this->makeLegacyCnoPsn($legacyCno, $legacyPsn));
-        $staffNumber = $legacyCnoPsn ?? $legacyCno ?? $legacyPsn ?? $this->makeProvisionalStaffNumber(
+        $staffNumber = $legacyCno ?? $legacyCnoPsn ??  $legacyPsn ?? $this->makeProvisionalStaffNumber(
             $legacyRow,
             $sourceTable,
             $mda?->code,
@@ -457,6 +457,25 @@ class LegacyStaffRowNormalizer
             return $this->rankCache[$cacheKey] = $rank;
         }
 
+        if ($cadreId) {
+            $contextRankQuery = Rank::query()->with('cadre');
+            $contextRankQuery->where('cadre_id', $cadreId);
+
+            if ($level !== null) {
+                $contextRankQuery->where('level', $level);
+            }
+
+            if ($salaryScaleId !== null) {
+                $contextRankQuery->where('salary_scale_id', $salaryScaleId);
+            }
+
+            $contextRanks = $contextRankQuery->limit(2)->get();
+
+            if ($contextRanks->count() === 1) {
+                return $this->rankCache[$cacheKey] = $contextRanks->first();
+            }
+        }
+
         $fallbackQuery = Rank::query()->with('cadre')->whereRaw('LOWER(name) = ?', [strtolower($name)]);
 
         if ($level !== null) {
@@ -717,6 +736,9 @@ class LegacyStaffRowNormalizer
         $cadre = Str::upper($this->cleanString(
             $legacyRow['cadre'] ?? ($legacyRow['initial_cadre'] ?? ($masterRow['cadre'] ?? ($masterRow['actual_cadre'] ?? null)))
         ) ?? '');
+        $rank = Str::upper($this->cleanString(
+            $legacyRow['rank'] ?? ($legacyRow['initial_rank'] ?? ($masterRow['rank'] ?? null))
+        ) ?? '');
         $specialization = Str::upper($this->cleanString(
             $legacyRow['specialization'] ?? ($masterRow['area_of_specialization'] ?? null)
         ) ?? '');
@@ -751,6 +773,19 @@ class LegacyStaffRowNormalizer
                 'ECG',
                 'A&E',
             ], true)
+        ) {
+            return 'call_nurse_others';
+        }
+
+        if (
+            $salaryScaleCode === 'CH'
+            && $level !== null
+            && $level >= 5
+            && (
+                str_contains($cadre, 'NURS')
+                || str_contains($rank, 'NURS')
+                || in_array($rank, ['SN', 'SNO', 'NO', 'CNO', 'PNO'], true)
+            )
         ) {
             return 'call_nurse_others';
         }

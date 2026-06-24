@@ -153,7 +153,7 @@ class MovementAndBudgetPageTest extends TestCase
                 'budget_year' => 2027,
                 'budget_minimum_step' => 5,
             ])
-            ->assertCreated();
+            ->assertAccepted();
 
         $this->assertDatabaseHas('movement_workbooks', [
             'id' => $response->json('data.id'),
@@ -238,7 +238,7 @@ class MovementAndBudgetPageTest extends TestCase
                 'budget_year' => 2028,
                 'budget_minimum_step' => 5,
             ])
-            ->assertCreated();
+            ->assertAccepted();
 
         $this->actingAs($user)
             ->postJson('/api/budget-workbooks', [

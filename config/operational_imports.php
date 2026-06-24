@@ -6,11 +6,13 @@ return [
     | Synchronous Spreadsheet Import Runtime
     |--------------------------------------------------------------------------
     |
-    | Operational imports validate and stage every spreadsheet row before the
-    | response is returned. Give large staff-list workbooks enough time and
-    | memory without changing the limits for unrelated web requests.
+    | Reference-data imports complete in-request, while staff-list uploads can
+    | stage in the background after the response is sent to avoid gateway
+    | timeouts on large workbooks. These limits still apply to the underlying
+    | import process itself.
     |
     */
     'max_execution_seconds' => (int) env('OPERATIONAL_IMPORT_MAX_EXECUTION_SECONDS', 900),
     'memory_limit' => env('OPERATIONAL_IMPORT_MEMORY_LIMIT', '512M'),
+    'staff_list_background' => env('OPERATIONAL_IMPORT_STAFF_LIST_BACKGROUND', true),
 ];

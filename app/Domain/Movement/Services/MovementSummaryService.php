@@ -50,8 +50,14 @@ class MovementSummaryService
 
         $workbook->summaries()->delete();
 
-        foreach ($aggregates as $aggregate) {
-            MovementSummary::query()->create([
+        if ($aggregates === []) {
+            return;
+        }
+
+        $now = now();
+
+        MovementSummary::query()->insert(array_map(
+            fn (array $aggregate): array => [
                 'workbook_id' => $workbook->id,
                 'department_id' => $aggregate['department_id'],
                 'salary_scale_id' => $aggregate['salary_scale_id'],
@@ -64,7 +70,10 @@ class MovementSummaryService
                 'current_gross_total' => round($aggregate['current_gross_total'], 2),
                 'proposed_gross_total' => round($aggregate['proposed_gross_total'], 2),
                 'variance_total' => round($aggregate['variance_total'], 2),
-            ]);
-        }
+                'created_at' => $now,
+                'updated_at' => $now,
+            ],
+            $aggregates,
+        ));
     }
 }
