@@ -7,7 +7,7 @@ import ToastStack from './components/ToastStack.vue';
 import { appState } from './stores/app';
 
 const route = useRoute();
-const isGuest = computed(() => route.meta.guest);
+const isGuest = computed(() => route.meta.guest || route.meta.public);
 </script>
 
 <template>

@@ -9,6 +9,7 @@ use App\Http\Controllers\Api\LegacyStaffImportController;
 use App\Http\Controllers\Api\LocationController;
 use App\Http\Controllers\Api\MdaController;
 use App\Http\Controllers\Api\OperationalDataImportController;
+use App\Http\Controllers\Api\PromotionWorkflowController;
 use App\Http\Controllers\Api\PublicContextController;
 use App\Http\Controllers\Api\SettingsController;
 use App\Http\Controllers\Api\SetupManagementController;
@@ -16,11 +17,14 @@ use App\Http\Controllers\Api\MovementWorkbookController;
 use App\Http\Controllers\Api\SpaAuthController;
 use App\Http\Controllers\Api\StaffController;
 use App\Http\Controllers\Api\StaffMediaController;
+use App\Http\Controllers\Api\StaffPostingRequestController;
 use App\Http\Controllers\Api\StationController;
 use App\Http\Controllers\Api\WorkflowActionController;
 use Illuminate\Support\Facades\Route;
 
 Route::get('/public-context', [PublicContextController::class, 'show'])->name('api.public-context');
+Route::get('/public/promotion/options', [PromotionWorkflowController::class, 'publicOptions'])->name('api.public.promotion.options');
+Route::post('/public/promotion/applications', [PromotionWorkflowController::class, 'publicSubmit'])->name('api.public.promotion.applications.store');
 Route::post('/login', [SpaAuthController::class, 'login'])->middleware('guest')->name('api.login');
 
 Route::middleware('auth')->group(function (): void {
@@ -82,6 +86,32 @@ Route::middleware('auth')->group(function (): void {
     Route::post('/movement-workbooks/{workbook}/reject', [WorkflowActionController::class, 'movementReject'])->name('api.movement-workbooks.reject');
     Route::post('/movement-workbooks/{workbook}/lock', [WorkflowActionController::class, 'movementLock'])->name('api.movement-workbooks.lock');
     Route::post('/movement-workbooks/{workbook}/reopen', [WorkflowActionController::class, 'movementReopen'])->name('api.movement-workbooks.reopen');
+
+    Route::get('/promotion-cycles', [PromotionWorkflowController::class, 'index'])->name('api.promotion-cycles.index');
+    Route::post('/promotion-cycles', [PromotionWorkflowController::class, 'store'])->name('api.promotion-cycles.store');
+    Route::get('/promotion-cycles/{cycle}', [PromotionWorkflowController::class, 'show'])->name('api.promotion-cycles.show');
+    Route::post('/promotion-cycles/{cycle}/sittings', [PromotionWorkflowController::class, 'storeSitting'])->name('api.promotion-cycles.sittings.store');
+    Route::post('/promotion-applications/{application}/screen', [PromotionWorkflowController::class, 'screen'])->name('api.promotion-applications.screen');
+    Route::post('/promotion-applications/{application}/print-letter', [PromotionWorkflowController::class, 'printLetter'])->name('api.promotion-applications.print-letter');
+    Route::get('/promotion-applications/{application}/letter-pdf', [PromotionWorkflowController::class, 'letterPdf'])->name('api.promotion-applications.letter-pdf');
+    Route::get('/promotion-sittings/{sitting}', [PromotionWorkflowController::class, 'showSitting'])->name('api.promotion-sittings.show');
+    Route::post('/promotion-sittings/{sitting}/decisions', [PromotionWorkflowController::class, 'decide'])->name('api.promotion-sittings.decisions.store');
+    Route::post('/promotion-sittings/{sitting}/complete', [PromotionWorkflowController::class, 'completeSitting'])->name('api.promotion-sittings.complete');
+    Route::post('/promotion-sittings/{sitting}/submit-print-approval', [PromotionWorkflowController::class, 'submitPrintApproval'])->name('api.promotion-sittings.submit-print-approval');
+    Route::post('/promotion-sittings/{sitting}/approve-print', [PromotionWorkflowController::class, 'approvePrint'])->name('api.promotion-sittings.approve-print');
+    Route::post('/promotion-sittings/{sitting}/reject-print', [PromotionWorkflowController::class, 'rejectPrint'])->name('api.promotion-sittings.reject-print');
+
+    Route::get('/posting-requests', [StaffPostingRequestController::class, 'index'])->name('api.posting-requests.index');
+    Route::post('/posting-requests', [StaffPostingRequestController::class, 'store'])->name('api.posting-requests.store');
+    Route::get('/posting-requests/{postingRequest}', [StaffPostingRequestController::class, 'show'])->name('api.posting-requests.show');
+    Route::post('/posting-requests/{postingRequest}/submit', [StaffPostingRequestController::class, 'submit'])->name('api.posting-requests.submit');
+    Route::post('/posting-requests/{postingRequest}/approve-origin', [StaffPostingRequestController::class, 'approveOrigin'])->name('api.posting-requests.approve-origin');
+    Route::post('/posting-requests/{postingRequest}/approve-receiving', [StaffPostingRequestController::class, 'approveReceiving'])->name('api.posting-requests.approve-receiving');
+    Route::post('/posting-requests/{postingRequest}/approve-final', [StaffPostingRequestController::class, 'approveFinal'])->name('api.posting-requests.approve-final');
+    Route::post('/posting-requests/{postingRequest}/reject', [StaffPostingRequestController::class, 'reject'])->name('api.posting-requests.reject');
+    Route::post('/posting-requests/{postingRequest}/issue', [StaffPostingRequestController::class, 'issue'])->name('api.posting-requests.issue');
+    Route::post('/posting-requests/{postingRequest}/effect', [StaffPostingRequestController::class, 'effect'])->name('api.posting-requests.effect');
+    Route::get('/posting-requests/{postingRequest}/letter-pdf', [StaffPostingRequestController::class, 'letterPdf'])->name('api.posting-requests.letter-pdf');
 
     Route::get('/budget-workbooks', [BudgetWorkbookController::class, 'index'])->name('api.budget-workbooks.index');
     Route::post('/budget-workbooks', [BudgetWorkbookController::class, 'store'])->name('api.budget-workbooks.store');

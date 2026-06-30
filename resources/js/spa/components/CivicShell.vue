@@ -19,6 +19,8 @@ const navBlueprint = [
             { label: 'Staff registry', to: '/staff', permissionAny: [] },
             { label: 'Data imports', to: '/legacy-staff-imports', permissionAny: [] },
             { label: 'Movement', to: '/movement-workbooks', permissionAny: [] },
+            { label: 'Promotions', to: '/promotion-cycles', permissionAny: ['view-promotions'] },
+            { label: 'Postings', to: '/posting-requests', permissionAny: ['view-postings'] },
             { label: 'Budget', to: '/budget-workbooks', permissionAny: [] },
             { label: 'Reports', to: '/reports', permissionAny: [] },
         ],

@@ -4,6 +4,7 @@ import { appState } from './stores/app';
 
 const routes = [
     { path: '/login', name: 'login', component: () => import('./views/LoginView.vue'), meta: { guest: true } },
+    { path: '/promotion/apply', name: 'promotion.apply', component: () => import('./views/PublicPromotionApplicationView.vue'), meta: { public: true, title: 'Promotion APA Application' } },
     { path: '/forgot-password', name: 'password.request', component: () => import('./views/PasswordAccessView.vue'), props: { mode: 'forgot' }, meta: { guest: true } },
     { path: '/reset-password/:token', name: 'password.reset', component: () => import('./views/PasswordAccessView.vue'), props: { mode: 'reset' }, meta: { guest: true } },
     { path: '/', redirect: '/dashboard' },
@@ -16,6 +17,10 @@ const routes = [
     { path: '/legacy-staff-imports/:batchId/rows/:rowId', name: 'imports.rows.show', component: () => import('./views/ImportRowView.vue') },
     { path: '/movement-workbooks', name: 'movement.index', component: () => import('./views/MovementIndexView.vue') },
     { path: '/movement-workbooks/:id', name: 'movement.show', component: () => import('./views/MovementShowView.vue') },
+    { path: '/promotion-cycles', name: 'promotions.index', component: () => import('./views/PromotionIndexView.vue') },
+    { path: '/promotion-cycles/:id', name: 'promotions.show', component: () => import('./views/PromotionShowView.vue') },
+    { path: '/posting-requests', name: 'postings.index', component: () => import('./views/PostingIndexView.vue') },
+    { path: '/posting-requests/:id', name: 'postings.show', component: () => import('./views/PostingShowView.vue') },
     { path: '/budget-workbooks', name: 'budgets.index', component: () => import('./views/BudgetIndexView.vue') },
     { path: '/budget-workbooks/:id', name: 'budgets.show', component: () => import('./views/BudgetShowView.vue') },
     { path: '/reports', name: 'reports', component: () => import('./views/ReportsView.vue') },
@@ -40,7 +45,7 @@ router.beforeEach(async (to) => {
         return { name: 'dashboard' };
     }
 
-    if (! to.meta.guest && ! auth.user) {
+    if (! to.meta.guest && ! to.meta.public && ! auth.user) {
         return { name: 'login', query: { redirect: to.fullPath } };
     }
 
@@ -61,6 +66,10 @@ function routeTitle(name) {
         'imports.rows.show': 'Import Row Review',
         'movement.index': 'Movement Workbooks',
         'movement.show': 'Movement Workbook',
+        'promotions.index': 'Promotion Cycles',
+        'promotions.show': 'Promotion Cycle',
+        'postings.index': 'Staff Posting',
+        'postings.show': 'Posting Request',
         'budgets.index': 'Budget Workbooks',
         'budgets.show': 'Budget Workbook',
         reports: 'Reports',

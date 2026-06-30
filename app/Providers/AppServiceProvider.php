@@ -10,6 +10,10 @@ use App\Domain\Budget\Models\BudgetWorkbook;
 use App\Domain\Legacy\Models\LegacyStaffImportBatch;
 use App\Domain\Legacy\Models\LegacyStaffImportRow;
 use App\Domain\Movement\Models\MovementWorkbook;
+use App\Domain\Posting\Models\StaffPostingRequest;
+use App\Domain\Promotion\Models\PromotionApplication;
+use App\Domain\Promotion\Models\PromotionCycle;
+use App\Domain\Promotion\Models\PromotionSitting;
 use App\Domain\Staff\Models\Staff;
 use App\Models\Role;
 use App\Models\User;
@@ -20,7 +24,11 @@ use App\Policies\LegacyStaffImportRowPolicy;
 use App\Policies\LocationPolicy;
 use App\Policies\MdaPolicy;
 use App\Policies\MovementWorkbookPolicy;
+use App\Policies\PromotionApplicationPolicy;
+use App\Policies\PromotionCyclePolicy;
+use App\Policies\PromotionSittingPolicy;
 use App\Policies\RolePolicy;
+use App\Policies\StaffPostingRequestPolicy;
 use App\Policies\StaffPolicy;
 use App\Policies\StationPolicy;
 use Illuminate\Auth\Events\Login;
@@ -57,6 +65,10 @@ class AppServiceProvider extends ServiceProvider
         Gate::policy(LegacyStaffImportRow::class, LegacyStaffImportRowPolicy::class);
         Gate::policy(MovementWorkbook::class, MovementWorkbookPolicy::class);
         Gate::policy(BudgetWorkbook::class, BudgetWorkbookPolicy::class);
+        Gate::policy(PromotionCycle::class, PromotionCyclePolicy::class);
+        Gate::policy(PromotionApplication::class, PromotionApplicationPolicy::class);
+        Gate::policy(PromotionSitting::class, PromotionSittingPolicy::class);
+        Gate::policy(StaffPostingRequest::class, StaffPostingRequestPolicy::class);
 
         Event::listen(Login::class, function (Login $event): void {
             if (! $event->user instanceof User) {
