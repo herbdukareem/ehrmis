@@ -68,6 +68,16 @@ class RolesAndPermissionsSeeder extends Seeder
             'approve-budgets',
             'view-reports',
             'export-reports',
+            'view-service-reports',
+            'create-service-reports',
+            'submit-service-reports',
+            'review-service-reports',
+            'return-service-reports',
+            'approve-service-reports',
+            'lock-service-reports',
+            'export-service-reports',
+            'manage-report-templates',
+            'assign-report-templates',
             'view-audit-logs',
             'manage-settings',
             'manage-platform-settings',
@@ -128,6 +138,14 @@ class RolesAndPermissionsSeeder extends Seeder
                 'create-budgets',
                 'view-reports',
                 'export-reports',
+                'view-service-reports',
+                'create-service-reports',
+                'submit-service-reports',
+                'review-service-reports',
+                'return-service-reports',
+                'approve-service-reports',
+                'lock-service-reports',
+                'export-service-reports',
                 'manage-roles',
                 'manage-users',
                 'manage-mda-settings',
@@ -150,6 +168,9 @@ class RolesAndPermissionsSeeder extends Seeder
                 'view-postings',
                 'create-postings',
                 'view-reports',
+                'view-service-reports',
+                'create-service-reports',
+                'submit-service-reports',
             ],
             'Budget Officer' => [
                 'view-movement-sheets',
@@ -163,6 +184,8 @@ class RolesAndPermissionsSeeder extends Seeder
                 'view-budgets',
                 'view-reports',
                 'export-reports',
+                'view-service-reports',
+                'export-service-reports',
             ],
             'Report Viewer' => [
                 'view-reports',
@@ -175,6 +198,11 @@ class RolesAndPermissionsSeeder extends Seeder
                 'publish-staff-imports',
                 'approve-movement-sheets',
                 'approve-budgets',
+                'view-service-reports',
+                'review-service-reports',
+                'return-service-reports',
+                'approve-service-reports',
+                'lock-service-reports',
                 'view-promotions',
                 'decide-promotions',
                 'approve-promotion-printing',
@@ -196,5 +224,7 @@ class RolesAndPermissionsSeeder extends Seeder
             $role->save();
             $role->syncPermissions($rolePermissions);
         }
+
+        $this->call(ModuleSeeder::class);
     }
 }

@@ -15,6 +15,8 @@ use App\Domain\Promotion\Models\PromotionApplication;
 use App\Domain\Promotion\Models\PromotionCycle;
 use App\Domain\Promotion\Models\PromotionSitting;
 use App\Domain\Staff\Models\Staff;
+use App\Domain\ServiceReporting\Models\ReportSubmission;
+use App\Domain\ServiceReporting\Models\ReportTemplate;
 use App\Models\Role;
 use App\Models\User;
 use App\Policies\BudgetWorkbookPolicy;
@@ -28,6 +30,8 @@ use App\Policies\PromotionApplicationPolicy;
 use App\Policies\PromotionCyclePolicy;
 use App\Policies\PromotionSittingPolicy;
 use App\Policies\RolePolicy;
+use App\Policies\ReportSubmissionPolicy;
+use App\Policies\ReportTemplatePolicy;
 use App\Policies\StaffPostingRequestPolicy;
 use App\Policies\StaffPolicy;
 use App\Policies\StationPolicy;
@@ -69,6 +73,8 @@ class AppServiceProvider extends ServiceProvider
         Gate::policy(PromotionApplication::class, PromotionApplicationPolicy::class);
         Gate::policy(PromotionSitting::class, PromotionSittingPolicy::class);
         Gate::policy(StaffPostingRequest::class, StaffPostingRequestPolicy::class);
+        Gate::policy(ReportTemplate::class, ReportTemplatePolicy::class);
+        Gate::policy(ReportSubmission::class, ReportSubmissionPolicy::class);
 
         Event::listen(Login::class, function (Login $event): void {
             if (! $event->user instanceof User) {

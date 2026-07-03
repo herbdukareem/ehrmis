@@ -2,6 +2,8 @@
 
 namespace App\Http\Controllers\Api;
 
+use App\Domain\Module\Models\MdaModule;
+use App\Domain\Module\Services\ModuleAccessService;
 use App\Domain\Organization\Models\Mda;
 use App\Enums\RecordStatus;
 use App\Http\Controllers\Controller;
@@ -21,7 +23,7 @@ use Spatie\Permission\PermissionRegistrar;
 
 class AccessManagementController extends Controller
 {
-    public function index(Request $request): JsonResponse
+    public function index(Request $request, ModuleAccessService $modules): JsonResponse
     {
         $this->authorize('viewAny', Role::class);
 
@@ -37,9 +39,20 @@ class AccessManagementController extends Controller
                 'users' => AccessManagementRules::manageableUsersQuery($user)->get(),
                 'roles' => $roles->map(fn (Role $role): array => $this->serializeRole($role, $user))->values(),
                 'permissions' => $this->availablePermissionsFor($user),
+                'permissions_by_module' => $modules->permissionsGroupedFor($user),
+                'modules' => $modules
+                    ->modulesVisibleTo($user)
+                    ->map(fn ($module): array => $modules->serializeModule($module))
+                    ->values(),
+                'mda_module_assignments' => $this->mdaModuleAssignmentsFor($user),
+                'role_templates_by_module' => $modules->roleTemplatesGrouped(),
                 'mdas' => Mda::query()->visibleToUser($user)->orderBy('name')->get(['id', 'code', 'name']),
                 'role_scope_options' => $this->roleScopeOptionsFor($user),
                 'mda_role_permissions' => AccessManagementRules::mdaRolePermissionNames(),
+                'can_manage_roles' => $user->can('manage-roles'),
+                'can_manage_modules' => $user->hasPlatformAccess()
+                    && $user->can('manage-platform-settings')
+                    && $user->hasAnyRole(['Super Admin', 'Platform Admin', 'MIS Admin']),
                 'can_manage_access_scopes' => AccessManagementRules::canManageAccessScopes($user),
                 'can_manage_global_roles' => AccessManagementRules::canManageGlobalRoles($user),
                 'can_manage_all_roles' => AccessManagementRules::canManageAllRoles($user),
@@ -313,6 +326,35 @@ class AccessManagementController extends Controller
         return $query
             ->whereIn('name', AccessManagementRules::mdaRolePermissionNames())
             ->get(['id', 'name']);
+    }
+
+    /**
+     * @return array<int, mixed>
+     */
+    protected function mdaModuleAssignmentsFor(User $user): array
+    {
+        $visibleMdaIds = Mda::query()->visibleToUser($user)->pluck('id');
+
+        if ($visibleMdaIds->isEmpty()) {
+            return [];
+        }
+
+        return MdaModule::query()
+            ->with('module')
+            ->whereIn('mda_id', $visibleMdaIds)
+            ->get()
+            ->groupBy('mda_id')
+            ->map(fn ($assignments) => $assignments
+                ->map(fn (MdaModule $assignment): array => [
+                    'mda_id' => $assignment->mda_id,
+                    'module_code' => $assignment->module?->code,
+                    'module_name' => $assignment->module?->name,
+                    'enabled' => (bool) $assignment->enabled,
+                    'enabled_at' => $assignment->enabled_at,
+                    'disabled_at' => $assignment->disabled_at,
+                ])
+                ->values())
+            ->all();
     }
 
     protected function serializeRole(Role $role, User $actor): array

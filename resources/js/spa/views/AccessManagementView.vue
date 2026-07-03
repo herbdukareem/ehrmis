@@ -15,6 +15,10 @@ const roleSearch = ref('');
 const permissionSearch = ref('');
 const modalState = ref({ entity: null, mode: null });
 const busy = ref(false);
+const moduleBusy = ref(false);
+const moduleFeedback = ref('');
+const selectedModuleMdaId = ref(null);
+const moduleDraft = ref({});
 
 const userForm = ref({});
 const roleForm = ref({ name: '', scope: 'global', mda_id: null, permissions: [] });
@@ -28,11 +32,15 @@ const canManageAccessScopes = computed(() => Boolean(data.value?.can_manage_acce
 const canCreateRole = computed(() => (data.value?.role_scope_options?.length ?? 0) > 0);
 const canCreateUsers = computed(() => Boolean(data.value?.can_create_users));
 const canManageUserStatus = computed(() => Boolean(data.value?.can_manage_user_status));
+const canManageModules = computed(() => Boolean(data.value?.can_manage_modules));
 const scopeTypes = computed(() => data.value?.scope_types ?? ['platform', 'state', 'mda']);
 const userStatuses = computed(() => data.value?.user_statuses ?? ['active', 'inactive']);
 const permissions = computed(() => data.value?.permissions ?? []);
+const permissionsByModule = computed(() => data.value?.permissions_by_module ?? []);
+const modules = computed(() => data.value?.modules ?? []);
 const mdas = computed(() => data.value?.mdas ?? []);
 const mdaPermissionNames = computed(() => data.value?.mda_role_permissions ?? []);
+const selectedModuleMda = computed(() => mdas.value.find((mda) => Number(mda.id) === Number(selectedModuleMdaId.value)) ?? null);
 const visibleUsers = computed(() => {
     const term = userSearch.value.trim().toLowerCase();
     const users = data.value?.users ?? [];
@@ -161,7 +169,6 @@ const syncUserScopeDefaults = (form) => {
 };
 
 const permissionGroups = computed(() => {
-    const allPermissions = permissions.value;
     const term = permissionSearch.value.trim().toLowerCase();
     const filterItems = (items) => !term
         ? items
@@ -170,22 +177,28 @@ const permissionGroups = computed(() => {
             permission.guard_name,
         ].filter(Boolean).join(' ').toLowerCase().includes(term));
 
-    return [
-        {
-            id: 'safe',
-            label: 'Assignable permissions',
-            blurb: 'Permissions available for the current role scope.',
-            items: filterItems(allPermissions.filter((permission) => activeRoleForm.value.scope === 'global' || mdaPermissionNames.value.includes(permission.name))),
-        },
-        {
-            id: 'restricted',
-            label: 'Restricted outside this scope',
-            blurb: 'Visible here so admins understand what stays reserved for higher scope.',
-            items: activeRoleForm.value.scope === 'global'
-                ? []
-                : filterItems(allPermissions.filter((permission) => !mdaPermissionNames.value.includes(permission.name))),
-        },
-    ];
+    if (permissionsByModule.value.length) {
+        return permissionsByModule.value
+            .map((group) => {
+                const items = filterItems((group.permissions ?? [])
+                    .filter((permission) => activeRoleForm.value.scope === 'global' || mdaPermissionNames.value.includes(permission.name)));
+
+                return {
+                    id: group.module.code,
+                    label: group.module.name,
+                    blurb: `${items.length} permission${items.length === 1 ? '' : 's'} available in this module.`,
+                    items,
+                };
+            })
+            .filter((group) => group.items.length > 0);
+    }
+
+    return [{
+        id: 'safe',
+        label: 'Assignable permissions',
+        blurb: 'Permissions available for the current role scope.',
+        items: filterItems(permissions.value.filter((permission) => activeRoleForm.value.scope === 'global' || mdaPermissionNames.value.includes(permission.name))),
+    }];
 });
 
 const syncRoleScopeDefaults = (form) => {
@@ -337,6 +350,7 @@ const load = async () => {
     const previousUserId = selectedUserId.value;
     const previousRoleId = selectedRoleId.value;
     data.value = (await api.get('/access-management')).data.data;
+    initializeModuleDraft();
     resetNewRoleForm();
     resetNewUserForm();
 
@@ -355,6 +369,52 @@ const load = async () => {
         chooseRole(manageableRoles.value[0].id);
     } else {
         selectedRoleId.value = null;
+    }
+};
+
+const moduleDraftKey = (mdaId, moduleCode) => `${mdaId}:${moduleCode}`;
+
+const initializeModuleDraft = () => {
+    moduleDraft.value = {};
+    selectedModuleMdaId.value = selectedModuleMdaId.value ?? data.value?.mdas?.[0]?.id ?? null;
+
+    const assignments = data.value?.mda_module_assignments ?? {};
+    for (const mda of data.value?.mdas ?? []) {
+        for (const module of data.value?.modules ?? []) {
+            const current = assignments[mda.id]?.find((assignment) => assignment.module_code === module.code);
+            moduleDraft.value[moduleDraftKey(mda.id, module.code)] = Boolean(current?.enabled);
+        }
+    }
+};
+
+const moduleEnabled = (mdaId, moduleCode) => Boolean(moduleDraft.value[moduleDraftKey(mdaId, moduleCode)]);
+
+const setModuleEnabled = (mdaId, moduleCode, enabled) => {
+    moduleDraft.value = {
+        ...moduleDraft.value,
+        [moduleDraftKey(mdaId, moduleCode)]: enabled,
+    };
+};
+
+const saveModuleAccess = async () => {
+    if (!selectedModuleMda.value) return;
+    moduleBusy.value = true;
+    moduleFeedback.value = '';
+
+    try {
+        const response = await api.put(`/mdas/${selectedModuleMda.value.id}/modules`, {
+            modules: modules.value.map((module) => ({
+                code: module.code,
+                enabled: moduleEnabled(selectedModuleMda.value.id, module.code),
+            })),
+        });
+
+        moduleFeedback.value = response.data.message;
+        await load();
+    } catch (error) {
+        moduleFeedback.value = apiMessage(error);
+    } finally {
+        moduleBusy.value = false;
     }
 };
 
@@ -406,6 +466,10 @@ onMounted(load);
             <button type="button" class="civic-tab" :class="{ active: activePanel === 'roles' }" @click="activePanel = 'roles'">
                 Roles
                 <small>{{ visibleRoles.length }}</small>
+            </button>
+            <button type="button" class="civic-tab" :class="{ active: activePanel === 'modules' }" @click="activePanel = 'modules'">
+                Module access
+                <small>{{ modules.length }}</small>
             </button>
         </div>
 
@@ -534,6 +598,50 @@ onMounted(load);
                     </div>
                     <div v-else class="civic-setup-empty civic-setup-empty-panel">Select a role to inspect its scope and permission surface.</div>
                 </div>
+        </article>
+
+        <article v-show="activePanel === 'modules'" class="civic-workspace">
+            <div class="civic-workspace-header">
+                <div>
+                    <div class="civic-eyebrow">Enabled modules</div>
+                    <h2>MDA module access</h2>
+                    <div class="civic-setup-badge-group">
+                        <span class="civic-setup-badge" :data-tone="canManageModules ? 'manage' : 'view'">
+                            {{ canManageModules ? 'Platform module management' : 'View only' }}
+                        </span>
+                    </div>
+                </div>
+                <button v-if="canManageModules" class="civic-button civic-button-primary" type="button" :disabled="moduleBusy || !selectedModuleMda" @click="saveModuleAccess">
+                    {{ moduleBusy ? 'Saving...' : 'Save module access' }}
+                </button>
+            </div>
+
+            <div v-if="moduleFeedback" class="civic-feedback">{{ moduleFeedback }}</div>
+
+            <div class="civic-form-grid">
+                <label class="civic-field civic-field-wide">
+                    <span>Select MDA</span>
+                    <select v-model="selectedModuleMdaId" :disabled="moduleBusy">
+                        <option v-for="mda in mdas" :key="mda.id" :value="mda.id">{{ mda.code }} - {{ mda.name }}</option>
+                    </select>
+                </label>
+            </div>
+
+            <div class="civic-check-grid">
+                <label v-for="module in modules" :key="module.code" class="civic-check civic-check-card">
+                    <input
+                        type="checkbox"
+                        :checked="moduleEnabled(selectedModuleMdaId, module.code)"
+                        :disabled="moduleBusy || !canManageModules"
+                        @change="setModuleEnabled(selectedModuleMdaId, module.code, $event.target.checked)"
+                    >
+                    <span class="civic-check-copy">
+                        <strong>{{ module.name }}</strong>
+                        <small>{{ module.description ?? module.category ?? 'Module access' }}</small>
+                    </span>
+                </label>
+                <div v-if="modules.length === 0" class="civic-setup-empty">No modules are configured yet.</div>
+            </div>
         </article>
 
         <AppModal

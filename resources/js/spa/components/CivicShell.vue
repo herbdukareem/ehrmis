@@ -1,7 +1,7 @@
 <script setup>
 import { computed, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
-import { auth, hasAnyPermission, signOut } from '../stores/auth';
+import { auth, hasAnyAccess, hasAnyPermission, signOut } from '../stores/auth';
 import { appState } from '../stores/app';
 
 const route = useRoute();
@@ -13,21 +13,22 @@ const navBlueprint = [
         id: 'operations',
         label: 'Operations',
         items: [
-            { label: 'Overview', to: '/dashboard', permissionAny: ['view-reports'] },
-            { label: 'Staff registry', to: '/staff', permissionAny: ['view-staff'] },
-            { label: 'Data imports', to: '/legacy-staff-imports', permissionAny: ['view-staff-imports', 'import-staff', 'review-staff-imports', 'resolve-staff-import-issues', 'publish-staff-imports', 'publish-own-mda-staff-imports'] },
-            { label: 'Movement', to: '/movement-workbooks', permissionAny: ['view-movement-sheets', 'create-movement-sheets', 'approve-movement-sheets'] },
+            { label: 'Overview', to: '/dashboard', module: 'dashboards_analytics', permissionAny: ['view-reports'] },
+            { label: 'Staff registry', to: '/staff', module: 'staff_registry', permissionAny: ['view-staff'] },
+            { label: 'Data imports', to: '/legacy-staff-imports', module: 'legacy_import', permissionAny: ['view-staff-imports', 'import-staff', 'review-staff-imports', 'resolve-staff-import-issues', 'publish-staff-imports', 'publish-own-mda-staff-imports'] },
+            { label: 'Movement', to: '/movement-workbooks', module: 'movement_budget', permissionAny: ['view-movement-sheets', 'create-movement-sheets', 'approve-movement-sheets'] },
             { label: 'Promotions', to: '/promotion-cycles', permissionAny: ['view-promotions'] },
             { label: 'Postings', to: '/posting-requests', permissionAny: ['view-postings'] },
-            { label: 'Budget', to: '/budget-workbooks', permissionAny: ['view-budgets', 'create-budgets', 'approve-budgets'] },
-            { label: 'Reports', to: '/reports', permissionAny: ['view-reports', 'export-reports'] },
+            { label: 'Budget', to: '/budget-workbooks', module: 'movement_budget', permissionAny: ['view-budgets', 'create-budgets', 'approve-budgets'] },
+            { label: 'Service reports', to: '/service-reports', module: 'service_reporting', permissionAny: ['view-service-reports'] },
+            { label: 'Reports', to: '/reports', module: 'dashboards_analytics', permissionAny: ['view-reports', 'export-reports'] },
         ],
     },
     {
         id: 'administration',
         label: 'Administration',
         items: [
-            { label: 'Settings', to: '/settings', permissionAny: ['manage-platform-settings', 'manage-mda-settings'] },
+            { label: 'Settings', to: '/settings', module: 'settings', permissionAny: ['manage-platform-settings', 'manage-mda-settings'] },
             {
                 label: 'Setup',
                 to: '/setup-management',
@@ -42,7 +43,7 @@ const navBlueprint = [
                     'manage-salary-structure',
                 ],
             },
-            { label: 'Access control', to: '/access-management', permissionAny: ['manage-users', 'manage-roles'] },
+            { label: 'Access control', to: '/access-management', module: 'access_management', permissionAny: ['manage-users', 'manage-roles'] },
         ],
     },
 ];
@@ -53,7 +54,9 @@ const navSections = computed(() => {
     return navBlueprint
         .map((section) => {
             const items = section.items
-                .filter((item) => hasAnyPermission(item.permissionAny))
+                .filter((item) => item.module
+                    ? hasAnyAccess(item.module, item.permissionAny)
+                    : hasAnyPermission(item.permissionAny))
                 .map((item) => ({
                     ...item,
                     mark: String(mark++).padStart(2, '0'),

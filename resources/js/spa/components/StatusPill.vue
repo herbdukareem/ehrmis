@@ -1,7 +1,14 @@
 <script setup>
-defineProps({ status: { type: String, default: 'unknown' } });
+import { computed } from 'vue';
+
+const props = defineProps({
+    status: { type: String, default: '' },
+    value: { type: String, default: '' },
+});
+
+const displayStatus = computed(() => props.status || props.value || 'unknown');
 </script>
 
 <template>
-    <span class="civic-status" :data-status="status">{{ status.replaceAll('_', ' ') }}</span>
+    <span class="civic-status" :data-status="displayStatus">{{ displayStatus.replaceAll('_', ' ') }}</span>
 </template>
