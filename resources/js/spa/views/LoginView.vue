@@ -2,7 +2,7 @@
 import { reactive, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { apiMessage } from '../lib/api';
-import { signIn } from '../stores/auth';
+import { defaultAuthenticatedPath, signIn } from '../stores/auth';
 import { appState } from '../stores/app';
 
 const router = useRouter();
@@ -17,7 +17,7 @@ const submit = async () => {
 
     try {
         await signIn(form);
-        await router.push(route.query.redirect || '/dashboard');
+        await router.push(route.query.redirect || defaultAuthenticatedPath());
     } catch (exception) {
         error.value = apiMessage(exception, 'The supplied credentials could not be verified.');
     } finally {

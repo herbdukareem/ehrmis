@@ -1,28 +1,26 @@
 <script setup>
 import { computed, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
-import { auth, signOut } from '../stores/auth';
+import { auth, hasAnyPermission, signOut } from '../stores/auth';
 import { appState } from '../stores/app';
 
 const route = useRoute();
 const router = useRouter();
 const mobileOpen = ref(false);
 
-const hasAnyPermission = (permissions = []) => permissions.some((permission) => auth.user?.permissions?.includes(permission));
-
 const navBlueprint = [
     {
         id: 'operations',
         label: 'Operations',
         items: [
-            { label: 'Overview', to: '/dashboard', permissionAny: [] },
-            { label: 'Staff registry', to: '/staff', permissionAny: [] },
-            { label: 'Data imports', to: '/legacy-staff-imports', permissionAny: [] },
-            { label: 'Movement', to: '/movement-workbooks', permissionAny: [] },
+            { label: 'Overview', to: '/dashboard', permissionAny: ['view-reports'] },
+            { label: 'Staff registry', to: '/staff', permissionAny: ['view-staff'] },
+            { label: 'Data imports', to: '/legacy-staff-imports', permissionAny: ['view-staff-imports', 'import-staff', 'review-staff-imports', 'resolve-staff-import-issues', 'publish-staff-imports', 'publish-own-mda-staff-imports'] },
+            { label: 'Movement', to: '/movement-workbooks', permissionAny: ['view-movement-sheets', 'create-movement-sheets', 'approve-movement-sheets'] },
             { label: 'Promotions', to: '/promotion-cycles', permissionAny: ['view-promotions'] },
             { label: 'Postings', to: '/posting-requests', permissionAny: ['view-postings'] },
-            { label: 'Budget', to: '/budget-workbooks', permissionAny: [] },
-            { label: 'Reports', to: '/reports', permissionAny: [] },
+            { label: 'Budget', to: '/budget-workbooks', permissionAny: ['view-budgets', 'create-budgets', 'approve-budgets'] },
+            { label: 'Reports', to: '/reports', permissionAny: ['view-reports', 'export-reports'] },
         ],
     },
     {
@@ -55,7 +53,7 @@ const navSections = computed(() => {
     return navBlueprint
         .map((section) => {
             const items = section.items
-                .filter((item) => item.permissionAny.length === 0 || hasAnyPermission(item.permissionAny))
+                .filter((item) => hasAnyPermission(item.permissionAny))
                 .map((item) => ({
                     ...item,
                     mark: String(mark++).padStart(2, '0'),

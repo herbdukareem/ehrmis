@@ -5,6 +5,8 @@ import HorizontalBarChart from '../components/HorizontalBarChart.vue';
 import LoadingBlock from '../components/LoadingBlock.vue';
 import PageHeading from '../components/PageHeading.vue';
 import { api } from '../lib/api';
+import { can } from '../stores/auth';
+import { setPageError } from '../stores/app';
 
 const data = ref(null);
 const activeView = ref('organization');
@@ -16,19 +18,70 @@ const views = [
     { id: 'retirement', label: 'Retirement trends' },
 ];
 const selectedCadre = computed(() => data.value?.distributions.cadres[selectedCadreIndex.value] ?? null);
+const isStateOverview = computed(() => data.value?.scope?.mode && data.value.scope.mode !== 'mda');
+const mdaChartRows = computed(() => [...(data.value?.mda_overview ?? [])]
+    .sort((a, b) => b.staff_count - a.staff_count));
+const mdaWorkforceMaximum = computed(() => Math.max(
+    ...mdaChartRows.value.flatMap((row) => [row.active_staff, row.retiring_this_year]),
+    1,
+));
 const retirementMaximum = computed(() => Math.max(
     ...(data.value?.retirement_trends.history ?? []).map((row) => row.total),
     ...(data.value?.retirement_trends.projection ?? []).map((row) => row.total),
     1,
 ));
 
-onMounted(async () => { data.value = (await api.get('/dashboard')).data.data; });
+onMounted(async () => {
+    if (!can('view-reports')) {
+        setPageError('This action is unauthorized.');
+        return;
+    }
+
+    data.value = (await api.get('/dashboard')).data.data;
+});
 </script>
 
 <template>
     <PageHeading eyebrow="Workforce intelligence" title="Executive establishment overview" description="Authoritative workforce composition, allowance exposure, and retirement outlook for the visible establishment." />
     <LoadingBlock v-if="!data" />
     <template v-else>
+        <section v-if="isStateOverview" class="civic-metric-band civic-metric-band-wide">
+            <div><span>Visible MDAs</span><strong>{{ data.scope.mda_count.toLocaleString() }}</strong></div>
+            <div><span>No staff yet</span><strong>{{ data.state_attention.mdas_with_no_staff.toLocaleString() }}</strong></div>
+            <div><span>Workflow pressure</span><strong>{{ data.state_attention.workflow_pressure.toLocaleString() }}</strong></div>
+            <div><span>Data issues</span><strong>{{ data.state_attention.data_issues.toLocaleString() }}</strong></div>
+        </section>
+
+        <section v-if="isStateOverview" class="civic-workspace">
+            <div class="civic-section-heading">
+                <div>
+                    <h2>MDAs overview</h2>
+                </div>
+                <small>Active and retiring staff</small>
+            </div>
+            <div class="civic-mda-column-chart">
+                <div class="civic-mda-column-legend">
+                    <span><i data-kind="active"></i> Active</span>
+                    <span><i data-kind="retiring"></i> Retiring</span>
+                </div>
+                <div class="civic-mda-column-grid">
+                    <div v-for="row in mdaChartRows" :key="row.mda.id" class="civic-mda-column">
+                        <div class="civic-mda-column-bars">
+                            <div class="civic-mda-column-bar">
+                                <strong>{{ row.active_staff.toLocaleString() }}</strong>
+                                <span data-kind="active" :style="{ height: `${Math.max((row.active_staff / mdaWorkforceMaximum) * 100, 3)}%` }"></span>
+                            </div>
+                            <div class="civic-mda-column-bar">
+                                <strong>{{ row.retiring_this_year.toLocaleString() }}</strong>
+                                <span data-kind="retiring" :style="{ height: `${Math.max((row.retiring_this_year / mdaWorkforceMaximum) * 100, 3)}%` }"></span>
+                            </div>
+                        </div>
+                        <small>{{ row.mda.code }}</small>
+                    </div>
+                </div>
+            </div>
+        </section>
+
         <section class="civic-metric-band civic-metric-band-wide">
             <div><span>Total staff</span><strong>{{ data.counts.staff.toLocaleString() }}</strong></div>
             <div><span>Active</span><strong>{{ data.counts.active_staff.toLocaleString() }}</strong></div>

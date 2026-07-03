@@ -13,7 +13,13 @@ class OrganizationSeeder extends Seeder
     public function run(): void
     {
         $mdas = [
+            ['code' => 'DHCA', 'name' => 'DRUG & HOSPITAL CONSUMABLE AGENCY'],
             ['code' => 'HMB', 'name' => 'HOSPITAL MANAGEMENT BOARD'],
+            ['code' => 'IBBSH', 'name' => 'IBB SPECIALIST HOSPITAL'],
+            ['code' => 'MOH', 'name' => 'MINISTRY OF HEALTH'],
+            ['code' => 'NSAC', 'name' => 'NIGER STATE AGENCY FOR CONTROL'],
+            ['code' => 'NSCHA', 'name' => 'NIGER STATE CONT. HEALTH AGENCY'],
+            ['code' => 'PHC', 'name' => 'PRIMARY HEALTHCARE'],
         ];
 
         foreach ($mdas as $mdaData) {
@@ -26,8 +32,6 @@ class OrganizationSeeder extends Seeder
             );
         }
 
-        $hmb = Mda::query()->where('code', 'HMB')->firstOrFail();
-
         $departments = [
             ['code' => 'ADMIN', 'name' => 'ADMIN', 'description' => 'Administration department'],
             ['code' => 'MEDICAL', 'name' => 'Medical', 'description' => 'Medical department'],
@@ -37,16 +41,27 @@ class OrganizationSeeder extends Seeder
             ['code' => 'PRS/HIM', 'name' => 'PRS/HIM', 'description' => 'PRS/HIM department'],
         ];
 
-        foreach ($departments as $deptData) {
-            Department::query()->updateOrCreate(
-                ['mda_id' => $hmb->id, 'code' => $deptData['code']],
+        Mda::query()->whereIn('code', collect($mdas)->pluck('code'))->each(function (Mda $mda) use ($departments): void {
+            foreach ($departments as $deptData) {
+                Department::query()->updateOrCreate(
+                    ['mda_id' => $mda->id, 'code' => $deptData['code']],
+                    [
+                        'name' => $deptData['name'],
+                        'description' => $deptData['description'],
+                        'status' => 'active',
+                    ],
+                );
+            }
+
+            Station::query()->updateOrCreate(
+                ['mda_id' => $mda->id, 'code' => 'HQ'],
                 [
-                    'name' => $deptData['name'],
-                    'description' => $deptData['description'],
+                    'name' => $mda->name.' Headquarters',
+                    'description' => 'Headquarters station',
                     'status' => 'active',
                 ],
             );
-        }
+        });
 
         Location::query()->firstOrCreate(
             [

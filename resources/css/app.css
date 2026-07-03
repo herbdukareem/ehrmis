@@ -64,6 +64,7 @@ button, a { -webkit-tap-highlight-color: transparent; }
     display: flex;
     flex-direction: column;
     padding: 26px 18px 20px;
+    overflow: hidden;
     color: #fff;
     background: linear-gradient(180deg, #0f3d3a 0%, #0a2a28 100%);
     border-right: 1px solid rgb(255 255 255 / .12);
@@ -93,8 +94,11 @@ button, a { -webkit-tap-highlight-color: transparent; }
 .civic-brand-title { font-family: "Source Serif 4", serif; font-size: 22px; font-weight: 700; }
 .civic-brand-subtitle { color: #99cac6; font-size: 10px; letter-spacing: .08em; text-transform: uppercase; }
 
-.civic-nav { display: grid; gap: 18px; margin-top: 24px; }
-.civic-nav-section { display: grid; gap: 4px; }
+.civic-nav { display: grid; align-content: start; gap: 18px; flex: 1 1 0; min-height: 0; margin-top: 24px; overflow-y: auto; padding-bottom: 8px; }
+.civic-nav::-webkit-scrollbar { width: 3px; }
+.civic-nav::-webkit-scrollbar-track { background: transparent; }
+.civic-nav::-webkit-scrollbar-thumb { background: rgb(255 255 255 / .18); border-radius: 999px; }
+.civic-nav-section { display: grid; align-content: start; gap: 4px; }
 .civic-nav-section-title {
     padding: 0 10px 6px;
     color: #6db5b0;
@@ -387,6 +391,67 @@ button, a { -webkit-tap-highlight-color: transparent; }
 .civic-bar-track { height: 13px; overflow: hidden; background: #ebe8e1; }
 .civic-bar-track span { display: block; height: 100%; background: linear-gradient(90deg, var(--civic-blue), #2a9d96); }
 .civic-bar-row strong { color: var(--civic-blue); font-size: 11px; text-align: right; }
+.civic-mda-column-chart { padding: 18px 20px 20px; }
+.civic-mda-column-legend {
+    display: flex;
+    justify-content: flex-end;
+    gap: 18px;
+    margin-bottom: 16px;
+    color: #5f6a79;
+    font-size: 9px;
+    font-weight: 800;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+}
+.civic-mda-column-legend span { display: inline-flex; align-items: center; gap: 6px; }
+.civic-mda-column-legend i { width: 9px; height: 9px; }
+.civic-mda-column-legend i[data-kind="active"] { background: var(--civic-blue); }
+.civic-mda-column-legend i[data-kind="retiring"] { background: var(--civic-brass); }
+.civic-mda-column-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(92px, 1fr));
+    gap: 14px;
+    min-height: 300px;
+    align-items: end;
+}
+.civic-mda-column {
+    display: grid;
+    grid-template-rows: 240px auto;
+    gap: 10px;
+    min-width: 0;
+}
+.civic-mda-column-bars {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(24px, 1fr));
+    gap: 7px;
+    align-items: end;
+    padding: 0 6px;
+    background: repeating-linear-gradient(to top, #f2f0ea 0 1px, transparent 1px 48px);
+    border-bottom: 1px solid var(--civic-line);
+}
+.civic-mda-column-bar {
+    display: grid;
+    grid-template-rows: 22px 1fr;
+    gap: 5px;
+    height: 100%;
+    align-items: end;
+    min-width: 0;
+    text-align: center;
+}
+.civic-mda-column-bar strong { color: var(--civic-blue); font-size: 10px; font-weight: 800; }
+.civic-mda-column-bar span { display: block; width: 100%; min-height: 3px; }
+.civic-mda-column-bar span[data-kind="active"] { background: linear-gradient(180deg, #2a9d96, var(--civic-blue)); }
+.civic-mda-column-bar span[data-kind="retiring"] { background: var(--civic-brass); }
+.civic-mda-column small {
+    overflow: hidden;
+    color: var(--civic-ink);
+    font-size: 10px;
+    font-weight: 800;
+    letter-spacing: .06em;
+    text-align: center;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
 .civic-split-analysis { display: grid; grid-template-columns: 1.35fr .9fr; gap: 40px; }
 .civic-split-analysis > div + div { padding-left: 36px; border-left: 1px solid var(--civic-line); }
 .civic-donut-layout { display: grid; place-items: center; gap: 25px; }
@@ -831,6 +896,9 @@ button, a { -webkit-tap-highlight-color: transparent; }
     .civic-retirement-strip > div { border-bottom: 1px solid rgb(255 255 255 / .16); }
     .civic-analysis-heading { align-items: start; flex-direction: column; }
     .civic-bar-row { grid-template-columns: 100px 1fr 42px; }
+    .civic-mda-column-chart { overflow-x: auto; padding: 16px; }
+    .civic-mda-column-grid { grid-template-columns: repeat(7, 86px); min-width: 660px; }
+    .civic-mda-column { grid-template-rows: 210px auto; }
     .civic-timeline-chart { overflow-x: auto; grid-template-columns: repeat(10, 58px); }
     .civic-filter-line, .civic-workspace-header { align-items: stretch; flex-direction: column; }
     .civic-record-count { margin-left: 0; }

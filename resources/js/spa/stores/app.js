@@ -3,6 +3,7 @@ import axios from 'axios';
 
 export const appState = reactive({
     pendingRequests: 0,
+    pageError: '',
     toastSeed: 0,
     toasts: [],
     branding: {
@@ -34,4 +35,12 @@ export function pushToast(message, tone = 'success', timeout = 3200) {
 
 export function removeToast(id) {
     appState.toasts = appState.toasts.filter((toast) => toast.id !== id);
+}
+
+export function setPageError(message) {
+    appState.pageError = message;
+}
+
+export function clearPageError() {
+    appState.pageError = '';
 }

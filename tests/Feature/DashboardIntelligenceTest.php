@@ -113,12 +113,96 @@ class DashboardIntelligenceTest extends TestCase
         $response
             ->assertOk()
             ->assertJsonPath('data.counts.staff', 2)
-            ->assertJsonPath('data.retirement_windows.this_month', 2);
+            ->assertJsonPath('data.retirement_windows.this_month', 2)
+            ->assertJsonPath('data.scope.mode', 'multi_mda')
+            ->assertJsonPath('data.scope.mda_count', 2)
+            ->assertJsonCount(2, 'data.mda_overview');
 
         $labels = collect($response->json('data.distributions.departments'))->pluck('label')->all();
-        $this->assertContains($mdaA->name.' Admin', $labels);
-        $this->assertContains($mdaB->name.' Admin', $labels);
+        $this->assertContains('(MOH) '.$mdaA->name.' Admin', $labels);
+        $this->assertContains('(HMB) '.$mdaB->name.' Admin', $labels);
         $this->assertNotContains($mdaC->name.' Admin', $labels);
+
+        $salaryLabels = collect($response->json('data.distributions.salary_scales'))->pluck('label')->all();
+        $this->assertContains('(MOH) GL', $salaryLabels);
+        $this->assertContains('(HMB) GL', $salaryLabels);
+        $this->assertNotContains('(EDU) GL', $salaryLabels);
+
+        $overviewMdaCodes = collect($response->json('data.mda_overview'))->pluck('mda.code')->all();
+        $this->assertContains('MOH', $overviewMdaCodes);
+        $this->assertContains('HMB', $overviewMdaCodes);
+        $this->assertNotContains('EDU', $overviewMdaCodes);
+        $this->assertArrayNotHasKey('mda_rankings', $response->json('data'));
+
+        CarbonImmutable::setTestNow();
+    }
+
+    public function test_dashboard_returns_state_wise_mda_overview_for_state_access_user(): void
+    {
+        CarbonImmutable::setTestNow('2026-06-13');
+
+        $mdaA = Mda::query()->create(['code' => 'MOH', 'name' => 'Ministry of Health', 'status' => 'active']);
+        $mdaB = Mda::query()->create(['code' => 'HMB', 'name' => 'Hospital Management Board', 'status' => 'active']);
+        $mdaC = Mda::query()->create(['code' => 'PHC', 'name' => 'Primary Healthcare', 'status' => 'active']);
+
+        foreach ([[$mdaA, 'MOH-001'], [$mdaB, 'HMB-001']] as [$mda, $staffNumber]) {
+            $scale = SalaryScale::query()->create(['mda_id' => $mda->id, 'code' => 'GL', 'name' => 'Grade Level', 'min_level' => 1, 'max_level' => 17, 'min_step' => 1, 'max_step' => 15, 'status' => 'active']);
+            $department = Department::query()->create(['mda_id' => $mda->id, 'code' => $mda->code, 'name' => 'Admin', 'status' => 'active']);
+            $cadre = Cadre::query()->create(['department_id' => $department->id, 'salary_scale_id' => $scale->id, 'name' => $mda->code.' Officer', 'status' => 'active']);
+            $staff = Staff::withoutGlobalScopes()->create([
+                'mda_id' => $mda->id,
+                'staff_number' => $staffNumber,
+                'surname' => $mda->code,
+                'first_name' => 'Officer',
+                'full_name' => $mda->code.' Officer',
+                'sex' => 'female',
+                'status' => 'active',
+            ]);
+
+            StaffEmployment::query()->create([
+                'staff_id' => $staff->id,
+                'mda_id' => $mda->id,
+                'department_id' => $department->id,
+                'cadre_id' => $cadre->id,
+                'expected_retirement_date' => '2026-12-28',
+                'employment_status' => 'active',
+                'is_current' => true,
+            ]);
+            StaffSalaryPlacement::query()->create(['staff_id' => $staff->id, 'salary_scale_id' => $scale->id, 'level' => 9, 'step' => 1, 'is_current' => true]);
+        }
+
+        $user = User::factory()->create();
+        UserAccessScope::query()->create([
+            'user_id' => $user->id,
+            'scope_type' => 'state',
+            'state_code' => 'NG-NI',
+        ]);
+
+        $response = $this->actingAs($user)->getJson('/api/dashboard');
+
+        $response
+            ->assertOk()
+            ->assertJsonPath('data.scope.mode', 'state')
+            ->assertJsonPath('data.scope.mda_count', 3)
+            ->assertJsonPath('data.counts.staff', 2)
+            ->assertJsonPath('data.state_attention.mdas_with_no_staff', 1)
+            ->assertJsonPath('data.state_attention.retiring_this_year', 2)
+            ->assertJsonCount(3, 'data.mda_overview');
+
+        $overview = collect($response->json('data.mda_overview'))->keyBy('mda.code');
+        $this->assertSame(1, $overview->get('MOH')['staff_count']);
+        $this->assertSame(1, $overview->get('HMB')['staff_count']);
+        $this->assertSame(0, $overview->get('PHC')['staff_count']);
+        $this->assertArrayNotHasKey('risk_score', $overview->get('MOH'));
+        $this->assertArrayNotHasKey('mda_rankings', $response->json('data'));
+
+        $departments = collect($response->json('data.distributions.departments'))->keyBy('label');
+        $this->assertCount(1, $departments);
+        $this->assertSame(2, $departments->get('Admin')['total']);
+
+        $salaryScales = collect($response->json('data.distributions.salary_scales'))->keyBy('label');
+        $this->assertCount(1, $salaryScales);
+        $this->assertSame(2, $salaryScales->get('GL')['total']);
 
         CarbonImmutable::setTestNow();
     }

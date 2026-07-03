@@ -1,6 +1,6 @@
 import { createRouter, createWebHistory } from 'vue-router';
-import { auth, loadSession } from './stores/auth';
-import { appState } from './stores/app';
+import { auth, defaultAuthenticatedPath, loadSession } from './stores/auth';
+import { appState, clearPageError } from './stores/app';
 
 const routes = [
     { path: '/login', name: 'login', component: () => import('./views/LoginView.vue'), meta: { guest: true } },
@@ -42,13 +42,14 @@ router.beforeEach(async (to) => {
     }
 
     if (to.meta.guest && auth.user) {
-        return { name: 'dashboard' };
+        return defaultAuthenticatedPath();
     }
 
     if (! to.meta.guest && ! to.meta.public && ! auth.user) {
         return { name: 'login', query: { redirect: to.fullPath } };
     }
 
+    clearPageError();
     document.title = `${to.meta.title ?? routeTitle(to.name)} | ${appState.branding.acronym}`;
 });
 

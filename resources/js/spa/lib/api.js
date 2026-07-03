@@ -1,5 +1,5 @@
 import axios from 'axios';
-import { appState } from '../stores/app';
+import { appState, setPageError } from '../stores/app';
 
 export const api = axios.create({
     baseURL: '/api',
@@ -22,6 +22,10 @@ api.interceptors.response.use(
     },
     (error) => {
         appState.pendingRequests = Math.max(0, appState.pendingRequests - 1);
+        if (error?.response?.status === 403 && error?.config?.method?.toLowerCase() === 'get') {
+            setPageError(apiMessage(error, 'This action is unauthorized.'));
+        }
+
         return Promise.reject(error);
     },
 );
