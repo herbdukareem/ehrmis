@@ -167,6 +167,38 @@ class ImportLegacyFoundationDataCommandTest extends TestCase
         $this->assertSame($firstCounts['promotion_policies'], PromotionPolicy::query()->count());
     }
 
+    public function test_importer_seeds_builtin_promotion_policies_when_legacy_table_is_missing(): void
+    {
+        Schema::connection('legacy')->drop('promotion_years');
+
+        $this
+            ->artisan('legacy:import-foundation')
+            ->assertSuccessful();
+
+        $this->assertSame(8, PromotionPolicy::query()->count());
+        $this->assertDatabaseHas('promotion_policies', [
+            'min_level' => 2,
+            'max_level' => 6,
+            'required_years' => 2,
+            'policy_type' => 'normal',
+            'status' => 'active',
+        ]);
+        $this->assertDatabaseHas('promotion_policies', [
+            'min_level' => 1,
+            'max_level' => 5,
+            'required_years' => 2,
+            'policy_type' => 'normal',
+            'status' => 'active',
+        ]);
+        $this->assertDatabaseHas('promotion_policies', [
+            'min_level' => 5,
+            'max_level' => 7,
+            'required_years' => 4,
+            'policy_type' => 'normal',
+            'status' => 'active',
+        ]);
+    }
+
     public function test_station_alias_lookup_imports_abbreviated_legacy_station_names(): void
     {
         $legacy = DB::connection('legacy');

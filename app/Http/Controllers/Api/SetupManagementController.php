@@ -7,11 +7,14 @@ use App\Domain\Organization\Models\Mda;
 use App\Domain\Organization\Models\Station;
 use App\Domain\Staff\Models\AllowanceType;
 use App\Domain\Staff\Models\Cadre;
+use App\Domain\Staff\Models\PromotionPolicy;
 use App\Domain\Staff\Models\QualificationType;
 use App\Domain\Staff\Models\Rank;
 use App\Domain\Staff\Models\SalaryScale;
 use App\Domain\Staff\Models\SalaryStructureRate;
 use App\Domain\Staff\Models\SalaryStructureRateAllowance;
+use App\Domain\Staff\Support\PromotionPolicyCatalog;
+use App\Domain\Staff\Support\UnifiedQualificationCatalog;
 use App\Http\Controllers\Controller;
 use App\Support\SetupManagementRules;
 use Illuminate\Database\Eloquent\Builder;
@@ -66,6 +69,7 @@ class SetupManagementController extends Controller
                     'manage_allowance_types' => SetupManagementRules::canManageMdaOwnedSetup($user, 'manage-allowance-types'),
                     'manage_salary_scales' => SetupManagementRules::canManageMdaOwnedSetup($user, 'manage-salary-scales'),
                     'manage_qualification_types' => SetupManagementRules::canManageGlobalSetup($user, 'manage-qualification-types'),
+                    'manage_promotion_policies' => SetupManagementRules::canManageGlobalSetup($user, 'manage-promotion-policies'),
                     'manage_salary_structure' => SetupManagementRules::canManageMdaOwnedSetup($user, 'manage-salary-structure'),
                 ],
                 'mdas' => Mda::query()->visibleToUser($user)->orderBy('name')->get(['id', 'code', 'name']),
@@ -107,6 +111,29 @@ class SetupManagementController extends Controller
                 'allowance_types' => AllowanceType::query()->orderBy('name')->get(['id', 'mda_id', 'code', 'name', 'description', 'status']),
                 'salary_scales' => SalaryScale::query()->orderBy('code')->get(['id', 'mda_id', 'code', 'name', 'min_level', 'max_level', 'min_step', 'max_step', 'status']),
                 'qualification_types' => QualificationType::query()->unified()->orderBy('name')->get(['id', 'code', 'name', 'description', 'status']),
+                'promotion_policy_scales' => collect(PromotionPolicyCatalog::scaleOptions())
+                    ->map(fn (string $name, string $code): array => ['code' => $code, 'name' => $name])
+                    ->values(),
+                'promotion_policies' => PromotionPolicy::query()
+                    ->with('salaryScale:id,code,name')
+                    ->get(['id', 'salary_scale_id', 'min_level', 'max_level', 'required_years', 'policy_type', 'description', 'status'])
+                    ->map(fn (PromotionPolicy $policy): array => [
+                        'id' => $policy->id,
+                        'salary_scale_id' => $policy->salary_scale_id,
+                        'salary_scale_code' => $policy->salaryScale?->code,
+                        'min_level' => $policy->min_level,
+                        'max_level' => $policy->max_level,
+                        'required_years' => $policy->required_years,
+                        'policy_type' => $policy->policy_type,
+                        'description' => $policy->description,
+                        'status' => $policy->status,
+                        'salary_scale' => $policy->salaryScale?->only(['id', 'code', 'name']),
+                    ])
+                    ->sortBy([
+                        ['salary_scale_code', 'asc'],
+                        ['min_level', 'asc'],
+                    ])
+                    ->values(),
                 'salary_structure_rates' => $rates->map(fn (SalaryStructureRate $rate): array => [
                     'id' => $rate->id,
                     'mda_id' => $rate->mda_id,
@@ -253,6 +280,13 @@ class SetupManagementController extends Controller
                 'permission' => 'manage-qualification-types',
                 'scope' => 'global',
             ],
+            'promotion-policies' => [
+                'type' => $type,
+                'label' => 'Promotion policy',
+                'model' => PromotionPolicy::class,
+                'permission' => 'manage-promotion-policies',
+                'scope' => 'global',
+            ],
             'salary-structure-rates' => [
                 'type' => $type,
                 'label' => 'Salary structure rate',
@@ -390,6 +424,14 @@ class SetupManagementController extends Controller
                 'description' => ['nullable', 'string'],
                 'status' => ['required', Rule::in(['active', 'inactive'])],
             ]),
+            'promotion-policies' => $request->validate([
+                'salary_scale_code' => ['required', 'string', 'max:20', Rule::in(array_keys(PromotionPolicyCatalog::scaleOptions()))],
+                'min_level' => ['required', 'integer', 'min:1'],
+                'max_level' => ['required', 'integer', 'min:1'],
+                'required_years' => ['required', 'integer', 'min:1', 'max:10'],
+                'description' => ['nullable', 'string'],
+                'status' => ['required', Rule::in(['active', 'inactive'])],
+            ]),
             'salary-scales' => $request->validate([
                 'mda_id' => ['nullable', 'integer', 'exists:mdas,id'],
                 'code' => [
@@ -460,6 +502,45 @@ class SetupManagementController extends Controller
             if ((int) $validated['min_step'] > (int) $validated['max_step']) {
                 throw ValidationException::withMessages([
                     'min_step' => 'Minimum step cannot be greater than maximum step.',
+                ]);
+            }
+
+            return;
+        }
+
+        if ($config['type'] === 'promotion-policies') {
+            $scaleCode = strtoupper((string) ($validated['salary_scale_code'] ?? $record?->salaryScale?->code ?? ''));
+            $scaleDefinition = UnifiedQualificationCatalog::salaryScales()[$scaleCode] ?? null;
+
+            if (! $scaleDefinition) {
+                throw ValidationException::withMessages([
+                    'salary_scale_code' => 'The selected salary scale code is not supported for promotion policy setup.',
+                ]);
+            }
+
+            if ((int) $validated['min_level'] > (int) $validated['max_level']) {
+                throw ValidationException::withMessages([
+                    'min_level' => 'Minimum level cannot be greater than maximum level.',
+                ]);
+            }
+
+            if ((int) $validated['max_level'] > (int) $scaleDefinition['max_level']) {
+                throw ValidationException::withMessages([
+                    'max_level' => "Maximum level cannot be greater than {$scaleDefinition['max_level']} for {$scaleCode}.",
+                ]);
+            }
+
+            $exists = PromotionPolicy::query()
+                ->where('min_level', (int) $validated['min_level'])
+                ->where('max_level', (int) $validated['max_level'])
+                ->where('policy_type', 'normal')
+                ->whereHas('salaryScale', fn ($query) => $query->where('code', $scaleCode))
+                ->when($record, fn (Builder $query) => $query->whereKeyNot($record->getKey()))
+                ->exists();
+
+            if ($exists) {
+                throw ValidationException::withMessages([
+                    'salary_scale_code' => 'A promotion policy with this scale and level band already exists.',
                 ]);
             }
 
@@ -617,6 +698,15 @@ class SetupManagementController extends Controller
                 'description' => $validated['description'] ?? null,
                 'status' => $validated['status'],
             ],
+            'promotion-policies' => [
+                'salary_scale_id' => $this->resolvePromotionPolicySalaryScaleId((string) $validated['salary_scale_code']),
+                'min_level' => (int) $validated['min_level'],
+                'max_level' => (int) $validated['max_level'],
+                'required_years' => (int) $validated['required_years'],
+                'policy_type' => 'normal',
+                'description' => $validated['description'] ?? null,
+                'status' => $validated['status'],
+            ],
             'salary-scales' => [
                 'mda_id' => $this->resolveManagedMdaId($config, $validated, $record, request()->user()),
                 'code' => strtoupper((string) $validated['code']),
@@ -675,6 +765,10 @@ class SetupManagementController extends Controller
             ],
             'allowance-types' => $record->only(['id', 'mda_id', 'code', 'name', 'description', 'status']),
             'qualification-types' => $record->only(['id', 'code', 'name', 'description', 'status']),
+            'promotion-policies' => $record->load('salaryScale:id,code,name')->only(['id', 'salary_scale_id', 'min_level', 'max_level', 'required_years', 'policy_type', 'description', 'status']) + [
+                'salary_scale_code' => $record->salaryScale?->code,
+                'salary_scale' => $record->salaryScale?->only(['id', 'code', 'name']),
+            ],
             'salary-scales' => $record->only(['id', 'mda_id', 'code', 'name', 'min_level', 'max_level', 'min_step', 'max_step', 'status']),
             'salary-structure-rates' => $record->load('salaryScale:id,mda_id,code,name')->only(['id', 'mda_id', 'salary_scale_id', 'level', 'step', 'basic_salary', 'legacy_gross_salary', 'status', 'effective_from', 'effective_to']) + [
                 'salary_scale' => $record->salaryScale?->only(['id', 'code', 'name']),
@@ -701,5 +795,21 @@ class SetupManagementController extends Controller
             'salary-structure-rate-allowances' => (int) optional(SalaryStructureRate::query()->find($validated['salary_structure_rate_id'] ?? $record?->salary_structure_rate_id))->mda_id,
             default => (int) ($validated['mda_id'] ?? $record?->mda_id ?? $user->mda_id ?? 0),
         };
+    }
+
+    protected function resolvePromotionPolicySalaryScaleId(string $scaleCode): int
+    {
+        $salaryScaleId = SalaryScale::query()
+            ->where('code', strtoupper($scaleCode))
+            ->orderBy('id')
+            ->value('id');
+
+        if (! $salaryScaleId) {
+            throw ValidationException::withMessages([
+                'salary_scale_code' => 'No salary scale exists yet for the selected promotion policy scale.',
+            ]);
+        }
+
+        return (int) $salaryScaleId;
     }
 }

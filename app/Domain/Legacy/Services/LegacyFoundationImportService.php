@@ -12,12 +12,15 @@ use App\Domain\Staff\Models\QualificationScaleCeiling;
 use App\Domain\Staff\Models\QualificationType;
 use App\Domain\Staff\Models\Rank;
 use App\Domain\Staff\Models\SalaryScale;
+use App\Domain\Staff\Services\PromotionPolicyCatalogSyncService;
 use App\Domain\Staff\Services\QualificationCatalogSyncService;
+use App\Domain\Staff\Support\PromotionPolicyCatalog;
 use App\Enums\UserType;
 use App\Models\User;
 use Database\Seeders\RolesAndPermissionsSeeder;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Str;
 
@@ -70,6 +73,7 @@ class LegacyFoundationImportService
 
     public function __construct(
         protected QualificationCatalogSyncService $qualificationCatalogSyncService,
+        protected PromotionPolicyCatalogSyncService $promotionPolicyCatalogSyncService,
     ) {
     }
 
@@ -407,6 +411,23 @@ class LegacyFoundationImportService
 
     protected function importPromotionPolicies(array &$summary): void
     {
+        if (! Schema::connection('legacy')->hasTable('promotion_years')) {
+            $syncSummary = $this->promotionPolicyCatalogSyncService->syncAll(false);
+            $summary['promotion_policies']['created'] += $syncSummary['created'];
+            $summary['promotion_policies']['updated'] += $syncSummary['updated'];
+            $summary['promotion_policies']['skipped'] += $syncSummary['skipped'];
+
+            foreach (PromotionPolicyCatalog::scaleOptions() as $scaleCode => $scaleName) {
+                if ($this->resolveLegacySalaryScale($scaleCode, $scaleCode)) {
+                    continue;
+                }
+
+                $summary['warnings'][] = 'Skipped built-in promotion policy for salary scale `'.$scaleCode.'` because no matching salary scale was imported.';
+            }
+
+            return;
+        }
+
         $legacyPolicies = DB::connection('legacy')
             ->table('promotion_years')
             ->where('status', '1')

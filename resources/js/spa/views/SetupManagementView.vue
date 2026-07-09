@@ -21,9 +21,14 @@ const groupConfigs = [
         blurb: 'Organizational records that define how each MDA is arranged internally.',
     },
     {
+        id: 'state-reference',
+        label: 'Statewide Rules',
+        blurb: 'Unified statewide rules that should stay consistent across all MDAs.',
+    },
+    {
         id: 'mda-reference',
         label: 'MDA Reference Standards',
-        blurb: 'Reference catalogs that are now owned directly by each MDA and must stay isolated.',
+        blurb: 'Reference catalogs owned directly by each MDA and kept isolated per tenancy lane.',
     },
     {
         id: 'mda-pay-framework',
@@ -38,7 +43,8 @@ const typeConfigs = [
     { id: 'cadres', singularLabel: 'Cadre', label: 'Cadres', listKey: 'cadres', permissionKey: 'manage_cadres', decisionKey: 'cadres', group: 'mda-structure', blurb: 'Cadres inherit MDA ownership through the selected department.' },
     { id: 'ranks', singularLabel: 'Rank', label: 'Ranks', listKey: 'ranks', permissionKey: 'manage_ranks', decisionKey: 'ranks', group: 'mda-structure', blurb: 'Ranks inherit MDA ownership through the selected cadre chain.' },
     { id: 'allowance-types', singularLabel: 'Allowance type', label: 'Allowance Types', listKey: 'allowance_types', permissionKey: 'manage_allowance_types', decisionKey: 'allowance-types', group: 'mda-reference', blurb: 'Allowance definitions now belong to one MDA directly.' },
-    { id: 'qualification-types', singularLabel: 'Qualification type', label: 'Qualification Types', listKey: 'qualification_types', permissionKey: 'manage_qualification_types', decisionKey: 'qualification-types', group: 'mda-reference', blurb: 'Qualification types are unified statewide because they control terminal levels, promotion checks, and movement sheets.' },
+    { id: 'qualification-types', singularLabel: 'Qualification type', label: 'Qualification Types', listKey: 'qualification_types', permissionKey: 'manage_qualification_types', decisionKey: 'qualification-types', group: 'state-reference', blurb: 'Qualification types are unified statewide because they control terminal levels, promotion checks, and movement sheets.' },
+    { id: 'promotion-policies', singularLabel: 'Promotion policy', label: 'Promotion Policies', listKey: 'promotion_policies', permissionKey: 'manage_promotion_policies', decisionKey: 'promotion-policies', group: 'state-reference', blurb: 'Promotion-year bands stay unified statewide so due dates and movement sheets do not drift by MDA.' },
     { id: 'salary-scales', singularLabel: 'Salary scale', label: 'Salary Scales', listKey: 'salary_scales', permissionKey: 'manage_salary_scales', decisionKey: 'salary-scales', group: 'mda-pay-framework', blurb: 'Salary scales are now direct MDA-owned records.' },
     { id: 'salary-structure-rates', singularLabel: 'Salary structure rate', label: 'Salary Structure Rates', listKey: 'salary_structure_rates', permissionKey: 'manage_salary_structure', decisionKey: 'salary-structure-rates', group: 'mda-pay-framework', blurb: 'Each level-and-step rate must match the selected MDA salary scale.' },
     { id: 'salary-structure-rate-allowances', singularLabel: 'Rate allowance', label: 'Rate Allowances', listKey: 'salary_structure_rate_allowances', permissionKey: 'manage_salary_structure', decisionKey: 'salary-structure-rate-allowances', group: 'mda-pay-framework', blurb: 'Allowance mappings now stay inside the same MDA as their rate and allowance type.' },
@@ -80,6 +86,7 @@ const groupedTypes = computed(() => groupConfigs.map((group) => ({
 const activeGroupItems = computed(() => groupedTypes.value.find((group) => group.id === typeConfig.value.group)?.items ?? []);
 
 const mdas = computed(() => data.value?.mdas ?? []);
+const promotionPolicyScales = computed(() => data.value?.promotion_policy_scales ?? []);
 
 const blankForm = (type) => {
     const defaultMdaId = Number(mdas.value[0]?.id ?? 0) || null;
@@ -99,6 +106,8 @@ const blankForm = (type) => {
             return { mda_id: defaultMdaId, code: '', name: '', description: '', status: 'active' };
         case 'qualification-types':
             return { code: '', name: '', description: '', status: 'active' };
+        case 'promotion-policies':
+            return { salary_scale_code: promotionPolicyScales.value[0]?.code ?? 'GL', min_level: 1, max_level: 1, required_years: 1, description: '', status: 'active' };
         case 'salary-scales':
             return { mda_id: defaultMdaId, code: '', name: '', min_level: 1, max_level: 17, min_step: 1, max_step: 15, status: 'active' };
         case 'salary-structure-rates':
@@ -138,6 +147,16 @@ const fillForm = (type, record) => {
             return;
         case 'qualification-types':
             forms.value[type] = { code: record.code, name: record.name, description: record.description ?? '', status: record.status };
+            return;
+        case 'promotion-policies':
+            forms.value[type] = {
+                salary_scale_code: record.salary_scale_code,
+                min_level: record.min_level,
+                max_level: record.max_level,
+                required_years: record.required_years,
+                description: record.description ?? '',
+                status: record.status,
+            };
             return;
         case 'salary-scales':
             forms.value[type] = { mda_id: record.mda_id, code: record.code, name: record.name, min_level: record.min_level, max_level: record.max_level, min_step: record.min_step, max_step: record.max_step, status: record.status };
@@ -217,6 +236,15 @@ const typeFields = computed(() => {
             return [
                 { key: 'code', label: 'Code', type: 'text' },
                 { key: 'name', label: 'Name', type: 'text' },
+                { key: 'description', label: 'Description', type: 'textarea' },
+                { key: 'status', label: 'Status', type: 'select', options: ['active', 'inactive'] },
+            ];
+        case 'promotion-policies':
+            return [
+                { key: 'salary_scale_code', label: 'Salary scale', type: 'select', options: promotionPolicyScales.value, optionLabel: (item) => `${item.code} - ${item.name}` },
+                { key: 'min_level', label: 'Min level', type: 'number' },
+                { key: 'max_level', label: 'Max level', type: 'number' },
+                { key: 'required_years', label: 'Required years', type: 'number' },
                 { key: 'description', label: 'Description', type: 'textarea' },
                 { key: 'status', label: 'Status', type: 'select', options: ['active', 'inactive'] },
             ];
@@ -353,8 +381,11 @@ const displayLabel = (type, record) => {
         case 'stations':
         case 'allowance-types':
         case 'qualification-types':
+        case 'promotion-policies':
         case 'salary-scales':
-            return `${record.code ?? ''} ${record.name}`.trim();
+            return type === 'promotion-policies'
+                ? `${record.salary_scale_code ?? record.salary_scale?.code ?? 'Scale'} L${record.min_level}-${record.max_level}`
+                : `${record.code ?? ''} ${record.name}`.trim();
         case 'cadres':
             return `${record.name} / ${record.department?.code ?? 'Department'}`;
         case 'ranks':
@@ -372,6 +403,7 @@ const searchText = (type, record) => [
     displayLabel(type, record),
     record.name,
     record.code,
+    record.salary_scale_code,
     record.description,
     record.department?.name,
     record.department?.code,
@@ -393,12 +425,15 @@ const recordFacts = computed(() => {
     const record = selectedRecord.value;
     return [
         record.mda_id ? { label: 'MDA', value: mdaLabel(record.mda_id) } : null,
+        record.salary_scale_code ? { label: 'Salary scale', value: `${record.salary_scale_code} - ${record.salary_scale?.name ?? 'Promotion scale'}` } : null,
         record.department ? { label: 'Department', value: `${record.department.code} - ${record.department.name}` } : null,
         record.cadre ? { label: 'Cadre', value: record.cadre.name } : null,
-        record.salary_scale ? { label: 'Salary scale', value: `${record.salary_scale.code} - ${record.salary_scale.name}` } : null,
+        record.salary_scale && !record.salary_scale_code ? { label: 'Salary scale', value: `${record.salary_scale.code} - ${record.salary_scale.name}` } : null,
         record.allowance_type ? { label: 'Allowance', value: `${record.allowance_type.code} - ${record.allowance_type.name}` } : null,
         record.level !== undefined && record.level !== null ? { label: 'Level', value: `Level ${record.level}` } : null,
+        record.min_level !== undefined && record.min_level !== null ? { label: 'Band', value: `Level ${record.min_level} to ${record.max_level}` } : null,
         record.step !== undefined && record.step !== null ? { label: 'Step', value: `Step ${record.step}` } : null,
+        record.required_years !== undefined && record.required_years !== null ? { label: 'Required years', value: `${record.required_years} year${Number(record.required_years) === 1 ? '' : 's'}` } : null,
         record.status ? { label: 'Status', value: record.status } : null,
     ].filter(Boolean);
 });

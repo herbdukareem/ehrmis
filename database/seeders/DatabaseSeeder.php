@@ -19,6 +19,7 @@ class DatabaseSeeder extends Seeder
             AllowanceTypeSeeder::class,
             SalaryScaleSeeder::class,
             QualificationCatalogSeeder::class,
+            PromotionPolicyCatalogSeeder::class,
             SuperAdminSeeder::class,
             PlatformAndMdaSettingsSeeder::class,
             MdaUserSeeder::class,

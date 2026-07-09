@@ -19,6 +19,7 @@ class SetupManagementRules
             'allowance-types' => 'mda-owned',
             'salary-scales' => 'mda-owned',
             'qualification-types' => 'unified-global',
+            'promotion-policies' => 'unified-global',
             'salary-structure-rates' => 'mda-owned',
             'salary-structure-rate-allowances' => 'mda-owned',
         ];
@@ -37,6 +38,7 @@ class SetupManagementRules
             'manage-allowance-types',
             'manage-salary-scales',
             'manage-qualification-types',
+            'manage-promotion-policies',
             'manage-salary-structure',
         ];
     }

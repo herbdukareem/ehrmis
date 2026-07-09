@@ -66,6 +66,7 @@ class AccessManagementRules
             'manage-allowance-types',
             'manage-salary-scales',
             'manage-qualification-types',
+            'manage-promotion-policies',
             'manage-salary-structure',
             'manage-mda-settings',
         ];

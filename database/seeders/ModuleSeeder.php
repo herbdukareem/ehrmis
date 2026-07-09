@@ -125,6 +125,7 @@ class ModuleSeeder extends Seeder
                 'manage-allowance-types',
                 'manage-salary-scales',
                 'manage-qualification-types',
+                'manage-promotion-policies',
                 'manage-salary-structure',
             ],
         ],

@@ -9,7 +9,10 @@ use App\Domain\Movement\Services\MovementWorkbookWorkflowService;
 use App\Domain\Staff\Models\PromotionPolicy;
 use App\Domain\Staff\Models\SalaryScale;
 use App\Domain\Staff\Models\StaffEmployment;
+use App\Domain\Staff\Services\PromotionPolicyCatalogSyncService;
+use App\Domain\Staff\Support\PromotionPolicyCatalog;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
 
 class LegacyMovementDataRepairService
@@ -18,6 +21,7 @@ class LegacyMovementDataRepairService
         protected LegacyStaffRowNormalizer $normalizer,
         protected MovementSheetGenerationService $generationService,
         protected MovementWorkbookWorkflowService $workflowService,
+        protected PromotionPolicyCatalogSyncService $promotionPolicyCatalogSyncService,
     ) {
     }
 
@@ -145,41 +149,49 @@ class LegacyMovementDataRepairService
     {
         $scales = SalaryScale::query()->get()->keyBy(fn (SalaryScale $scale): string => Str::upper($scale->code));
 
-        DB::connection('legacy')
-            ->table('promotion_years')
-            ->where('status', '1')
-            ->orderBy('id')
-            ->get()
-            ->each(function ($legacyPolicy) use ($scales, &$summary): void {
-                $scaleCode = Str::upper(preg_replace('/[^A-Z0-9]+/i', '', (string) $legacyPolicy->scale) ?? '');
-                $scaleCode = match ($scaleCode) {
-                    'GRADELEVEL' => 'GL',
-                    'CONHESS' => 'CH',
-                    'CONMESS' => 'CM',
-                    'SPECIALGRADE' => 'SG',
-                    default => $scaleCode,
-                };
-                $salaryScale = $scales->get($scaleCode);
+        if (Schema::connection('legacy')->hasTable('promotion_years')) {
+            DB::connection('legacy')
+                ->table('promotion_years')
+                ->where('status', '1')
+                ->orderBy('id')
+                ->get()
+                ->each(function ($legacyPolicy) use ($scales, &$summary): void {
+                    $scaleCode = Str::upper(preg_replace('/[^A-Z0-9]+/i', '', (string) $legacyPolicy->scale) ?? '');
+                    $scaleCode = match ($scaleCode) {
+                        'GRADELEVEL' => 'GL',
+                        'CONHESS' => 'CH',
+                        'CONMESS' => 'CM',
+                        'SPECIALGRADE' => 'SG',
+                        default => $scaleCode,
+                    };
+                    $salaryScale = $scales->get($scaleCode);
 
-                if (! $salaryScale) {
-                    return;
-                }
+                    if (! $salaryScale) {
+                        return;
+                    }
 
-                $policy = PromotionPolicy::query()->updateOrCreate(
-                    [
-                        'salary_scale_id' => $salaryScale->id,
-                        'min_level' => (int) $legacyPolicy->min_level,
-                        'max_level' => (int) $legacyPolicy->max_level,
-                        'policy_type' => 'normal',
-                    ],
-                    [
-                        'required_years' => (int) $legacyPolicy->year,
-                        'description' => 'Imported from legacy table promotion_years',
-                        'status' => 'active',
-                    ],
-                );
+                    $policy = PromotionPolicy::query()->updateOrCreate(
+                        [
+                            'salary_scale_id' => $salaryScale->id,
+                            'min_level' => (int) $legacyPolicy->min_level,
+                            'max_level' => (int) $legacyPolicy->max_level,
+                            'policy_type' => 'normal',
+                        ],
+                        [
+                            'required_years' => (int) $legacyPolicy->year,
+                            'description' => 'Imported from legacy table promotion_years',
+                            'status' => 'active',
+                        ],
+                    );
 
-                $summary[$policy->wasRecentlyCreated ? 'promotion_policies_created' : 'promotion_policies_updated']++;
-            });
+                    $summary[$policy->wasRecentlyCreated ? 'promotion_policies_created' : 'promotion_policies_updated']++;
+                });
+
+            return;
+        }
+
+        $syncSummary = $this->promotionPolicyCatalogSyncService->syncAll(false);
+        $summary['promotion_policies_created'] += $syncSummary['created'];
+        $summary['promotion_policies_updated'] += $syncSummary['updated'];
     }
 }

@@ -5,21 +5,27 @@ namespace App\Domain\Movement\Services;
 use App\Domain\Movement\Models\MovementLine;
 use App\Domain\Movement\Models\MovementWorkbook;
 use App\Domain\Organization\Models\Mda;
+use App\Domain\Staff\Models\PromotionPolicy;
+use App\Domain\Staff\Models\SalaryScale;
 use App\Domain\Staff\Models\Staff;
 use App\Domain\Staff\Models\StaffEmployment;
 use App\Domain\Staff\Models\StaffSalaryPlacement;
+use App\Domain\Staff\Services\PromotionPolicyCatalogSyncService;
 use App\Domain\Staff\Services\PromotionPolicyService;
 use App\Domain\Staff\Services\QualificationCeilingService;
 use App\Domain\Staff\Services\RetirementPolicyService;
 use App\Domain\Staff\Services\SalaryCalculationService;
 use App\Domain\Staff\Services\StaffRetirementService;
+use App\Domain\Staff\Support\PromotionPolicyCatalog;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 
 class MovementSheetGenerationService
 {
     public function __construct(
         protected SalaryCalculationService $salaryCalculationService,
+        protected PromotionPolicyCatalogSyncService $promotionPolicyCatalogSyncService,
         protected PromotionPolicyService $promotionPolicyService,
         protected QualificationCeilingService $qualificationCeilingService,
         protected RetirementPolicyService $retirementPolicyService,
@@ -101,6 +107,8 @@ class MovementSheetGenerationService
      */
     public function populateWorkbook(MovementWorkbook $workbook, int $year, int $budgetYear, int $budgetMinimumStep): void
     {
+        $this->preparePromotionInputsForMda($workbook->mda_id);
+
         DB::transaction(function () use ($workbook, $year, $budgetYear, $budgetMinimumStep): void {
             $staffMembers = Staff::query()
                 ->forMda($workbook->mda_id)
@@ -335,5 +343,120 @@ class MovementSheetGenerationService
         $nextLevel = $currentLevel + 1;
 
         return $salaryScaleCode === 'GL' && $nextLevel === 11 ? 12 : $nextLevel;
+    }
+
+    protected function preparePromotionInputsForMda(int $mdaId): void
+    {
+        $this->ensurePromotionPoliciesPresent();
+        $this->backfillMissingNextPromotionDates($mdaId);
+    }
+
+    protected function ensurePromotionPoliciesPresent(): void
+    {
+        $activePolicyCount = PromotionPolicy::query()->where('status', 'active')->count();
+
+        if ($activePolicyCount >= count(PromotionPolicyCatalog::defaults())) {
+            return;
+        }
+
+        $scales = SalaryScale::query()
+            ->get()
+            ->keyBy(fn (SalaryScale $scale): string => PromotionPolicyCatalog::normalizeScaleCode($scale->code) ?? $scale->code);
+
+        $importedFromLegacy = false;
+
+        if (Schema::connection('legacy')->hasTable('promotion_years')) {
+            $legacyPolicies = DB::connection('legacy')
+                ->table('promotion_years')
+                ->where('status', '1')
+                ->orderBy('id')
+                ->get();
+
+            if ($legacyPolicies->isNotEmpty()) {
+                $legacyPolicies->each(function ($legacyPolicy) use ($scales): void {
+                    $this->upsertPromotionPolicy(
+                        $scales,
+                        PromotionPolicyCatalog::normalizeScaleCode((string) $legacyPolicy->scale),
+                        (int) $legacyPolicy->min_level,
+                        (int) $legacyPolicy->max_level,
+                        (int) $legacyPolicy->year,
+                        'Imported automatically from legacy promotion_years during movement generation.',
+                    );
+                });
+
+                $importedFromLegacy = true;
+            }
+        }
+
+        if ($importedFromLegacy) {
+            return;
+        }
+
+        $this->promotionPolicyCatalogSyncService->syncAll(false);
+    }
+
+    protected function backfillMissingNextPromotionDates(int $mdaId): void
+    {
+        StaffEmployment::query()
+            ->where('mda_id', $mdaId)
+            ->where('is_current', true)
+            ->whereNull('next_promotion_date')
+            ->whereNotNull('date_last_promotion')
+            ->with(['staff.salaryPlacements' => fn ($query) => $query->where('is_current', true)->with('salaryScale')])
+            ->chunkById(200, function ($employmentChunk): void {
+                foreach ($employmentChunk as $employment) {
+                    $placement = $employment->staff?->salaryPlacements?->first();
+                    $scaleCode = $placement?->salaryScale?->code;
+                    $level = $placement?->level;
+
+                    if ($scaleCode === null || $level === null || $employment->date_last_promotion === null) {
+                        continue;
+                    }
+
+                    $nextPromotionDate = $this->promotionPolicyService->calculateNextPromotionDate(
+                        Carbon::parse($employment->date_last_promotion),
+                        $scaleCode,
+                        (int) $level,
+                    );
+
+                    if ($nextPromotionDate === null) {
+                        continue;
+                    }
+
+                    $employment->forceFill([
+                        'next_promotion_date' => $nextPromotionDate->toDateString(),
+                    ])->save();
+                }
+            });
+    }
+
+    /**
+     * @param  \Illuminate\Support\Collection<string, SalaryScale>  $scales
+     */
+    protected function upsertPromotionPolicy($scales, ?string $scaleCode, int $minLevel, int $maxLevel, int $requiredYears, string $description): void
+    {
+        if ($scaleCode === null) {
+            return;
+        }
+
+        $salaryScale = $scales->get($scaleCode);
+
+        if (! $salaryScale) {
+            return;
+        }
+
+        PromotionPolicy::query()->updateOrCreate(
+            [
+                'salary_scale_id' => $salaryScale->id,
+                'min_level' => $minLevel,
+                'max_level' => $maxLevel,
+                'policy_type' => 'normal',
+            ],
+            [
+                'required_years' => $requiredYears,
+                'description' => $description,
+                'status' => 'active',
+            ],
+        );
     }
 }

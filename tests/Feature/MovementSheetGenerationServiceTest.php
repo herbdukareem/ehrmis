@@ -17,7 +17,10 @@ use App\Domain\Staff\Models\StaffAllowanceAssignment;
 use App\Domain\Staff\Models\StaffEmployment;
 use App\Domain\Staff\Models\StaffSalaryPlacement;
 use App\Domain\Organization\Models\Department;
+use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 use Tests\TestCase;
 
 class MovementSheetGenerationServiceTest extends TestCase
@@ -248,5 +251,212 @@ class MovementSheetGenerationServiceTest extends TestCase
         $this->assertSame(0, $levelTenSummary['present_staff']);
         $this->assertSame(1, $levelTenSummary['staff_joining']);
         $this->assertSame(1, $levelTenSummary['expected_total']);
+    }
+
+    public function test_it_uses_builtin_promotion_policy_defaults_when_legacy_table_is_unavailable(): void
+    {
+        if (Schema::connection('legacy')->hasTable('promotion_years')) {
+            Schema::connection('legacy')->drop('promotion_years');
+        }
+
+        $mda = Mda::query()->create([
+            'code' => 'HMB',
+            'name' => 'HOSPITAL MANAGEMENT BOARD',
+            'status' => 'active',
+        ]);
+
+        $department = Department::query()->create([
+            'mda_id' => $mda->id,
+            'code' => 'ADMIN',
+            'name' => 'ADMIN',
+            'status' => 'active',
+        ]);
+
+        $salaryScale = SalaryScale::query()->create([
+            'mda_id' => $mda->id,
+            'code' => 'GL',
+            'name' => 'GRADE LEVEL',
+            'min_level' => 1,
+            'max_level' => 17,
+            'min_step' => 1,
+            'max_step' => 15,
+            'status' => 'active',
+        ]);
+
+        $staff = Staff::withoutGlobalScopes()->create([
+            'mda_id' => $mda->id,
+            'staff_number' => 'H001',
+            'surname' => 'Garba',
+            'first_name' => 'Hadiza',
+            'full_name' => 'Garba Hadiza',
+            'status' => 'active',
+            'date_of_birth' => '1985-01-01',
+        ]);
+
+        $employment = StaffEmployment::query()->create([
+            'staff_id' => $staff->id,
+            'mda_id' => $mda->id,
+            'department_id' => $department->id,
+            'date_first_appointment' => '2010-01-01',
+            'date_last_promotion' => '2022-01-07',
+            'next_promotion_date' => null,
+            'expected_retirement_date' => '2045-01-01',
+            'employment_status' => 'active',
+            'is_current' => true,
+        ]);
+
+        StaffSalaryPlacement::query()->create([
+            'staff_id' => $staff->id,
+            'salary_scale_id' => $salaryScale->id,
+            'level' => 10,
+            'step' => 2,
+            'basic_salary' => 50000,
+            'gross_salary' => 55000,
+            'is_current' => true,
+        ]);
+
+        $workbook = app(MovementSheetGenerationService::class)->generateForMda(
+            $mda->id,
+            2026,
+            null,
+            '2026 Movement Sheet',
+            2027,
+            6,
+        );
+
+        $line = MovementLine::query()
+            ->where('workbook_id', $workbook->id)
+            ->where('staff_id', $staff->id)
+            ->firstOrFail();
+
+        $employment->refresh();
+
+        $this->assertSame('2025-01-07', $employment->next_promotion_date?->toDateString());
+        $this->assertSame('due', $line->eligibility_status);
+        $this->assertSame(12, $line->proposed_level);
+        $this->assertGreaterThanOrEqual(1, $workbook->summary['due_for_promotion'] ?? 0);
+        $this->assertDatabaseHas('promotion_policies', [
+            'salary_scale_id' => $salaryScale->id,
+            'min_level' => 7,
+            'max_level' => 14,
+            'required_years' => 3,
+            'policy_type' => 'normal',
+            'status' => 'active',
+        ]);
+    }
+
+    public function test_it_imports_legacy_promotion_policies_and_backfills_next_promotion_dates_when_missing(): void
+    {
+        if (Schema::connection('legacy')->hasTable('promotion_years')) {
+            Schema::connection('legacy')->drop('promotion_years');
+        }
+
+        Schema::connection('legacy')->create('promotion_years', function (Blueprint $table): void {
+            $table->increments('id');
+            $table->string('scale');
+            $table->unsignedTinyInteger('min_level');
+            $table->unsignedTinyInteger('max_level');
+            $table->unsignedTinyInteger('year');
+            $table->string('status')->default('1');
+        });
+
+        DB::connection('legacy')->table('promotion_years')->insert([
+            'scale' => 'GL',
+            'min_level' => 7,
+            'max_level' => 14,
+            'year' => 3,
+            'status' => '1',
+        ]);
+
+        try {
+            $mda = Mda::query()->create([
+                'code' => 'HMB',
+                'name' => 'HOSPITAL MANAGEMENT BOARD',
+                'status' => 'active',
+            ]);
+
+            $department = Department::query()->create([
+                'mda_id' => $mda->id,
+                'code' => 'ADMIN',
+                'name' => 'ADMIN',
+                'status' => 'active',
+            ]);
+
+            $salaryScale = SalaryScale::query()->create([
+                'mda_id' => $mda->id,
+                'code' => 'GL',
+                'name' => 'GRADE LEVEL',
+                'min_level' => 1,
+                'max_level' => 17,
+                'min_step' => 1,
+                'max_step' => 15,
+                'status' => 'active',
+            ]);
+
+            $staff = Staff::withoutGlobalScopes()->create([
+                'mda_id' => $mda->id,
+                'staff_number' => 'H001',
+                'surname' => 'Garba',
+                'first_name' => 'Hadiza',
+                'full_name' => 'Garba Hadiza',
+                'status' => 'active',
+                'date_of_birth' => '1985-01-01',
+            ]);
+
+            $employment = StaffEmployment::query()->create([
+                'staff_id' => $staff->id,
+                'mda_id' => $mda->id,
+                'department_id' => $department->id,
+                'date_first_appointment' => '2010-01-01',
+                'date_last_promotion' => '2022-01-07',
+                'next_promotion_date' => null,
+                'expected_retirement_date' => '2045-01-01',
+                'employment_status' => 'active',
+                'is_current' => true,
+            ]);
+
+            StaffSalaryPlacement::query()->create([
+                'staff_id' => $staff->id,
+                'salary_scale_id' => $salaryScale->id,
+                'level' => 10,
+                'step' => 2,
+                'basic_salary' => 50000,
+                'gross_salary' => 55000,
+                'is_current' => true,
+            ]);
+
+            $workbook = app(MovementSheetGenerationService::class)->generateForMda(
+                $mda->id,
+                2026,
+                null,
+                '2026 Movement Sheet',
+                2027,
+                6,
+            );
+
+            $line = MovementLine::query()
+                ->where('workbook_id', $workbook->id)
+                ->where('staff_id', $staff->id)
+                ->firstOrFail();
+
+            $employment->refresh();
+
+            $this->assertSame('2025-01-07', $employment->next_promotion_date?->toDateString());
+            $this->assertSame('due', $line->eligibility_status);
+            $this->assertSame(12, $line->proposed_level);
+            $this->assertGreaterThanOrEqual(1, $workbook->summary['due_for_promotion'] ?? 0);
+            $this->assertDatabaseHas('promotion_policies', [
+                'salary_scale_id' => $salaryScale->id,
+                'min_level' => 7,
+                'max_level' => 14,
+                'required_years' => 3,
+                'policy_type' => 'normal',
+                'status' => 'active',
+            ]);
+        } finally {
+            if (Schema::connection('legacy')->hasTable('promotion_years')) {
+                Schema::connection('legacy')->drop('promotion_years');
+            }
+        }
     }
 }
