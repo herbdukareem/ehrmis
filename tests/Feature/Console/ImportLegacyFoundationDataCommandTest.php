@@ -62,7 +62,6 @@ class ImportLegacyFoundationDataCommandTest extends TestCase
                 '--default-password' => 'secret123',
                 '--default-state' => 'Niger',
             ])
-            ->expectsOutputToContain('Skipped qualification ceiling for `PhD` because salary scale `CH` was not found.')
             ->expectsOutputToContain('Skipped promotion policy row 2 because salary scale `CH` was not found.')
             ->assertSuccessful();
 
@@ -142,7 +141,7 @@ class ImportLegacyFoundationDataCommandTest extends TestCase
             'user_type' => 'mda_admin',
         ]);
 
-        $this->assertSame(3, QualificationScaleCeiling::query()->count());
+        $this->assertSame(92, QualificationScaleCeiling::query()->count());
         $this->assertSame(1, PromotionPolicy::query()->count());
     }
 
@@ -216,7 +215,7 @@ class ImportLegacyFoundationDataCommandTest extends TestCase
         $this->assertSame(0, SalaryScale::query()->count());
         $this->assertSame(0, Cadre::query()->count());
         $this->assertSame(0, Rank::query()->count());
-        $this->assertSame(0, QualificationType::query()->count());
+        $this->assertSame(13, QualificationType::query()->unified()->count());
         $this->assertSame(0, QualificationScaleCeiling::query()->count());
         $this->assertSame(0, PromotionPolicy::query()->count());
         $this->assertSame(0, User::query()->count());

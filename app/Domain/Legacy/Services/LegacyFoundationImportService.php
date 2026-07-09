@@ -12,6 +12,7 @@ use App\Domain\Staff\Models\QualificationScaleCeiling;
 use App\Domain\Staff\Models\QualificationType;
 use App\Domain\Staff\Models\Rank;
 use App\Domain\Staff\Models\SalaryScale;
+use App\Domain\Staff\Services\QualificationCatalogSyncService;
 use App\Enums\UserType;
 use App\Models\User;
 use Database\Seeders\RolesAndPermissionsSeeder;
@@ -66,6 +67,11 @@ class LegacyFoundationImportService
      * @var array<string, \App\Domain\Staff\Models\QualificationType>
      */
     protected array $qualificationTypeByCode = [];
+
+    public function __construct(
+        protected QualificationCatalogSyncService $qualificationCatalogSyncService,
+    ) {
+    }
 
     /**
      * @param  array{include_users?: bool, dry_run?: bool, default_password?: string, default_state?: string}  $options
@@ -391,65 +397,11 @@ class LegacyFoundationImportService
 
     protected function importQualificationTypesAndCeilings(array &$summary): void
     {
-        $legacyQualifications = DB::connection('legacy')
-            ->table('certificate_bar')
-            ->where('status', '1')
-            ->orderBy('id')
-            ->get();
+        $syncSummary = $this->qualificationCatalogSyncService->syncAll(seedSalaryScales: true);
 
-        foreach ($legacyQualifications as $legacyQualification) {
-            $qualificationName = $this->cleanString($legacyQualification->certificate);
-
-            if ($qualificationName === null) {
-                $summary['qualification_types']['skipped']++;
-                $summary['warnings'][] = 'Skipped qualification row '.$legacyQualification->id.' because the certificate name is missing.';
-
-                continue;
-            }
-
-            $qualificationCode = $this->makeQualificationCode($qualificationName);
-            $qualificationType = QualificationType::query()->firstOrNew(['code' => $qualificationCode]);
-            $wasRecentlyCreated = ! $qualificationType->exists;
-            $qualificationType->fill([
-                'name' => $qualificationName,
-                'description' => 'Imported from legacy table certificate_bar',
-                'status' => $legacyQualification->status === '1' ? 'active' : 'inactive',
-            ]);
-            $qualificationType->save();
-
-            $this->recordMutationSummary($summary['qualification_types'], $wasRecentlyCreated);
-            $this->qualificationTypeByCode[$qualificationCode] = $qualificationType;
-
-            foreach (['CH', 'GL', 'CM', 'SG'] as $scaleCode) {
-                $maxLevel = (int) ($legacyQualification->{$scaleCode} ?? 0);
-
-                if ($maxLevel <= 0) {
-                    $summary['qualification_scale_ceilings']['skipped']++;
-                    continue;
-                }
-
-                $salaryScale = $this->resolveLegacySalaryScale($scaleCode, $scaleCode);
-
-                if (! $salaryScale) {
-                    $summary['qualification_scale_ceilings']['skipped']++;
-                    $summary['warnings'][] = 'Skipped qualification ceiling for `'.$qualificationName.'` because salary scale `'.$scaleCode.'` was not found.';
-
-                    continue;
-                }
-
-                $ceiling = QualificationScaleCeiling::query()->updateOrCreate(
-                    [
-                        'qualification_type_id' => $qualificationType->id,
-                        'salary_scale_id' => $salaryScale->id,
-                    ],
-                    [
-                        'max_level' => $maxLevel,
-                        'status' => $legacyQualification->status === '1' ? 'active' : 'inactive',
-                    ],
-                );
-
-                $this->recordMutationSummary($summary['qualification_scale_ceilings'], $ceiling->wasRecentlyCreated);
-            }
+        foreach (['created', 'updated', 'skipped'] as $key) {
+            $summary['qualification_types'][$key] += $syncSummary['qualification_types'][$key] ?? 0;
+            $summary['qualification_scale_ceilings'][$key] += $syncSummary['qualification_scale_ceilings'][$key] ?? 0;
         }
     }
 

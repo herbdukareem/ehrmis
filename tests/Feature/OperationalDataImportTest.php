@@ -9,10 +9,10 @@ use App\Domain\Organization\Models\Department;
 use App\Domain\Organization\Models\Mda;
 use App\Domain\Organization\Models\Station;
 use App\Domain\Staff\Models\Cadre;
-use App\Domain\Staff\Models\QualificationType;
 use App\Domain\Staff\Models\Rank;
 use App\Domain\Staff\Models\SalaryScale;
 use App\Models\User;
+use App\Models\UserAccessScope;
 use Database\Seeders\RolesAndPermissionsSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
@@ -54,10 +54,38 @@ class OperationalDataImportTest extends TestCase
         $this->assertSame($this->department->id, $cadre->department_id);
 
         $this->actingAs($this->user)->post('/api/operational-imports/ranks', [
-            'file' => $this->csv("name,cadre_name,department_code,salary_scale_code,level,description,status\nSenior Medical Officer,Medical Officer,CLIN,CM,4,Senior rank,active"),
+            'file' => $this->csv("name,cadre_name,salary_scale_code,level,description,status\nSenior Medical Officer,Medical Officer,CM,4,Senior rank,active"),
         ])->assertOk();
 
         $this->assertDatabaseHas('ranks', ['cadre_id' => $cadre->id, 'name' => 'Senior Medical Officer', 'level' => 4]);
+    }
+
+    public function test_mda_user_can_import_departments_for_their_mda(): void
+    {
+        $this->actingAs($this->user)->postJson('/api/operational-imports/departments', [
+            'file' => $this->csv("code,name,description,status\nPH,Public Health,Public health services,active"),
+        ])->assertOk()
+            ->assertJsonPath('data.created', 1);
+
+        $department = Department::withoutGlobalScopes()->where('code', 'PH')->firstOrFail();
+        $this->assertSame($this->mda->id, $department->mda_id);
+
+        $this->actingAs($this->user)->postJson('/api/operational-imports/departments', [
+            'file' => $this->csv("code,name,description,status\nPH,Public Health,Public health services,active"),
+        ])->assertOk()
+            ->assertJsonPath('data.skipped', 1);
+    }
+
+    public function test_mda_user_cannot_import_a_department_for_another_mda(): void
+    {
+        $this->actingAs($this->user)->postJson('/api/operational-imports/departments', [
+            'file' => $this->csv("code,name,mda_code,status\nICT,Information Technology,HMB,active"),
+        ])->assertUnprocessable();
+
+        $this->assertDatabaseMissing('departments', [
+            'mda_id' => $this->otherMda->id,
+            'code' => 'ICT',
+        ]);
     }
 
     public function test_mda_user_can_import_stations_for_their_mda(): void
@@ -96,34 +124,21 @@ class OperationalDataImportTest extends TestCase
         $this->assertDatabaseMissing('stations', ['code' => 'HMB-HQ']);
     }
 
-    public function test_user_can_import_highest_qualification_types(): void
+    public function test_highest_qualification_definition_import_is_not_available(): void
     {
         $this->actingAs($this->user)->postJson('/api/operational-imports/highest-qualifications', [
-            'file' => $this->csv("code,name,description,status\nMBBS,Bachelor of Medicine,Medical degree,active"),
-        ])->assertOk()
-            ->assertJsonPath('data.created', 1);
+            'file' => $this->csv("code,name,description,status\nHND,HND,Higher National Diploma,active"),
+        ])->assertNotFound();
 
-        $this->actingAs($this->user)->postJson('/api/operational-imports/highest-qualifications', [
-            'file' => $this->csv("code,name,description,status\nmbbs,Bachelor of Medicine and Surgery,Updated degree,active"),
-        ])->assertOk()
-            ->assertJsonPath('data.skipped', 1);
-
-        $this->assertDatabaseCount('qualification_types', 1);
-        $this->assertDatabaseHas('qualification_types', [
-            'code' => 'MBBS',
-            'name' => 'Bachelor of Medicine',
-        ]);
-
-        $this->actingAs($this->user)->postJson('/api/operational-imports/highest-qualifications', [
-            'file' => $this->csv("code,name,description,status\nMBBS,Bachelor of Medicine,Medical degree,active"),
-        ])->assertOk()
-            ->assertJsonPath('data.skipped', 1);
+        $this->actingAs($this->user)
+            ->get('/api/operational-imports/highest-qualifications/template')
+            ->assertNotFound();
     }
 
     public function test_reimporting_existing_cadres_and_ranks_skips_unchanged_rows(): void
     {
         $cadreFile = "name,department_code,salary_scale_code,description,status\nMedical Officer,CLIN,CM,Clinical cadre,active";
-        $rankFile = "name,cadre_name,department_code,salary_scale_code,level,description,status\nSenior Medical Officer,Medical Officer,CLIN,CM,4,Senior rank,active";
+        $rankFile = "name,cadre_name,salary_scale_code,level,description,status\nSenior Medical Officer,Medical Officer,CM,4,Senior rank,active";
 
         $this->actingAs($this->user)->postJson('/api/operational-imports/cadres', ['file' => $this->csv($cadreFile)])->assertOk();
         $this->actingAs($this->user)->postJson('/api/operational-imports/ranks', ['file' => $this->csv($rankFile)])->assertOk();
@@ -174,6 +189,68 @@ class OperationalDataImportTest extends TestCase
         ]);
     }
 
+    public function test_rank_import_without_department_code_rejects_ambiguous_cadre_names(): void
+    {
+        $otherDepartment = Department::withoutGlobalScopes()->create([
+            'mda_id' => $this->mda->id,
+            'code' => 'PUBLIC',
+            'name' => 'Public Health',
+            'status' => 'active',
+        ]);
+
+        $this->actingAs($this->user)->postJson('/api/operational-imports/cadres', [
+            'file' => $this->csv("name,department_code,salary_scale_code,status\nMedical Officer,CLIN,CM,active\nMedical Officer,PUBLIC,CM,active"),
+        ])->assertOk();
+
+        $this->actingAs($this->user)->postJson('/api/operational-imports/ranks', [
+            'file' => $this->csv("name,cadre_name,salary_scale_code,level,status\nSenior Medical Officer,Medical Officer,CM,4,active"),
+        ])->assertUnprocessable();
+
+        $this->actingAs($this->user)->postJson('/api/operational-imports/ranks', [
+            'file' => $this->csv("name,cadre_name,department_code,salary_scale_code,level,status\nSenior Medical Officer,Medical Officer,PUBLIC,CM,4,active"),
+        ])->assertOk();
+
+        $publicHealthCadre = Cadre::query()->where('department_id', $otherDepartment->id)->firstOrFail();
+        $this->assertDatabaseHas('ranks', [
+            'cadre_id' => $publicHealthCadre->id,
+            'name' => 'Senior Medical Officer',
+            'level' => 4,
+        ]);
+    }
+
+    public function test_rank_import_reports_received_level_value_when_invalid(): void
+    {
+        $this->actingAs($this->user)->postJson('/api/operational-imports/cadres', [
+            'file' => $this->csv("name,department_code,salary_scale_code,status\nMedical Officer,CLIN,CM,active"),
+        ])->assertOk();
+
+        $this->actingAs($this->user)->postJson('/api/operational-imports/ranks', [
+            'file' => $this->csv("name,cadre_name,salary_scale_code,level,status\nSenior Medical Officer,Medical Officer,CM,18,active"),
+        ])
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors('file')
+            ->assertJsonPath(
+                'errors.file.0',
+                'Spreadsheet row 2, level: Received `18`. Level must be a whole number between 1 and 7 for salary scale CM.'
+            );
+    }
+
+    public function test_rank_import_accepts_zero_padded_level_values(): void
+    {
+        $this->actingAs($this->user)->postJson('/api/operational-imports/cadres', [
+            'file' => $this->csv("name,department_code,salary_scale_code,status\nMedical Officer,CLIN,CM,active"),
+        ])->assertOk();
+
+        $this->actingAs($this->user)->postJson('/api/operational-imports/ranks', [
+            'file' => $this->csv("name,cadre_name,salary_scale_code,level,status\nSenior Medical Officer,Medical Officer,CM,04,active"),
+        ])->assertOk();
+
+        $this->assertDatabaseHas('ranks', [
+            'name' => 'Senior Medical Officer',
+            'level' => 4,
+        ]);
+    }
+
     public function test_mda_user_cannot_import_a_cadre_for_another_mda(): void
     {
         $this->actingAs($this->user)->postJson('/api/operational-imports/cadres', [
@@ -198,6 +275,44 @@ class OperationalDataImportTest extends TestCase
         $this->assertSame('staff_list_upload', $batch->source_table);
         $this->assertSame($this->mda->id, $row->mda_id);
         $this->assertSame('staged', $row->status);
+    }
+
+    public function test_uploaded_staff_list_can_resolve_department_from_department_code(): void
+    {
+        $cadre = Cadre::query()->create(['department_id' => $this->department->id, 'salary_scale_id' => $this->scale->id, 'name' => 'Medical Officer', 'status' => 'active']);
+        Rank::query()->create(['cadre_id' => $cadre->id, 'salary_scale_id' => $this->scale->id, 'name' => 'Senior Medical Officer', 'level' => 4, 'status' => 'active']);
+
+        $response = $this->actingAs($this->user)->post('/api/operational-imports/staff-list', [
+            'file' => $this->csv("cno,psn,name,sex,dob,mda,department_code,cadre,rank,salary_scale,level,step\nC101,P101,Officer Code,female,1985-01-01,MOH,CLIN,Medical Officer,Senior Medical Officer,CM,4,1"),
+        ])->assertOk();
+
+        $row = LegacyStaffImportRow::query()
+            ->where('batch_id', $response->json('data.batch_id'))
+            ->firstOrFail();
+
+        $this->assertSame($this->department->id, $row->department_id);
+        $this->assertSame('Clinical Services', $row->department_name);
+        $this->assertSame('staged', $row->status);
+    }
+
+    public function test_reference_import_can_resolve_department_code_even_when_formatting_differs(): void
+    {
+        $formattedDepartment = Department::withoutGlobalScopes()->create([
+            'mda_id' => $this->mda->id,
+            'code' => 'HR/ADMIN',
+            'name' => 'Human Resource Administration',
+            'status' => 'active',
+        ]);
+
+        $this->actingAs($this->user)->postJson('/api/operational-imports/cadres', [
+            'file' => $this->csv("name,department_code,salary_scale_code,status\nAdministrative Officer,HR ADMIN,CM,active"),
+        ])->assertOk();
+
+        $this->assertDatabaseHas('cadres', [
+            'department_id' => $formattedDepartment->id,
+            'salary_scale_id' => $this->scale->id,
+            'name' => 'Administrative Officer',
+        ]);
     }
 
     public function test_queued_staff_list_batch_is_not_staged_twice_when_reprocessed(): void
@@ -227,6 +342,41 @@ class OperationalDataImportTest extends TestCase
 
         $service = app(OperationalDataImportService::class);
         $service->processQueuedStaffListImport($batch->id, $storedPath, $this->user->id);
+        $service->processQueuedStaffListImport($batch->id, $storedPath, $this->user->id);
+
+        $batch->refresh();
+
+        $this->assertSame('staged', $batch->status);
+        $this->assertSame(1, (int) ($batch->summary['rows_staged'] ?? 0));
+        $this->assertDatabaseCount('legacy_staff_import_rows', 1);
+    }
+
+    public function test_stale_staging_staff_list_batch_can_be_reclaimed(): void
+    {
+        $cadre = Cadre::query()->create(['department_id' => $this->department->id, 'salary_scale_id' => $this->scale->id, 'name' => 'Medical Officer', 'status' => 'active']);
+        Rank::query()->create(['cadre_id' => $cadre->id, 'salary_scale_id' => $this->scale->id, 'name' => 'Senior Medical Officer', 'level' => 4, 'status' => 'active']);
+
+        $storedPath = 'imports/staff-list/test-stale-stage.csv';
+        Storage::put($storedPath, "cno,psn,name,sex,dob,mda,department,cadre,rank,salary_scale,level,step\nC001,P001,Officer One,female,1985-01-01,MOH,Clinical Services,Medical Officer,Senior Medical Officer,CM,4,1");
+
+        $batch = LegacyStaffImportBatch::query()->create([
+            'source_database' => 'spreadsheet_upload',
+            'source_table' => 'staff_list_upload',
+            'created_by' => $this->user->id,
+            'status' => 'staging',
+            'started_at' => now()->subMinutes(20),
+            'summary' => [
+                'source' => 'staff_list_upload',
+                'rows_read' => 0,
+                'rows_staged' => 0,
+                'rows_published' => 0,
+                'rows_with_warnings' => 0,
+                'rows_with_errors' => 0,
+                'queued_file_path' => $storedPath,
+            ],
+        ]);
+
+        $service = app(OperationalDataImportService::class);
         $service->processQueuedStaffListImport($batch->id, $storedPath, $this->user->id);
 
         $batch->refresh();
@@ -281,23 +431,57 @@ class OperationalDataImportTest extends TestCase
         ]);
     }
 
-    public function test_mda_user_cannot_upload_staff_for_another_mda(): void
+    public function test_single_mda_user_upload_forces_staff_list_into_users_mda(): void
     {
-        $this->actingAs($this->user)->postJson('/api/operational-imports/staff-list', [
+        $response = $this->actingAs($this->user)->postJson('/api/operational-imports/staff-list', [
             'file' => $this->csv("cno,psn,name,mda\nC002,P002,Hidden Officer,HMB"),
-        ])->assertUnprocessable();
+        ])->assertOk();
 
-        $this->assertDatabaseCount('legacy_staff_import_batches', 0);
+        $row = LegacyStaffImportRow::query()
+            ->where('batch_id', $response->json('data.batch_id'))
+            ->firstOrFail();
+
+        $this->assertSame($this->mda->id, $row->mda_id);
+        $this->assertSame('staged', $row->status);
+    }
+
+    public function test_multi_mda_user_cannot_upload_staff_for_an_inaccessible_mda(): void
+    {
+        $user = User::factory()->mdaUser($this->mda)->create();
+        $user->assignRole('MDA Admin');
+        UserAccessScope::query()->create([
+            'user_id' => $user->id,
+            'scope_type' => 'mda',
+            'mda_id' => $this->otherMda->id,
+        ]);
+
+        Mda::query()->create(['code' => 'PHC', 'name' => 'Primary Healthcare', 'status' => 'active']);
+
+        $this->actingAs($user)->postJson('/api/operational-imports/staff-list', [
+            'file' => $this->csv("cno,psn,name,mda\nC002,P002,Hidden Officer,PHC"),
+        ])->assertUnprocessable();
     }
 
     public function test_templates_can_be_downloaded(): void
     {
-        foreach (['stations', 'highest-qualifications', 'cadres', 'ranks', 'staff-list'] as $type) {
+        foreach (['departments', 'stations', 'cadres', 'ranks', 'staff-list'] as $type) {
             $this->actingAs($this->user)
                 ->get("/api/operational-imports/{$type}/template")
                 ->assertOk()
                 ->assertHeader('content-disposition');
         }
+    }
+
+    public function test_rank_template_does_not_require_department_code(): void
+    {
+        $headings = app(OperationalDataImportService::class)
+            ->template('ranks', $this->user)
+            ->headings();
+
+        $this->assertSame(
+            ['name', 'cadre_name', 'mda_code', 'salary_scale_code', 'level', 'description', 'status'],
+            $headings,
+        );
     }
 
     public function test_user_without_import_permission_cannot_upload_or_download_templates(): void

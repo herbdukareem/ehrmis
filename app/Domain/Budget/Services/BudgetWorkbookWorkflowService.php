@@ -33,7 +33,10 @@ class BudgetWorkbookWorkflowService
                     $workbook,
                     self::WORKFLOW_TYPE,
                     $actor,
-                    [['reviewer_role' => 'Approval Officer']],
+                    [[
+                        'reviewer_role' => 'Approval Officer',
+                        'metadata' => ['required_permission' => 'approve-budgets'],
+                    ]],
                     ['mda_id' => $workbook->mda_id, 'year' => $workbook->year],
                 );
             }
@@ -65,7 +68,10 @@ class BudgetWorkbookWorkflowService
                     $workbook,
                     self::WORKFLOW_TYPE,
                     $actor,
-                    [['reviewer_role' => 'Approval Officer']],
+                    [[
+                        'reviewer_role' => 'Approval Officer',
+                        'metadata' => ['required_permission' => 'approve-budgets'],
+                    ]],
                     ['mda_id' => $workbook->mda_id, 'year' => $workbook->year],
                 );
                 $workbook->refresh();

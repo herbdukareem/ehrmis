@@ -25,8 +25,9 @@ class QualificationCeilingServiceTest extends TestCase
             'status' => 'active',
         ]);
 
-        $qualificationType = QualificationType::query()->create([
+        $qualificationType = QualificationType::query()->firstOrCreate([
             'code' => 'PHD',
+        ], [
             'name' => 'PhD',
             'status' => 'active',
         ]);

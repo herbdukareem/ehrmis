@@ -391,6 +391,7 @@ class DashboardController extends Controller
                 'name' => $cadre->name,
                 'staff_count' => (int) $cadre->staff_count,
                 'allowances' => $allowances->get($key, collect())->map(fn ($allowance): array => [
+                    'label' => $allowance->name,
                     'code' => $allowance->code,
                     'name' => $allowance->name,
                     'total' => (int) $allowance->total,

@@ -12,9 +12,9 @@ use App\Domain\Organization\Models\Department;
 use App\Domain\Organization\Models\Mda;
 use App\Domain\Organization\Models\Station;
 use App\Domain\Staff\Models\Cadre;
-use App\Domain\Staff\Models\QualificationType;
 use App\Domain\Staff\Models\Rank;
 use App\Domain\Staff\Models\SalaryScale;
+use App\Domain\Staff\Services\QualificationCatalogSyncService;
 use App\Models\User;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
@@ -29,22 +29,24 @@ use Maatwebsite\Excel\Facades\Excel;
 
 class OperationalDataImportService
 {
-    public const TYPES = ['stations', 'highest-qualifications', 'cadres', 'ranks', 'staff-list'];
+    public const TYPES = ['departments', 'stations', 'cadres', 'ranks', 'staff-list'];
 
     public function __construct(
         protected LegacyStaffRowNormalizer $normalizer,
         protected LegacyStaffRowValidator $validator,
         protected LegacyStaffIdentityMatcher $identityMatcher,
+        protected QualificationCatalogSyncService $qualificationCatalogSyncService,
     ) {
     }
 
     public function import(string $type, UploadedFile $file, User $user): array
     {
         $this->configureRuntime();
+        $this->qualificationCatalogSyncService->syncQualificationTypes();
 
         return match ($type) {
+            'departments' => $this->importDepartments($this->readPopulatedRows($file), $user),
             'stations' => $this->importStations($this->readPopulatedRows($file), $user),
-            'highest-qualifications' => $this->importHighestQualifications($this->readPopulatedRows($file), $user),
             'cadres' => $this->importCadres($this->readPopulatedRows($file), $user),
             'ranks' => $this->importRanks($this->readPopulatedRows($file), $user),
             'staff-list' => $this->shouldStageStaffListInBackground()
@@ -74,21 +76,21 @@ class OperationalDataImportService
         $defaultDepartmentCode = $defaultMda?->departments()->value('code') ?? 'CLIN';
 
         return match ($type) {
+            'departments' => new SpreadsheetTemplateExport(
+                ['code', 'name', 'mda_code', 'description', 'status'],
+                [['CLIN', 'Clinical Services', $defaultMda?->code ?? 'MOH', 'Clinical service department', 'active']],
+            ),
             'stations' => new SpreadsheetTemplateExport(
                 ['code', 'name', 'mda_code', 'description', 'status'],
                 [['HQ', 'Headquarters', $defaultMda?->code ?? 'MOH', 'Main administrative station', 'active']],
-            ),
-            'highest-qualifications' => new SpreadsheetTemplateExport(
-                ['code', 'name', 'mda_code', 'description', 'status'],
-                [['MBBS', 'Bachelor of Medicine, Bachelor of Surgery', $defaultMda?->code ?? 'MOH', 'Medical degree', 'active']],
             ),
             'cadres' => new SpreadsheetTemplateExport(
                 ['name', 'mda_code', 'department_code', 'salary_scale_code', 'description', 'status'],
                 [['Medical Officer', $defaultMda?->code ?? 'MOH', $defaultDepartmentCode, 'CM', 'Medical cadre', 'active']],
             ),
             'ranks' => new SpreadsheetTemplateExport(
-                ['name', 'cadre_name', 'mda_code', 'department_code', 'salary_scale_code', 'level', 'description', 'status'],
-                [['Senior Medical Officer', 'Medical Officer', $defaultMda?->code ?? 'MOH', $defaultDepartmentCode, 'CM', 4, 'Senior clinical rank', 'active']],
+                ['name', 'cadre_name', 'mda_code', 'salary_scale_code', 'level', 'description', 'status'],
+                [['Senior Medical Officer', 'Medical Officer', $defaultMda?->code ?? 'MOH', 'CM', 4, 'Senior clinical rank', 'active']],
             ),
             'staff-list' => new SpreadsheetTemplateExport(
                 [
@@ -101,7 +103,7 @@ class OperationalDataImportService
                     'C001', 'P001', 'Surname Firstname', 'female', '1985-01-31',
                     $defaultMda?->code ?? 'MOH', 'Clinical Services', 'Headquarters',
                     'Medical Officer', 'Senior Medical Officer', 'CM', 4, 1,
-                    '2010-02-01', '2024-01-01', '2045-01-31', 'MBBS', 'MBBS',
+                    '2010-02-01', '2024-01-01', '2045-01-31', 'OND', 'HND',
                     'General Medicine', 'Clinical', 0, 0, 1, 0, 0, 0, 'CALLDOC',
                 ]],
             ),
@@ -126,6 +128,58 @@ class OperationalDataImportService
         }
 
         return $rows;
+    }
+
+    protected function importDepartments(array $rows, User $user): array
+    {
+        return DB::transaction(function () use ($rows, $user): array {
+            $created = 0;
+            $updated = 0;
+            $skipped = 0;
+
+            foreach ($rows as $index => $row) {
+                $mda = $this->resolveMda($row, $user, $index);
+                $code = Str::upper($this->required($row, 'code', $index));
+                $name = $this->required($row, 'name', $index);
+                $departmentByCode = Department::withoutGlobalScopes()
+                    ->withTrashed()
+                    ->where('mda_id', $mda->id)
+                    ->whereRaw('LOWER(code) = ?', [strtolower($code)])
+                    ->first();
+                $departmentByName = Department::withoutGlobalScopes()
+                    ->withTrashed()
+                    ->where('mda_id', $mda->id)
+                    ->whereRaw('LOWER(name) = ?', [strtolower($name)])
+                    ->first();
+
+                if ($departmentByCode && $departmentByName && ! $departmentByCode->is($departmentByName)) {
+                    $this->rowError($index, 'name', 'The department code and name belong to different existing departments within the selected MDA.');
+                }
+
+                $department = $departmentByCode ?? $departmentByName;
+                $wasExisting = (bool) $department;
+
+                if ($wasExisting && ! $department->trashed()) {
+                    $skipped++;
+                    continue;
+                }
+
+                $department ??= new Department();
+                $department->fill([
+                    'mda_id' => $mda->id,
+                    'code' => $code,
+                    'name' => $name,
+                    'description' => $this->nullable($row['description'] ?? null),
+                    'status' => $this->status($row['status'] ?? null, $index),
+                ]);
+
+                $department->save();
+                $department->restore();
+                $wasExisting ? $updated++ : $created++;
+            }
+
+            return ['type' => 'departments', 'rows_read' => count($rows), 'created' => $created, 'updated' => $updated, 'skipped' => $skipped];
+        });
     }
 
     protected function importStations(array $rows, User $user): array
@@ -177,61 +231,6 @@ class OperationalDataImportService
             }
 
             return ['type' => 'stations', 'rows_read' => count($rows), 'created' => $created, 'updated' => $updated, 'skipped' => $skipped];
-        });
-    }
-
-    protected function importHighestQualifications(array $rows, User $user): array
-    {
-        return DB::transaction(function () use ($rows, $user): array {
-            $created = 0;
-            $updated = 0;
-            $skipped = 0;
-
-            foreach ($rows as $index => $row) {
-                $mda = $this->resolveMda($row, $user, $index);
-                $code = Str::upper($this->required($row, 'code', $index));
-                $name = $this->required($row, 'name', $index);
-                $qualificationByCode = QualificationType::query()
-                    ->forMda($mda->id)
-                    ->whereRaw('LOWER(code) = ?', [strtolower($code)])
-                    ->first();
-                $qualificationByName = QualificationType::query()
-                    ->forMda($mda->id)
-                    ->whereRaw('LOWER(name) = ?', [strtolower($name)])
-                    ->first();
-
-                if ($qualificationByCode && $qualificationByName && ! $qualificationByCode->is($qualificationByName)) {
-                    $this->rowError($index, 'name', 'The qualification code and name belong to different existing qualification types.');
-                }
-
-                $qualification = $qualificationByCode ?? $qualificationByName;
-                $wasExisting = (bool) $qualification;
-
-                if ($wasExisting) {
-                    $skipped++;
-                    continue;
-                }
-
-                $qualification ??= new QualificationType();
-                $qualification->fill([
-                    'mda_id' => $mda->id,
-                    'code' => $code,
-                    'name' => $name,
-                    'description' => $this->nullable($row['description'] ?? null),
-                    'status' => $this->status($row['status'] ?? null, $index),
-                ]);
-
-                $qualification->save();
-                $wasExisting ? $updated++ : $created++;
-            }
-
-            return [
-                'type' => 'highest-qualifications',
-                'rows_read' => count($rows),
-                'created' => $created,
-                'updated' => $updated,
-                'skipped' => $skipped,
-            ];
         });
     }
 
@@ -287,23 +286,39 @@ class OperationalDataImportService
 
             foreach ($rows as $index => $row) {
                 $name = $this->required($row, 'name', $index);
-                $department = $this->resolveDepartment($row, $user, $index);
-                $scale = $this->resolveSalaryScale($row, $index, (int) $department->mda_id);
+                $mda = $this->resolveMda($row, $user, $index);
+                $scale = $this->resolveSalaryScale($row, $index, (int) $mda->id);
                 $cadreName = $this->required($row, 'cadre_name', $index);
-                $cadre = Cadre::query()
-                    ->where('department_id', $department->id)
+                $cadreQuery = Cadre::query()
                     ->where('salary_scale_id', $scale->id)
                     ->whereRaw('LOWER(name) = ?', [strtolower($cadreName)])
-                    ->first();
+                    ->whereHas('department', fn ($query) => $query->where('mda_id', $mda->id));
 
-                if (! $cadre) {
-                    $this->rowError($index, 'cadre_name', 'Cadre could not be resolved within the selected department and salary scale.');
+                if ($this->nullable($row['department_code'] ?? null) !== null) {
+                    $department = $this->resolveDepartment($row, $user, $index);
+                    $cadreQuery->where('department_id', $department->id);
                 }
 
-                $level = filter_var($row['level'] ?? null, FILTER_VALIDATE_INT);
+                $cadres = $cadreQuery->limit(2)->get();
+
+                if ($cadres->isEmpty()) {
+                    $this->rowError($index, 'cadre_name', 'Cadre could not be resolved within the selected MDA and salary scale.');
+                }
+
+                if ($cadres->count() > 1) {
+                    $this->rowError($index, 'cadre_name', 'Cadre name matches multiple departments. Add department_code to this row to disambiguate.');
+                }
+
+                $cadre = $cadres->first();
+                $level = $this->parseWholeNumber($row['level'] ?? null);
 
                 if ($level === false || $level < $scale->min_level || $level > $scale->max_level) {
-                    $this->rowError($index, 'level', "Level must be between {$scale->min_level} and {$scale->max_level}.");
+                    $rawLevel = $this->describeValueForError($row['level'] ?? null);
+                    $this->rowError(
+                        $index,
+                        'level',
+                        "Received {$rawLevel}. Level must be a whole number between {$scale->min_level} and {$scale->max_level} for salary scale {$scale->code}."
+                    );
                 }
 
                 $rank = Rank::withTrashed()
@@ -403,6 +418,7 @@ class OperationalDataImportService
 
         try {
             $this->configureRuntime();
+            $this->qualificationCatalogSyncService->syncQualificationTypes();
 
             $rows = $this->readPopulatedRows(Storage::path($storedPath));
             $summary = DB::transaction(function () use ($rows, $user, $batch): array {
@@ -451,11 +467,21 @@ class OperationalDataImportService
 
     protected function claimQueuedStaffListBatch(int $batchId): ?LegacyStaffImportBatch
     {
+        $staleBefore = now()->subSeconds(max(60, (int) config('operational_imports.staff_list_stale_after_seconds', 900)));
         $claimed = LegacyStaffImportBatch::query()
             ->whereKey($batchId)
-            ->whereIn('status', ['queued', 'failed'])
+            ->where(function ($query) use ($staleBefore): void {
+                $query
+                    ->whereIn('status', ['queued', 'failed'])
+                    ->orWhere(function ($stagingQuery) use ($staleBefore): void {
+                        $stagingQuery
+                            ->where('status', 'staging')
+                            ->where('started_at', '<=', $staleBefore);
+                    });
+            })
             ->update([
                 'status' => 'staging',
+                'started_at' => now(),
                 'completed_at' => null,
             ]);
 
@@ -491,6 +517,19 @@ class OperationalDataImportService
             ->delete();
     }
 
+    protected function resolveStaffUploadMda(array $sourceRow, User $user, int $index): Mda
+    {
+        $defaultMda = $this->defaultAccessibleMda($user);
+
+        // Single-MDA users should stage into their only allowed MDA even when
+        // the legacy sheet carries a stale or foreign MDA label.
+        if ($defaultMda && $user->accessibleMdaIds()->count() === 1) {
+            return $defaultMda;
+        }
+
+        return $this->resolveMda(['mda_code' => $sourceRow['mda'] ?? null], $user, $index);
+    }
+
     protected function stageStaffListIntoBatch(array $rows, User $user, LegacyStaffImportBatch $batch): array
     {
         $summary = $this->emptyStaffListSummary([
@@ -499,7 +538,7 @@ class OperationalDataImportService
 
         foreach ($rows as $index => $sourceRow) {
             if (! $user->hasGlobalMdaAccess()) {
-                $resolvedMda = $this->resolveMda(['mda_code' => $sourceRow['mda'] ?? null], $user, $index);
+                $resolvedMda = $this->resolveStaffUploadMda($sourceRow, $user, $index);
                 $sourceRow['mda'] = $resolvedMda->code;
             }
 
@@ -658,11 +697,14 @@ class OperationalDataImportService
     {
         $value = $this->required($row, 'department_code', $index);
         $mda = $this->resolveMda($row, $user, $index);
-        $query = Department::query()->forMda($mda->id);
-
-        $department = $query
-            ->where(fn ($query) => $query->whereRaw('LOWER(code) = ?', [strtolower($value)])->orWhereRaw('LOWER(name) = ?', [strtolower($value)]))
-            ->first();
+        $normalizedCode = $this->normalizeLookupCode($value);
+        $department = Department::query()
+            ->forMda($mda->id)
+            ->get()
+            ->first(function (Department $department) use ($value, $normalizedCode): bool {
+                return strtolower((string) $department->name) === strtolower($value)
+                    || $this->normalizeLookupCode($department->code) === $normalizedCode;
+            });
 
         if (! $department || ! $user->canAccessMda((int) $department->mda_id)) {
             $this->rowError($index, 'department_code', 'Department could not be resolved within your accessible MDA.');
@@ -758,6 +800,39 @@ class OperationalDataImportService
         $value = trim((string) ($value ?? ''));
 
         return $value === '' ? null : $value;
+    }
+
+    protected function normalizeLookupCode(?string $value): ?string
+    {
+        $value = $this->nullable($value);
+
+        if ($value === null) {
+            return null;
+        }
+
+        return Str::upper(Str::of($value)->replaceMatches('/[^A-Z0-9]+/i', '')->value()) ?: null;
+    }
+
+    protected function describeValueForError(mixed $value): string
+    {
+        $normalized = $this->nullable($value);
+
+        if ($normalized === null) {
+            return '`blank`';
+        }
+
+        return '`'.$normalized.'`';
+    }
+
+    protected function parseWholeNumber(mixed $value): int|false
+    {
+        $normalized = $this->nullable($value);
+
+        if ($normalized === null || ! preg_match('/^\d+$/', $normalized)) {
+            return false;
+        }
+
+        return (int) $normalized;
     }
 
     protected function rowError(int $index, string $field, string $message): never

@@ -16,4 +16,9 @@ class MdaPolicy
     {
         return $user->can('view-mdas') && $user->canAccessMda($mda->id);
     }
+
+    public function create(User $user): bool
+    {
+        return $user->can('create-mdas') && $user->hasGlobalMdaAccess();
+    }
 }

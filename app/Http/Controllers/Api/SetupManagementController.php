@@ -65,7 +65,7 @@ class SetupManagementController extends Controller
                     'manage_ranks' => $user->can('manage-ranks'),
                     'manage_allowance_types' => SetupManagementRules::canManageMdaOwnedSetup($user, 'manage-allowance-types'),
                     'manage_salary_scales' => SetupManagementRules::canManageMdaOwnedSetup($user, 'manage-salary-scales'),
-                    'manage_qualification_types' => SetupManagementRules::canManageMdaOwnedSetup($user, 'manage-qualification-types'),
+                    'manage_qualification_types' => SetupManagementRules::canManageGlobalSetup($user, 'manage-qualification-types'),
                     'manage_salary_structure' => SetupManagementRules::canManageMdaOwnedSetup($user, 'manage-salary-structure'),
                 ],
                 'mdas' => Mda::query()->visibleToUser($user)->orderBy('name')->get(['id', 'code', 'name']),
@@ -106,7 +106,7 @@ class SetupManagementController extends Controller
                     ])->values(),
                 'allowance_types' => AllowanceType::query()->orderBy('name')->get(['id', 'mda_id', 'code', 'name', 'description', 'status']),
                 'salary_scales' => SalaryScale::query()->orderBy('code')->get(['id', 'mda_id', 'code', 'name', 'min_level', 'max_level', 'min_step', 'max_step', 'status']),
-                'qualification_types' => QualificationType::query()->orderBy('name')->get(['id', 'mda_id', 'code', 'name', 'description', 'status']),
+                'qualification_types' => QualificationType::query()->unified()->orderBy('name')->get(['id', 'code', 'name', 'description', 'status']),
                 'salary_structure_rates' => $rates->map(fn (SalaryStructureRate $rate): array => [
                     'id' => $rate->id,
                     'mda_id' => $rate->mda_id,
@@ -251,7 +251,7 @@ class SetupManagementController extends Controller
                 'label' => 'Qualification type',
                 'model' => QualificationType::class,
                 'permission' => 'manage-qualification-types',
-                'scope' => 'mda-direct',
+                'scope' => 'global',
             ],
             'salary-structure-rates' => [
                 'type' => $type,
@@ -364,7 +364,7 @@ class SetupManagementController extends Controller
                 'description' => ['nullable', 'string'],
                 'status' => ['required', Rule::in(['active', 'inactive'])],
             ]),
-            'allowance-types', 'qualification-types' => $request->validate([
+            'allowance-types' => $request->validate([
                 'mda_id' => ['nullable', 'integer', 'exists:mdas,id'],
                 'code' => [
                     'required',
@@ -373,6 +373,18 @@ class SetupManagementController extends Controller
                     Rule::unique(($config['model'])::query()->getModel()->getTable(), 'code')
                         ->ignore($record?->getKey())
                         ->where(fn ($query) => $query->where('mda_id', $request->integer('mda_id') ?: $record?->mda_id ?: $request->user()->mda_id)),
+                ],
+                'name' => ['required', 'string', 'max:255'],
+                'description' => ['nullable', 'string'],
+                'status' => ['required', Rule::in(['active', 'inactive'])],
+            ]),
+            'qualification-types' => $request->validate([
+                'code' => [
+                    'required',
+                    'string',
+                    'max:50',
+                    Rule::unique('qualification_types', 'code')
+                        ->ignore($record?->getKey()),
                 ],
                 'name' => ['required', 'string', 'max:255'],
                 'description' => ['nullable', 'string'],
@@ -425,6 +437,12 @@ class SetupManagementController extends Controller
             'mda-cadre' => (int) optional(optional(Cadre::query()->with('department')->find($validated['cadre_id'] ?? $record?->cadre_id))->department)->mda_id,
             default => 0,
         };
+
+        if ($config['scope'] === 'global') {
+            abort_unless(SetupManagementRules::canManageGlobalSetup($user, $config['permission']), 403);
+
+            return;
+        }
 
         abort_unless($mdaId > 0 && SetupManagementRules::canManageMdaOwnedSetup($user, $config['permission'], $mdaId), 403);
         $this->assertMdaIntegrity($config, $validated, $record);
@@ -586,8 +604,14 @@ class SetupManagementController extends Controller
                 'description' => $validated['description'] ?? null,
                 'status' => $validated['status'],
             ],
-            'allowance-types', 'qualification-types' => [
+            'allowance-types' => [
                 'mda_id' => $this->resolveManagedMdaId($config, $validated, $record, request()->user()),
+                'code' => strtoupper((string) $validated['code']),
+                'name' => $validated['name'],
+                'description' => $validated['description'] ?? null,
+                'status' => $validated['status'],
+            ],
+            'qualification-types' => [
                 'code' => strtoupper((string) $validated['code']),
                 'name' => $validated['name'],
                 'description' => $validated['description'] ?? null,
@@ -649,7 +673,8 @@ class SetupManagementController extends Controller
                 ],
                 'salary_scale' => $record->salaryScale?->only(['id', 'code', 'name']),
             ],
-            'allowance-types', 'qualification-types' => $record->only(['id', 'mda_id', 'code', 'name', 'description', 'status']),
+            'allowance-types' => $record->only(['id', 'mda_id', 'code', 'name', 'description', 'status']),
+            'qualification-types' => $record->only(['id', 'code', 'name', 'description', 'status']),
             'salary-scales' => $record->only(['id', 'mda_id', 'code', 'name', 'min_level', 'max_level', 'min_step', 'max_step', 'status']),
             'salary-structure-rates' => $record->load('salaryScale:id,mda_id,code,name')->only(['id', 'mda_id', 'salary_scale_id', 'level', 'step', 'basic_salary', 'legacy_gross_salary', 'status', 'effective_from', 'effective_to']) + [
                 'salary_scale' => $record->salaryScale?->only(['id', 'code', 'name']),

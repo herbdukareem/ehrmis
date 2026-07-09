@@ -5,6 +5,9 @@ namespace Tests\Feature\Auth;
 use App\Domain\Organization\Models\Department;
 use App\Domain\Organization\Models\Mda;
 use App\Domain\Organization\Models\Station;
+use App\Domain\Staff\Models\QualificationScaleCeiling;
+use App\Domain\Staff\Models\QualificationType;
+use App\Domain\Staff\Models\SalaryScale;
 use App\Models\User;
 use App\Models\UserAccessScope;
 use Database\Seeders\RolesAndPermissionsSeeder;
@@ -128,5 +131,41 @@ class MdaScopingTest extends TestCase
             ->assertJsonFragment(['id' => $stationA->id, 'name' => $stationA->name])
             ->assertJsonFragment(['id' => $stationB->id, 'name' => $stationB->name])
             ->assertJsonMissing(['id' => $stationC->id, 'name' => $stationC->name]);
+    }
+
+    public function test_state_user_can_create_mda_with_default_salary_scales_and_qualification_ceilings(): void
+    {
+        $stateUser = User::factory()->create();
+        $stateUser->assignRole('Platform Admin');
+        UserAccessScope::query()->create([
+            'user_id' => $stateUser->id,
+            'scope_type' => 'state',
+            'state_code' => 'NG-NI',
+            'mda_id' => null,
+        ]);
+
+        $response = $this->actingAs($stateUser)
+            ->postJson('/api/mdas', [
+                'code' => 'EDU',
+                'name' => 'Ministry of Education',
+                'status' => 'active',
+            ])
+            ->assertCreated();
+
+        $mda = Mda::query()->findOrFail($response->json('data.id'));
+
+        $this->assertSame(4, SalaryScale::query()->forMda($mda->id)->count());
+        $this->assertSame(13, QualificationType::query()->unified()->count());
+
+        $glScale = SalaryScale::query()->forMda($mda->id)->where('code', 'GL')->firstOrFail();
+        $hnd = QualificationType::query()->where('code', 'HND')->firstOrFail();
+
+        $this->assertDatabaseHas('qualification_scale_ceilings', [
+            'qualification_type_id' => $hnd->id,
+            'salary_scale_id' => $glScale->id,
+            'max_level' => 15,
+            'status' => 'active',
+        ]);
+        $this->assertGreaterThan(0, QualificationScaleCeiling::query()->where('salary_scale_id', $glScale->id)->count());
     }
 }

@@ -5,12 +5,14 @@ namespace App\Domain\Legacy\Services;
 use App\Domain\Organization\Models\Department;
 use App\Domain\Organization\Models\Mda;
 use App\Domain\Organization\Models\Station;
+use App\Domain\Legacy\Support\LegacyIdentifier;
 use App\Domain\Staff\Models\Cadre;
 use App\Domain\Staff\Models\QualificationType;
 use App\Domain\Staff\Models\Rank;
 use App\Domain\Staff\Models\SalaryScale;
 use App\Domain\Staff\Services\PromotionPolicyService;
 use App\Domain\Staff\Services\RetirementPolicyService;
+use App\Domain\Staff\Support\UnifiedQualificationCatalog;
 use Carbon\Carbon;
 use Carbon\CarbonInterface;
 use Illuminate\Support\Facades\DB;
@@ -21,6 +23,8 @@ class LegacyStaffRowNormalizer
     protected array $mdaCache = [];
 
     protected array $departmentCache = [];
+
+    protected array $departmentsByMdaCache = [];
 
     protected array $stationsByMdaCache = [];
 
@@ -84,7 +88,9 @@ class LegacyStaffRowNormalizer
             $issues[] = $this->warning('next_promotion_date', 'next_promotion_mismatch', 'Imported next promotion date `'.$legacyNextPromotionDate.'` differs from computed date `'.$computedNextPromotionDate.'`.');
         }
 
-        $department = $this->resolveDepartment($mda?->id, $legacyRow['department'] ?? ($masterRow['department'] ?? null));
+        $departmentName = $legacyRow['department'] ?? ($masterRow['department'] ?? null);
+        $departmentCode = $legacyRow['department_code'] ?? ($masterRow['department_code'] ?? null);
+        $department = $this->resolveDepartment($mda?->id, $departmentName, $departmentCode);
         $station = $this->resolveStation($mda?->id, $legacyRow['station'] ?? ($masterRow['station'] ?? null), $mda);
         $cadreName = $legacyRow['cadre'] ?? ($legacyRow['initial_cadre'] ?? ($masterRow['cadre'] ?? null));
         $cadre = $this->resolveCadre($cadreName, $salaryScale?->id, $department?->id);
@@ -105,7 +111,7 @@ class LegacyStaffRowNormalizer
         }
         $qualificationName = $this->cleanString($legacyRow['qualification'] ?? ($masterRow['qualifications'] ?? null));
         $highestQualificationName = $this->cleanString($legacyRow['highest_qualification'] ?? ($masterRow['highest_qualification'] ?? null));
-        $qualificationType = $this->resolveQualificationType($highestQualificationName ?? $qualificationName, $mda?->id);
+        $qualificationType = $this->resolveQualificationType($highestQualificationName ?? $qualificationName);
         $allowances = $this->normalizeAllowances($legacyRow, $masterRow, $issues);
         $isRetired = $this->truthy($legacyRow['is_retired'] ?? ($masterRow['is_retired'] ?? null));
         $isDuplicate = $this->truthy($legacyRow['duplicate'] ?? null);
@@ -116,18 +122,19 @@ class LegacyStaffRowNormalizer
             $dateOfLastPromotion,
             $isRetired,
         );
-        $legacyCno = $this->cleanString($legacyRow['cno'] ?? ($masterRow['cno'] ?? null));
-        $legacyPsn = $this->cleanString($legacyRow['psn'] ?? ($masterRow['psn'] ?? null));
-        $legacyCnoPsn = $this->cleanString($legacyRow['cno_psn'] ?? $this->makeLegacyCnoPsn($legacyCno, $legacyPsn));
-        $staffNumber = $legacyCno ?? $legacyCnoPsn ??  $legacyPsn ?? $this->makeProvisionalStaffNumber(
-            $legacyRow,
-            $sourceTable,
-            $mda?->code,
-            $fullName,
-            $dateOfBirth,
-        );
+        $legacyCno = LegacyIdentifier::normalize($legacyRow['cno'] ?? ($masterRow['cno'] ?? null));
+        $legacyPsn = LegacyIdentifier::normalize($legacyRow['psn'] ?? ($masterRow['psn'] ?? null));
+        $legacyCnoPsn = LegacyIdentifier::normalize($legacyRow['cno_psn'] ?? $this->makeLegacyCnoPsn($legacyCno, $legacyPsn));
+        $staffNumber = $legacyCno ?? 'new-' . uniqid();
 
         if ($legacyCno === null && $legacyPsn === null && $staffNumber !== null) {
+            $staffNumber = $this->makeProvisionalStaffNumber(
+                $legacyRow,
+                $sourceTable,
+                $mda?->code,
+                $fullName,
+                $dateOfBirth,
+            ) ?? $staffNumber;
             $issues[] = $this->warning(
                 'staff_number',
                 'provisional_identifier',
@@ -146,7 +153,7 @@ class LegacyStaffRowNormalizer
             'mda_id' => $mda?->id,
             'mda_name' => $mda?->name,
             'department_id' => $department?->id,
-            'department_name' => $department?->name ?? $this->cleanString($legacyRow['department'] ?? ($masterRow['department'] ?? null)),
+            'department_name' => $department?->name ?? $this->cleanString($departmentName ?? $departmentCode),
             'station_id' => $station?->id,
             'station_name' => $station?->name ?? $this->cleanString($legacyRow['station'] ?? ($masterRow['station'] ?? null)),
             'location_name' => $this->cleanString($legacyRow['location'] ?? ($masterRow['location'] ?? null)),
@@ -200,8 +207,8 @@ class LegacyStaffRowNormalizer
 
     public function findMasterRow(array $legacyRow): ?array
     {
-        $cno = $this->cleanString($legacyRow['cno'] ?? null);
-        $psn = $this->cleanString($legacyRow['psn'] ?? null);
+        $cno = LegacyIdentifier::normalize($legacyRow['cno'] ?? null);
+        $psn = LegacyIdentifier::normalize($legacyRow['psn'] ?? null);
         $name = $this->cleanString($legacyRow['name'] ?? null);
         $sink = [];
         $dob = $this->parseDate($legacyRow['dob'] ?? ($legacyRow['date_of_birth'] ?? null), 'date_of_birth', $sink);
@@ -284,24 +291,42 @@ class LegacyStaffRowNormalizer
         return $this->mdaCache[$cacheKey] = null;
     }
 
-    protected function resolveDepartment(?int $mdaId, ?string $departmentName): ?Department
+    protected function resolveDepartment(?int $mdaId, ?string $departmentName, ?string $departmentCode = null): ?Department
     {
         $name = $this->cleanString($departmentName);
+        $code = $this->cleanCode($departmentCode);
 
-        if (! $mdaId || $name === null) {
+        if (! $mdaId || ($name === null && $code === null)) {
             return null;
         }
 
-        $cacheKey = $mdaId.'|'.strtolower($name);
+        $cacheKey = $mdaId.'|'.strtolower($name ?? '').'|'.($code ?? '');
 
         if (array_key_exists($cacheKey, $this->departmentCache)) {
             return $this->departmentCache[$cacheKey];
         }
 
-        return $this->departmentCache[$cacheKey] = Department::query()
+        $departments = $this->departmentsByMdaCache[$mdaId] ??= Department::query()
             ->forMda($mdaId)
-            ->whereRaw('LOWER(name) = ?', [strtolower($name)])
-            ->first();
+            ->get();
+
+        if ($code !== null) {
+            $matchedByCode = $departments->first(
+                fn (Department $department): bool => $this->cleanCode($department->code) === $code
+            );
+
+            if ($matchedByCode) {
+                return $this->departmentCache[$cacheKey] = $matchedByCode;
+            }
+        }
+
+        if ($name === null) {
+            return $this->departmentCache[$cacheKey] = null;
+        }
+
+        return $this->departmentCache[$cacheKey] = $departments->first(
+            fn (Department $department): bool => strtolower((string) $department->name) === strtolower($name)
+        );
     }
 
     protected function resolveStation(?int $mdaId, ?string $stationName, ?Mda $mda = null): ?Station
@@ -546,7 +571,7 @@ class LegacyStaffRowNormalizer
         return $rank;
     }
 
-    protected function resolveQualificationType(?string $qualificationName, ?int $mdaId = null): ?QualificationType
+    protected function resolveQualificationType(?string $qualificationName): ?QualificationType
     {
         $name = $this->cleanString($qualificationName);
 
@@ -554,16 +579,15 @@ class LegacyStaffRowNormalizer
             return null;
         }
 
-        $cacheKey = strtolower($name).'|'.($mdaId ?? 'global');
+        $cacheKey = strtolower($name);
 
         if (array_key_exists($cacheKey, $this->qualificationTypeCache)) {
             return $this->qualificationTypeCache[$cacheKey];
         }
 
-        $code = Str::upper(Str::slug($name, '_'));
+        $code = UnifiedQualificationCatalog::canonicalCodeFor($name) ?? Str::upper(Str::slug($name, '_'));
 
         return $this->qualificationTypeCache[$cacheKey] = QualificationType::query()
-            ->when($mdaId, fn ($query) => $query->forMda($mdaId))
             ->where(function ($query) use ($code, $name): void {
                 $query
                     ->where('code', $code)
@@ -744,17 +768,19 @@ class LegacyStaffRowNormalizer
         ) ?? '');
         $salaryScaleCode = $this->cleanCode($legacyRow['salary_scale'] ?? ($masterRow['salary_scale_code'] ?? ($masterRow['salary_scale'] ?? null)));
         $level = $this->toInteger($legacyRow['level'] ?? ($masterRow['level'] ?? null));
+        $cadreKey = $this->cleanCode($cadre) ?? '';
+        $rankKey = $this->cleanCode($rank) ?? '';
 
-        if (in_array($cadre, ['MEDICAL OFFICER', 'REGISTRAR MO', 'REGISTRAR DENTAL', 'DENTAL OFFICER'], true)) {
+        if (in_array($cadreKey, ['MEDICALOFFICER', 'REGISTRARMO', 'REGISTRARDENTAL', 'DENTALOFFICER'], true)) {
             return 'call_doctor';
         }
 
-        if ($cadre === 'OPTOMETRIST') {
+        if ($cadreKey === 'OPTOMETRIST') {
             return 'call_opt_odd';
         }
 
         if (
-            $cadre === 'NURSING OFFICER'
+            $cadreKey === 'NURSINGOFFICER'
             && $level !== null
             && $level >= 5
             && in_array($specialization, [
@@ -782,9 +808,9 @@ class LegacyStaffRowNormalizer
             && $level !== null
             && $level >= 5
             && (
-                str_contains($cadre, 'NURS')
-                || str_contains($rank, 'NURS')
-                || in_array($rank, ['SN', 'SNO', 'NO', 'CNO', 'PNO'], true)
+                str_contains($cadreKey, 'NURS')
+                || str_contains($rankKey, 'NURS')
+                || in_array($rankKey, ['SN', 'SNO', 'NO', 'CNO', 'PNO'], true)
             )
         ) {
             return 'call_nurse_others';
@@ -793,23 +819,25 @@ class LegacyStaffRowNormalizer
         if (
             $level !== null
             && $level >= 7
-            && in_array($cadre, [
-                'SCIENTIFIC OFFICER',
-                'MEDICAL LAB SCIENTIST',
+            && in_array($cadreKey, [
+                'SCIENTIFICOFFICER',
+                'MEDICALLABSCIENTIST',
+                'MEDLABSCIENTIST',
+                'MEDLABTECHNICIAN',
+                'PHARMTECHNICIAN',
                 'RADIOGRAPHER',
                 'PHYSIOTHERAPIST',
                 'PHARMACIST',
-                'SCI. LAB TECHNOLOGIST',
-                'SCI LAB TECHNOLOGIST',
-                'TECHNICAL OFFICER (BIOMED)',
-                'BIOMEDICAL ENGINEER',
-                'CONSULTANT PHARM',
+                'SCILABTECHNOLOGIST',
+                'TECHNICALOFFICERBIOMED',
+                'BIOMEDICALENGINEER',
+                'CONSULTANTPHARM',
             ], true)
         ) {
             return 'call_pharm_lab';
         }
 
-        if ($salaryScaleCode === 'CM' && $level !== null && $level >= 1 && str_contains($cadre, 'MEDICAL')) {
+        if ($salaryScaleCode === 'CM' && $level !== null && $level >= 1 && (str_contains($cadreKey, 'MEDICAL') || str_contains($cadreKey, 'REGISTRARMO'))) {
             return 'call_doctor';
         }
 

@@ -26,8 +26,9 @@ class MovementWorkbookWorkflowServiceTest extends TestCase
             'status' => 'active',
         ]);
 
-        $approver = User::factory()->create();
-        $approver->assignRole('Approval Officer');
+        $approver = User::factory()->mdaUser($mda)->create();
+        $approver->assignRole('MDA Admin');
+        $approver->givePermissionTo('approve-movement-sheets');
 
         $workbook = MovementWorkbook::query()->create([
             'mda_id' => $mda->id,

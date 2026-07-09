@@ -225,7 +225,7 @@ class StaffController extends Controller
             'cadres' => Cadre::query()->orderBy('name')->get(['id', 'department_id', 'salary_scale_id', 'name'])->toArray(),
             'ranks' => Rank::query()->orderBy('name')->get(['id', 'cadre_id', 'salary_scale_id', 'name', 'level'])->toArray(),
             'salary_scales' => SalaryScale::query()->orderBy('code')->get(['id', 'mda_id', 'code', 'name'])->toArray(),
-            'qualification_types' => QualificationType::query()->orderBy('name')->get(['id', 'mda_id', 'code', 'name'])->toArray(),
+            'qualification_types' => QualificationType::query()->unified()->orderBy('name')->get(['id', 'code', 'name'])->toArray(),
             'allowance_types' => AllowanceType::query()->orderBy('name')->get(['id', 'mda_id', 'code', 'name'])->toArray(),
             'status_options' => [
                 ['value' => 'active', 'label' => 'Active'],

@@ -6,6 +6,7 @@ use App\Domain\Legacy\Models\LegacyStaffImportBatch;
 use App\Domain\Legacy\Models\LegacyStaffImportError;
 use App\Domain\Legacy\Models\LegacyStaffImportPublication;
 use App\Domain\Legacy\Models\LegacyStaffImportRow;
+use App\Domain\Staff\Services\QualificationCatalogSyncService;
 use App\Domain\Staff\Services\StaffPublicationService;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
@@ -17,6 +18,7 @@ class LegacyStaffImportService
         protected LegacyStaffRowValidator $validator,
         protected LegacyStaffIdentityMatcher $identityMatcher,
         protected StaffPublicationService $publicationService,
+        protected QualificationCatalogSyncService $qualificationCatalogSyncService,
     ) {
     }
 
@@ -35,6 +37,8 @@ class LegacyStaffImportService
             ? (string) ($options['source'] ?? 'staff_list')
             : 'staff_list';
         $publish = (bool) ($options['publish'] ?? false);
+
+        $this->qualificationCatalogSyncService->syncQualificationTypes();
 
         $rows = $this->readLegacyRows($source, $limit, $mdaFilter, $includeRetired, $onlyRetired);
         $summary = $this->makeSummary($dryRun, $source, $limit, $publish);

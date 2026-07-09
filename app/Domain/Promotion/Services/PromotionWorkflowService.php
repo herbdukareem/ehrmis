@@ -13,6 +13,7 @@ use App\Domain\Staff\Models\SalaryStructureRate;
 use App\Domain\Staff\Models\Staff;
 use App\Domain\Staff\Models\StaffEmployment;
 use App\Domain\Staff\Models\StaffSalaryPlacement;
+use App\Domain\Staff\Services\QualificationCeilingService;
 use App\Models\User;
 use App\Services\AuditLogService;
 use App\Services\OfficialLetterPdfService;
@@ -29,6 +30,7 @@ class PromotionWorkflowService
         protected ApprovalWorkflowService $approvalWorkflowService,
         protected AuditLogService $auditLogService,
         protected OfficialLetterPdfService $letterPdfService,
+        protected QualificationCeilingService $qualificationCeilingService,
     ) {
     }
 
@@ -112,7 +114,7 @@ class PromotionWorkflowService
         return DB::transaction(function () use ($application, $data, $actor): PromotionApplication {
             $application = PromotionApplication::query()->lockForUpdate()->findOrFail($application->id);
             $before = $application->toArray();
-            $staff = $application->staff?->load(['currentEmployment.rank', 'currentSalaryPlacement.salaryScale']);
+            $staff = $application->staff?->load(['currentEmployment.rank', 'currentSalaryPlacement.salaryScale', 'qualifications.qualificationType']);
 
             $proposedRank = isset($data['proposed_rank_id'])
                 ? Rank::query()->with('salaryScale')->find((int) $data['proposed_rank_id'])
@@ -126,6 +128,12 @@ class PromotionWorkflowService
 
             if ($proposedScale && (int) $proposedScale->mda_id !== (int) $application->mda_id) {
                 throw new InvalidArgumentException('The proposed salary scale must belong to the application MDA.');
+            }
+
+            $nextProposedLevel = $data['proposed_level'] ?? $proposedRank?->level ?? $application->proposed_level;
+
+            if ($staff && $proposedScale && $nextProposedLevel !== null) {
+                $this->assertWithinQualificationCeiling($staff, $proposedScale, (int) $nextProposedLevel);
             }
 
             $application->fill([
@@ -259,7 +267,10 @@ class PromotionWorkflowService
                 $sitting,
                 self::PRINT_WORKFLOW_TYPE,
                 $actor,
-                [['reviewer_role' => 'MDA Admin']],
+                [[
+                    'reviewer_role' => 'MDA Admin',
+                    'metadata' => ['required_permission' => 'approve-promotion-printing'],
+                ]],
                 ['mda_id' => $sitting->mda_id, 'cycle_id' => $sitting->cycle_id],
             );
 
@@ -403,6 +414,10 @@ class PromotionWorkflowService
             throw new InvalidArgumentException('Proposed rank, salary scale, level, and step are required before printing.');
         }
 
+        $proposedScale = SalaryScale::query()->findOrFail($application->proposed_salary_scale_id);
+        $staff->loadMissing('qualifications.qualificationType');
+        $this->assertWithinQualificationCeiling($staff, $proposedScale, (int) $application->proposed_level);
+
         $effectiveDate = $application->sitting->sitting_date;
         $currentEmployment = $staff->currentEmployment;
         $currentPlacement = $staff->currentSalaryPlacement;
@@ -474,6 +489,22 @@ class PromotionWorkflowService
     protected function makeApplicationNumber(PromotionCycle $cycle, int $mdaId): string
     {
         return sprintf('PR-%s-%s-%06d', $cycle->year, $mdaId, PromotionApplication::query()->max('id') + 1);
+    }
+
+    protected function assertWithinQualificationCeiling(Staff $staff, SalaryScale $salaryScale, int $level): void
+    {
+        $qualificationCode = $staff->qualifications
+            ->firstWhere('is_highest', true)?->qualificationType?->code;
+
+        if (! $qualificationCode) {
+            return;
+        }
+
+        $maxLevel = $this->qualificationCeilingService->getMaxLevelFor($qualificationCode, $salaryScale->code);
+
+        if ($maxLevel !== null && $level > $maxLevel) {
+            throw new InvalidArgumentException('The proposed level exceeds the staff highest qualification ceiling for this salary scale.');
+        }
     }
 
     protected function makeLetterNumber(PromotionApplication $application): string

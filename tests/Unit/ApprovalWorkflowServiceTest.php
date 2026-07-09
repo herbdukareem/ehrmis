@@ -75,4 +75,69 @@ class ApprovalWorkflowServiceTest extends TestCase
 
         $workflowService->approveStep($workflow, $wrongUser);
     }
+
+    public function test_workflow_step_can_be_approved_by_user_with_required_permission_without_named_role(): void
+    {
+        $this->seed(RolesAndPermissionsSeeder::class);
+
+        $workflowService = app(ApprovalWorkflowService::class);
+        $batch = LegacyStaffImportBatch::query()->create([
+            'source_database' => 'ministry_of_health',
+            'source_table' => 'staff_list',
+            'status' => 'completed',
+        ]);
+
+        $submitter = User::factory()->create();
+        $approver = User::factory()->create();
+        $approver->givePermissionTo('approve-staff-imports');
+
+        $workflow = $workflowService->submit(
+            $batch,
+            'legacy_staff_import_publication',
+            $submitter,
+            [
+                [
+                    'reviewer_role' => 'Approval Officer',
+                    'metadata' => ['required_permission' => 'approve-staff-imports'],
+                ],
+            ],
+        );
+
+        $approvedWorkflow = $workflowService->approveStep($workflow, $approver, 'Approved with permission.');
+
+        $this->assertSame('approved', $approvedWorkflow->status);
+        $this->assertSame('approved', $approvedWorkflow->steps->first()->status);
+        $this->assertSame($approver->id, $approvedWorkflow->steps->first()->acted_by);
+    }
+
+    public function test_legacy_workflow_step_without_metadata_can_still_be_approved_by_user_with_matching_permission(): void
+    {
+        $this->seed(RolesAndPermissionsSeeder::class);
+
+        $workflowService = app(ApprovalWorkflowService::class);
+        $batch = LegacyStaffImportBatch::query()->create([
+            'source_database' => 'ministry_of_health',
+            'source_table' => 'staff_list',
+            'status' => 'completed',
+        ]);
+
+        $submitter = User::factory()->create();
+        $approver = User::factory()->create();
+        $approver->givePermissionTo('approve-staff-imports');
+
+        $workflow = $workflowService->submit(
+            $batch,
+            'legacy_staff_import_publication',
+            $submitter,
+            [
+                ['reviewer_role' => 'Approval Officer'],
+            ],
+        );
+
+        $approvedWorkflow = $workflowService->approveStep($workflow, $approver, 'Approved legacy step.');
+
+        $this->assertSame('approved', $approvedWorkflow->status);
+        $this->assertSame('approved', $approvedWorkflow->steps->first()->status);
+        $this->assertSame($approver->id, $approvedWorkflow->steps->first()->acted_by);
+    }
 }

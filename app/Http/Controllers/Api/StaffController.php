@@ -319,7 +319,7 @@ class StaffController extends Controller
                 'cadres' => $cadres,
                 'ranks' => Rank::query()->whereIn('cadre_id', $cadres->pluck('id'))->orderBy('name')->get(['id', 'cadre_id', 'salary_scale_id', 'name', 'level']),
                 'salary_scales' => SalaryScale::query()->orderBy('code')->get(['id', 'mda_id', 'code', 'name']),
-                'qualification_types' => QualificationType::query()->orderBy('name')->get(['id', 'mda_id', 'code', 'name']),
+                'qualification_types' => QualificationType::query()->unified()->orderBy('name')->get(['id', 'code', 'name']),
                 'allowance_types' => AllowanceType::query()->orderBy('name')->get(['id', 'mda_id', 'code', 'name']),
                 'statuses' => ['active', 'retired', 'duplicate', 'inactive'],
             ],

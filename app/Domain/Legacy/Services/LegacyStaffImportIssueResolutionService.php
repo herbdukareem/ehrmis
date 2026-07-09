@@ -274,8 +274,7 @@ class LegacyStaffImportIssueResolutionService
 
     protected function resolveQualificationTypeTarget(LegacyStaffImportRow $row, int $targetId): array
     {
-        $rowMdaId = $this->requireRowMda($row, 'qualification type');
-        $target = QualificationType::query()->forMda($rowMdaId)->findOrFail($targetId);
+        $target = QualificationType::query()->unified()->findOrFail($targetId);
 
         return [[
             'error_code' => 'missing_qualification',

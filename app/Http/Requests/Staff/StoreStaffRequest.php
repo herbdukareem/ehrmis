@@ -3,6 +3,7 @@
 namespace App\Http\Requests\Staff;
 
 use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Validation\Rule;
 
 class StoreStaffRequest extends FormRequest
 {
@@ -54,7 +55,11 @@ class StoreStaffRequest extends FormRequest
             'salary_placement.step' => ['nullable', 'integer', 'min:1', 'max:30'],
             'salary_placement.effective_from' => ['nullable', 'date'],
 
-            'qualification.qualification_type_id' => ['nullable', 'integer', 'exists:qualification_types,id'],
+            'qualification.qualification_type_id' => [
+                'nullable',
+                'integer',
+                Rule::exists('qualification_types', 'id')->where(fn ($query) => $query->where('status', 'active')),
+            ],
             'qualification.qualification_name' => ['nullable', 'string', 'max:255'],
             'qualification.highest_qualification_name' => ['nullable', 'string', 'max:255'],
             'qualification.specialization' => ['nullable', 'string', 'max:255'],

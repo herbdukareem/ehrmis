@@ -61,7 +61,8 @@ class DashboardIntelligenceTest extends TestCase
             ->assertJsonPath('data.distributions.departments.0.label', 'Clinical Services')
             ->assertJsonPath('data.distributions.salary_scales.0.label', 'GL')
             ->assertJsonPath('data.distributions.gender.0.label', 'Female')
-            ->assertJsonPath('data.distributions.cadres.0.allowances.0.code', 'hazard');
+            ->assertJsonPath('data.distributions.cadres.0.allowances.0.code', 'hazard')
+            ->assertJsonPath('data.distributions.cadres.0.allowances.0.label', 'Hazard Allowance');
 
         CarbonImmutable::setTestNow();
     }

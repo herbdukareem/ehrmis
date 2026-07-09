@@ -38,7 +38,7 @@ const typeConfigs = [
     { id: 'cadres', singularLabel: 'Cadre', label: 'Cadres', listKey: 'cadres', permissionKey: 'manage_cadres', decisionKey: 'cadres', group: 'mda-structure', blurb: 'Cadres inherit MDA ownership through the selected department.' },
     { id: 'ranks', singularLabel: 'Rank', label: 'Ranks', listKey: 'ranks', permissionKey: 'manage_ranks', decisionKey: 'ranks', group: 'mda-structure', blurb: 'Ranks inherit MDA ownership through the selected cadre chain.' },
     { id: 'allowance-types', singularLabel: 'Allowance type', label: 'Allowance Types', listKey: 'allowance_types', permissionKey: 'manage_allowance_types', decisionKey: 'allowance-types', group: 'mda-reference', blurb: 'Allowance definitions now belong to one MDA directly.' },
-    { id: 'qualification-types', singularLabel: 'Qualification type', label: 'Qualification Types', listKey: 'qualification_types', permissionKey: 'manage_qualification_types', decisionKey: 'qualification-types', group: 'mda-reference', blurb: 'Qualification catalogs now stay inside each MDA boundary.' },
+    { id: 'qualification-types', singularLabel: 'Qualification type', label: 'Qualification Types', listKey: 'qualification_types', permissionKey: 'manage_qualification_types', decisionKey: 'qualification-types', group: 'mda-reference', blurb: 'Qualification types are unified statewide because they control terminal levels, promotion checks, and movement sheets.' },
     { id: 'salary-scales', singularLabel: 'Salary scale', label: 'Salary Scales', listKey: 'salary_scales', permissionKey: 'manage_salary_scales', decisionKey: 'salary-scales', group: 'mda-pay-framework', blurb: 'Salary scales are now direct MDA-owned records.' },
     { id: 'salary-structure-rates', singularLabel: 'Salary structure rate', label: 'Salary Structure Rates', listKey: 'salary_structure_rates', permissionKey: 'manage_salary_structure', decisionKey: 'salary-structure-rates', group: 'mda-pay-framework', blurb: 'Each level-and-step rate must match the selected MDA salary scale.' },
     { id: 'salary-structure-rate-allowances', singularLabel: 'Rate allowance', label: 'Rate Allowances', listKey: 'salary_structure_rate_allowances', permissionKey: 'manage_salary_structure', decisionKey: 'salary-structure-rate-allowances', group: 'mda-pay-framework', blurb: 'Allowance mappings now stay inside the same MDA as their rate and allowance type.' },
@@ -96,8 +96,9 @@ const blankForm = (type) => {
         case 'ranks':
             return { cadre_id: Number(data.value?.cadres?.[0]?.id ?? 0) || null, salary_scale_id: Number(data.value?.salary_scales?.[0]?.id ?? 0) || null, name: '', level: 1, description: '', status: 'active' };
         case 'allowance-types':
-        case 'qualification-types':
             return { mda_id: defaultMdaId, code: '', name: '', description: '', status: 'active' };
+        case 'qualification-types':
+            return { code: '', name: '', description: '', status: 'active' };
         case 'salary-scales':
             return { mda_id: defaultMdaId, code: '', name: '', min_level: 1, max_level: 17, min_step: 1, max_step: 15, status: 'active' };
         case 'salary-structure-rates':
@@ -133,8 +134,10 @@ const fillForm = (type, record) => {
             forms.value[type] = { cadre_id: record.cadre_id, salary_scale_id: record.salary_scale_id, name: record.name, level: record.level ?? 1, description: record.description ?? '', status: record.status };
             return;
         case 'allowance-types':
-        case 'qualification-types':
             forms.value[type] = { mda_id: record.mda_id, code: record.code, name: record.name, description: record.description ?? '', status: record.status };
+            return;
+        case 'qualification-types':
+            forms.value[type] = { code: record.code, name: record.name, description: record.description ?? '', status: record.status };
             return;
         case 'salary-scales':
             forms.value[type] = { mda_id: record.mda_id, code: record.code, name: record.name, min_level: record.min_level, max_level: record.max_level, min_step: record.min_step, max_step: record.max_step, status: record.status };
@@ -203,9 +206,15 @@ const typeFields = computed(() => {
                 { key: 'status', label: 'Status', type: 'select', options: ['active', 'inactive'] },
             ];
         case 'allowance-types':
-        case 'qualification-types':
             return [
                 { key: 'mda_id', label: 'MDA', type: 'select', options: mdas.value, optionLabel: (item) => `${item.code} - ${item.name}`, disabled: mdas.value.length <= 1 },
+                { key: 'code', label: 'Code', type: 'text' },
+                { key: 'name', label: 'Name', type: 'text' },
+                { key: 'description', label: 'Description', type: 'textarea' },
+                { key: 'status', label: 'Status', type: 'select', options: ['active', 'inactive'] },
+            ];
+        case 'qualification-types':
+            return [
                 { key: 'code', label: 'Code', type: 'text' },
                 { key: 'name', label: 'Name', type: 'text' },
                 { key: 'description', label: 'Description', type: 'textarea' },

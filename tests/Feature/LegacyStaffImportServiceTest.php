@@ -102,6 +102,259 @@ class LegacyStaffImportServiceTest extends TestCase
         $this->assertSame(4, StaffSalaryPlacement::query()->count());
     }
 
+    public function test_placeholder_psn_values_do_not_collapse_distinct_staff_during_publish(): void
+    {
+        DB::connection('legacy')->table('staff_list')->insert([
+            [
+                'id' => 6,
+                'cno' => 'C010',
+                'name' => 'Placeholder One',
+                'psn' => 'NA',
+                'sex' => 'Female',
+                'mda' => 'HOSPITAL MANAGEMENT BOARD',
+                'station' => 'HMB HQTRS',
+                'location' => 'MINNA',
+                'salary_scale' => 'GL',
+                'highest_qualification' => 'HND',
+                'department' => 'ADMIN',
+                'dob' => '1987-01-01',
+                'dfa' => '2011-01-01',
+                'dpa' => '2021-01-01',
+                'edor' => '2047-01-01',
+                'cadre' => 'ADMIN OFFICER',
+                'rank' => 'A.O II',
+                'level' => 8,
+                'step' => 2,
+                'basic_salary' => 42000,
+                'gross' => 46000,
+                'cno_psn' => 'C010NA',
+                'status' => '1',
+            ],
+            [
+                'id' => 7,
+                'cno' => 'C011',
+                'name' => 'Placeholder Two',
+                'psn' => 'NA',
+                'sex' => 'Male',
+                'mda' => 'HOSPITAL MANAGEMENT BOARD',
+                'station' => 'HMB HQTRS',
+                'location' => 'MINNA',
+                'salary_scale' => 'GL',
+                'highest_qualification' => 'HND',
+                'department' => 'ADMIN',
+                'dob' => '1988-02-02',
+                'dfa' => '2012-02-02',
+                'dpa' => '2022-02-02',
+                'edor' => '2048-02-02',
+                'cadre' => 'ADMIN OFFICER',
+                'rank' => 'A.O II',
+                'level' => 8,
+                'step' => 2,
+                'basic_salary' => 43000,
+                'gross' => 47000,
+                'cno_psn' => 'C011NA',
+                'status' => '1',
+            ],
+        ]);
+
+        DB::connection('legacy')->table('master_staff_list')->insert([
+            [
+                'id' => 106,
+                'psn' => 'NA',
+                'cno' => 'C010',
+                'first_name' => 'Placeholder',
+                'other_name' => 'One',
+                'surname' => 'User',
+                'date_of_birth' => '1987-01-01',
+                'sex' => 'Female',
+                'lga' => 'Bosso',
+                'state' => 'Niger',
+                'mda' => 'HOSPITAL MANAGEMENT BOARD',
+                'department' => 'ADMIN',
+                'station' => 'HMB HQTRS',
+                'location' => 'MINNA',
+                'date_of_first_appointment' => '2011-01-01',
+                'date_of_last_promotion' => '2021-01-01',
+                'date_of_retirement_by_age' => '2047-01-01',
+                'cadre' => 'ADMIN OFFICER',
+                'rank' => 'A.O II',
+                'highest_qualification' => 'HND',
+                'salary_scale' => 'GRADE LEVEL',
+                'salary_scale_code' => 'GL',
+                'level' => '8',
+                'step' => 2,
+                'status' => '1',
+            ],
+            [
+                'id' => 107,
+                'psn' => 'NA',
+                'cno' => 'C011',
+                'first_name' => 'Placeholder',
+                'other_name' => 'Two',
+                'surname' => 'User',
+                'date_of_birth' => '1988-02-02',
+                'sex' => 'Male',
+                'lga' => 'Bosso',
+                'state' => 'Niger',
+                'mda' => 'HOSPITAL MANAGEMENT BOARD',
+                'department' => 'ADMIN',
+                'station' => 'HMB HQTRS',
+                'location' => 'MINNA',
+                'date_of_first_appointment' => '2012-02-02',
+                'date_of_last_promotion' => '2022-02-02',
+                'date_of_retirement_by_age' => '2048-02-02',
+                'cadre' => 'ADMIN OFFICER',
+                'rank' => 'A.O II',
+                'highest_qualification' => 'HND',
+                'salary_scale' => 'GRADE LEVEL',
+                'salary_scale_code' => 'GL',
+                'level' => '8',
+                'step' => 2,
+                'status' => '1',
+            ],
+        ]);
+
+        $summary = app(LegacyStaffImportService::class)->import([
+            'limit' => 100,
+            'publish' => true,
+        ]);
+
+        $this->assertSame(6, $summary['rows_published']);
+        $this->assertSame(6, Staff::withoutGlobalScopes()->count());
+        $this->assertSame(2, LegacyStaffImportRow::query()
+            ->whereIn('legacy_cno', ['C010', 'C011'])
+            ->distinct('published_staff_id')
+            ->count('published_staff_id'));
+        $this->assertSame(2, Staff::withoutGlobalScopes()
+            ->whereIn('legacy_cno', ['C010', 'C011'])
+            ->count());
+    }
+
+    public function test_shared_psn_does_not_merge_distinct_staff_when_cno_differs(): void
+    {
+        DB::connection('legacy')->table('staff_list')->insert([
+            [
+                'id' => 6,
+                'cno' => 'C020',
+                'name' => 'Shared Psn One',
+                'psn' => '48068',
+                'sex' => 'Female',
+                'mda' => 'HOSPITAL MANAGEMENT BOARD',
+                'station' => 'HMB HQTRS',
+                'location' => 'MINNA',
+                'salary_scale' => 'GL',
+                'highest_qualification' => 'HND',
+                'department' => 'ADMIN',
+                'dob' => '1987-01-01',
+                'dfa' => '2011-01-01',
+                'dpa' => '2021-01-01',
+                'edor' => '2047-01-01',
+                'cadre' => 'ADMIN OFFICER',
+                'rank' => 'A.O II',
+                'level' => 8,
+                'step' => 2,
+                'basic_salary' => 42000,
+                'gross' => 46000,
+                'cno_psn' => 'C02048068',
+                'status' => '1',
+            ],
+            [
+                'id' => 7,
+                'cno' => 'C021',
+                'name' => 'Shared Psn Two',
+                'psn' => '48068',
+                'sex' => 'Male',
+                'mda' => 'HOSPITAL MANAGEMENT BOARD',
+                'station' => 'HMB HQTRS',
+                'location' => 'MINNA',
+                'salary_scale' => 'GL',
+                'highest_qualification' => 'HND',
+                'department' => 'ADMIN',
+                'dob' => '1988-02-02',
+                'dfa' => '2012-02-02',
+                'dpa' => '2022-02-02',
+                'edor' => '2048-02-02',
+                'cadre' => 'ADMIN OFFICER',
+                'rank' => 'A.O II',
+                'level' => 8,
+                'step' => 2,
+                'basic_salary' => 43000,
+                'gross' => 47000,
+                'cno_psn' => 'C02148068',
+                'status' => '1',
+            ],
+        ]);
+
+        DB::connection('legacy')->table('master_staff_list')->insert([
+            [
+                'id' => 106,
+                'psn' => '48068',
+                'cno' => 'C020',
+                'first_name' => 'Shared',
+                'other_name' => 'One',
+                'surname' => 'User',
+                'date_of_birth' => '1987-01-01',
+                'sex' => 'Female',
+                'lga' => 'Bosso',
+                'state' => 'Niger',
+                'mda' => 'HOSPITAL MANAGEMENT BOARD',
+                'department' => 'ADMIN',
+                'station' => 'HMB HQTRS',
+                'location' => 'MINNA',
+                'date_of_first_appointment' => '2011-01-01',
+                'date_of_last_promotion' => '2021-01-01',
+                'date_of_retirement_by_age' => '2047-01-01',
+                'cadre' => 'ADMIN OFFICER',
+                'rank' => 'A.O II',
+                'highest_qualification' => 'HND',
+                'salary_scale' => 'GRADE LEVEL',
+                'salary_scale_code' => 'GL',
+                'level' => '8',
+                'step' => 2,
+                'status' => '1',
+            ],
+            [
+                'id' => 107,
+                'psn' => '48068',
+                'cno' => 'C021',
+                'first_name' => 'Shared',
+                'other_name' => 'Two',
+                'surname' => 'User',
+                'date_of_birth' => '1988-02-02',
+                'sex' => 'Male',
+                'lga' => 'Bosso',
+                'state' => 'Niger',
+                'mda' => 'HOSPITAL MANAGEMENT BOARD',
+                'department' => 'ADMIN',
+                'station' => 'HMB HQTRS',
+                'location' => 'MINNA',
+                'date_of_first_appointment' => '2012-02-02',
+                'date_of_last_promotion' => '2022-02-02',
+                'date_of_retirement_by_age' => '2048-02-02',
+                'cadre' => 'ADMIN OFFICER',
+                'rank' => 'A.O II',
+                'highest_qualification' => 'HND',
+                'salary_scale' => 'GRADE LEVEL',
+                'salary_scale_code' => 'GL',
+                'level' => '8',
+                'step' => 2,
+                'status' => '1',
+            ],
+        ]);
+
+        $summary = app(LegacyStaffImportService::class)->import([
+            'limit' => 100,
+            'publish' => true,
+        ]);
+
+        $this->assertSame(6, $summary['rows_published']);
+        $this->assertSame(6, Staff::withoutGlobalScopes()->count());
+        $this->assertSame(2, LegacyStaffImportRow::query()
+            ->whereIn('legacy_cno', ['C020', 'C021'])
+            ->distinct('published_staff_id')
+            ->count('published_staff_id'));
+    }
+
     public function test_retired_filters_behave_correctly(): void
     {
         $default = app(LegacyStaffImportService::class)->import(['limit' => 100]);

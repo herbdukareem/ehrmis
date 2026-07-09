@@ -67,4 +67,24 @@ class LegacyStaffImportApprovalTest extends TestCase
         $this->assertSame('approved', $this->batch->fresh()->status);
         $this->assertSame('approved', $this->batch->fresh()->approvalWorkflow?->status);
     }
+
+    public function test_mda_admin_with_approve_permission_can_approve_without_approval_officer_role(): void
+    {
+        $approver = User::factory()->mdaUser(Mda::query()->where('code', 'MOH')->firstOrFail())->create();
+        $approver->assignRole('MDA Admin');
+        $approver->givePermissionTo('approve-staff-imports');
+
+        $this->actingAs($this->reviewer)
+            ->postJson(route('api.legacy-staff-imports.submit', $this->batch))
+            ->assertOk();
+
+        $this->actingAs($approver)
+            ->postJson(route('api.legacy-staff-imports.approve', $this->batch), [
+                'comment' => 'Approved as MDA admin with import approval permission.',
+            ])
+            ->assertOk();
+
+        $this->assertSame('approved', $this->batch->fresh()->status);
+        $this->assertSame('approved', $this->batch->fresh()->approvalWorkflow?->status);
+    }
 }

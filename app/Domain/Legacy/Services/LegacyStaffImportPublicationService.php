@@ -13,6 +13,8 @@ use Illuminate\Support\Facades\DB;
 
 class LegacyStaffImportPublicationService
 {
+    protected const PUBLICATION_PROGRESS_KEY = 'publication_progress';
+
     public function __construct(
         protected StaffPublicationService $staffPublicationService,
         protected AuditLogService $auditLogService,
@@ -20,6 +22,20 @@ class LegacyStaffImportPublicationService
     }
 
     public function publishBatch(LegacyStaffImportBatch $batch, User $user): array
+    {
+        do {
+            $result = $this->publishBatchSlice($batch->fresh(), $user, null);
+        } while (! $result['complete']);
+
+        return $result['summary'];
+    }
+
+    public function publishBatchSlice(
+        LegacyStaffImportBatch $batch,
+        User $user,
+        ?int $maxRuntimeSeconds = 45,
+        int $chunkSize = 50,
+    ): array
     {
         $this->ensureBatchIsApproved($batch);
 
@@ -30,37 +46,48 @@ class LegacyStaffImportPublicationService
             $user->scopeToAccessibleMdas($rowsQuery, 'mda_id');
         }
 
-        $summary = [
-            'rows_considered' => (clone $rowsQuery)->count(),
-            'rows_published' => 0,
-            'published_created' => 0,
-            'published_updated' => 0,
-            'skipped_blocking_errors' => (clone $rowsQuery)
+        $summary = $this->publicationProgressSummary($batch, $rowsQuery);
+        $startedAt = microtime(true);
+
+        do {
+            $rows = (clone $rowsQuery)
+                ->with('matchedStaff')
                 ->whereNull('published_staff_id')
-                ->whereHas('errors', fn (Builder $query) => $query->where('severity', 'error')->whereNull('resolved_at'))
-                ->count(),
-            'skipped_already_published' => (clone $rowsQuery)->whereNotNull('published_staff_id')->count(),
-            'published_row_ids' => [],
-        ];
+                ->whereDoesntHave('errors', fn (Builder $query) => $query->where('severity', 'error')->whereNull('resolved_at'))
+                ->orderBy('id')
+                ->limit($chunkSize)
+                ->get();
 
-        (clone $rowsQuery)
-            ->with('matchedStaff')
-            ->whereNull('published_staff_id')
-            ->whereDoesntHave('errors', fn (Builder $query) => $query->where('severity', 'error')->whereNull('resolved_at'))
-            ->chunkById(100, function ($rows) use (&$summary, $user): void {
-                foreach ($rows as $row) {
-                    $result = $this->publishRow($row, $user, false, false);
+            if ($rows->isEmpty()) {
+                return [
+                    'complete' => true,
+                    'summary' => $this->completeBatchPublication($batch, $user, $summary),
+                ];
+            }
 
-                    if ($result['status'] !== 'published') {
-                        continue;
-                    }
+            foreach ($rows as $row) {
+                $result = $this->publishRow($row, $user, false, false);
 
-                    $summary['rows_published']++;
-                    $summary[$result['created'] ? 'published_created' : 'published_updated']++;
-                    $summary['published_row_ids'][] = $row->id;
+                if ($result['status'] !== 'published') {
+                    continue;
                 }
-            });
 
+                $summary['rows_published']++;
+                $summary[$result['created'] ? 'published_created' : 'published_updated']++;
+                $summary['published_row_ids'][] = $row->id;
+            }
+
+            $this->storePublicationProgress($batch, $summary);
+        } while ($maxRuntimeSeconds === null || microtime(true) - $startedAt < $maxRuntimeSeconds);
+
+        return [
+            'complete' => false,
+            'summary' => $summary,
+        ];
+    }
+
+    protected function completeBatchPublication(LegacyStaffImportBatch $batch, User $user, array $summary): array
+    {
         LegacyStaffImportPublication::query()->create([
             'batch_id' => $batch->id,
             'published_by' => $user->id,
@@ -74,6 +101,7 @@ class LegacyStaffImportPublicationService
             ->count();
 
         $batchSummary = $batch->summary ?? [];
+        unset($batchSummary[self::PUBLICATION_PROGRESS_KEY]);
         unset($batchSummary['publication_failure']);
 
         $batch->forceFill([
@@ -94,6 +122,38 @@ class LegacyStaffImportPublicationService
         return $summary;
     }
 
+    protected function publicationProgressSummary(LegacyStaffImportBatch $batch, Builder $rowsQuery): array
+    {
+        $summary = ($batch->summary ?? [])[self::PUBLICATION_PROGRESS_KEY] ?? null;
+
+        if (is_array($summary)) {
+            return $summary;
+        }
+
+        return [
+            'rows_considered' => (clone $rowsQuery)->count(),
+            'rows_published' => 0,
+            'published_created' => 0,
+            'published_updated' => 0,
+            'skipped_blocking_errors' => (clone $rowsQuery)
+                ->whereNull('published_staff_id')
+                ->whereHas('errors', fn (Builder $query) => $query->where('severity', 'error')->whereNull('resolved_at'))
+                ->count(),
+            'skipped_already_published' => (clone $rowsQuery)->whereNotNull('published_staff_id')->count(),
+            'published_row_ids' => [],
+        ];
+    }
+
+    protected function storePublicationProgress(LegacyStaffImportBatch $batch, array $summary): void
+    {
+        $batchSummary = $batch->fresh()->summary ?? [];
+        $batchSummary[self::PUBLICATION_PROGRESS_KEY] = $summary;
+
+        $batch->forceFill([
+            'summary' => $batchSummary,
+        ])->save();
+    }
+
     public function publishRow(
         LegacyStaffImportRow $row,
         User $user,
@@ -105,28 +165,33 @@ class LegacyStaffImportPublicationService
             $this->ensureBatchIsApproved($row->batch()->with('approvalWorkflow')->firstOrFail());
         }
 
-        if ($row->published_staff_id) {
-            return [
-                'status' => 'skipped_already_published',
-                'created' => false,
-                'staff_id' => $row->published_staff_id,
-            ];
-        }
-
-        $hasBlockingErrors = $row->errors()
-            ->where('severity', 'error')
-            ->whereNull('resolved_at')
-            ->exists();
-
-        if ($hasBlockingErrors) {
-            return [
-                'status' => 'skipped_blocking_errors',
-                'created' => false,
-                'staff_id' => null,
-            ];
-        }
-
         return DB::transaction(function () use ($row, $user, $writeAudit): array {
+            $row = LegacyStaffImportRow::query()
+                ->with('matchedStaff')
+                ->lockForUpdate()
+                ->findOrFail($row->id);
+
+            if ($row->published_staff_id) {
+                return [
+                    'status' => 'skipped_already_published',
+                    'created' => false,
+                    'staff_id' => $row->published_staff_id,
+                ];
+            }
+
+            $hasBlockingErrors = $row->errors()
+                ->where('severity', 'error')
+                ->whereNull('resolved_at')
+                ->exists();
+
+            if ($hasBlockingErrors) {
+                return [
+                    'status' => 'skipped_blocking_errors',
+                    'created' => false,
+                    'staff_id' => null,
+                ];
+            }
+
             $published = $this->staffPublicationService->publish(
                 $row->normalized_payload ?? [],
                 $row->matchedStaff,
@@ -156,7 +221,7 @@ class LegacyStaffImportPublicationService
                 'created' => $published['created'],
                 'staff_id' => $published['staff']->id,
             ];
-        });
+        }, 5);
     }
 
     protected function ensureBatchIsApproved(LegacyStaffImportBatch $batch): void

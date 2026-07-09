@@ -42,12 +42,16 @@ class LegacyStaffImportApprovalService
             throw new InvalidArgumentException('This batch does not contain any publishable rows yet.');
         }
 
-        $workflow = $this->approvalWorkflowService->submit(
+            $workflow = $this->approvalWorkflowService->submit(
             $batch,
             self::WORKFLOW_TYPE,
             $user,
             [
-                ['step_no' => 1, 'reviewer_role' => 'Approval Officer'],
+                [
+                    'step_no' => 1,
+                    'reviewer_role' => 'Approval Officer',
+                    'metadata' => ['required_permission' => 'approve-staff-imports'],
+                ],
             ],
             [
                 'rows_publishable' => $summary['rows_publishable'],

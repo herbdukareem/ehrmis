@@ -184,6 +184,7 @@ Route::middleware('auth')->group(function (): void {
 
     Route::middleware('ensure.mda')->group(function (): void {
         Route::get('/mdas', [MdaController::class, 'index'])->name('api.mdas.index');
+        Route::post('/mdas', [MdaController::class, 'store'])->name('api.mdas.store');
         Route::get('/departments', [DepartmentController::class, 'index'])->name('api.departments.index');
         Route::get('/stations', [StationController::class, 'index'])->name('api.stations.index');
         Route::get('/locations', [LocationController::class, 'index'])->name('api.locations.index');

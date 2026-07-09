@@ -67,7 +67,7 @@ export function defaultAuthenticatedPath() {
     const fallbackRoutes = [
         { path: '/dashboard', module: 'dashboards_analytics', permissions: ['view-reports'] },
         { path: '/staff', module: 'staff_registry', permissions: ['view-staff'] },
-        { path: '/legacy-staff-imports', module: 'legacy_import', permissions: ['view-staff-imports', 'import-staff', 'review-staff-imports', 'resolve-staff-import-issues', 'publish-staff-imports', 'publish-own-mda-staff-imports'] },
+        { path: '/legacy-staff-imports', module: 'legacy_import', permissions: ['view-staff-imports', 'import-staff', 'review-staff-imports', 'resolve-staff-import-issues', 'approve-staff-imports', 'publish-staff-imports', 'publish-own-mda-staff-imports'] },
         { path: '/movement-workbooks', module: 'movement_budget', permissions: ['view-movement-sheets', 'create-movement-sheets', 'approve-movement-sheets'] },
         { path: '/promotion-cycles', permissions: ['view-promotions'] },
         { path: '/posting-requests', permissions: ['view-postings'] },

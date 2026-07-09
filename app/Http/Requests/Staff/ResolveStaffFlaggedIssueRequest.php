@@ -3,6 +3,7 @@
 namespace App\Http\Requests\Staff;
 
 use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Validation\Rule;
 
 class ResolveStaffFlaggedIssueRequest extends FormRequest
 {
@@ -37,7 +38,11 @@ class ResolveStaffFlaggedIssueRequest extends FormRequest
             'date_of_birth' => ['nullable', 'date'],
             'cadre_id' => ['nullable', 'integer', 'exists:cadres,id'],
             'rank_id' => ['nullable', 'integer', 'exists:ranks,id'],
-            'qualification_type_id' => ['nullable', 'integer', 'exists:qualification_types,id'],
+            'qualification_type_id' => [
+                'nullable',
+                'integer',
+                Rule::exists('qualification_types', 'id')->where(fn ($query) => $query->where('status', 'active')),
+            ],
             'allowances' => ['nullable', 'array'],
             'allowances.*.allowance_type_id' => ['required', 'integer', 'exists:allowance_types,id'],
             'allowances.*.is_eligible' => ['nullable', 'boolean'],

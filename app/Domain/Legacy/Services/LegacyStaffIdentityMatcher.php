@@ -2,6 +2,7 @@
 
 namespace App\Domain\Legacy\Services;
 
+use App\Domain\Legacy\Support\LegacyIdentifier;
 use App\Domain\Staff\Models\Staff;
 
 class LegacyStaffIdentityMatcher
@@ -16,9 +17,11 @@ class LegacyStaffIdentityMatcher
 
         $query = Staff::query()->forMda((int) $mdaId);
 
-        if (! empty($normalizedRow['legacy_cno_psn'])) {
+        $legacyCnoPsn = LegacyIdentifier::normalize($normalizedRow['legacy_cno_psn'] ?? null);
+        $legacyCno = LegacyIdentifier::normalize($normalizedRow['legacy_cno'] ?? null);
+        if ($legacyCnoPsn !== null) {
             $staff = (clone $query)
-                ->where('legacy_cno_psn', $normalizedRow['legacy_cno_psn'])
+                ->where('legacy_cno_psn', $legacyCnoPsn)
                 ->first();
 
             if ($staff) {
@@ -26,19 +29,9 @@ class LegacyStaffIdentityMatcher
             }
         }
 
-        if (! empty($normalizedRow['legacy_cno'])) {
+        if ($legacyCno !== null) {
             $staff = (clone $query)
-                ->where('legacy_cno', $normalizedRow['legacy_cno'])
-                ->first();
-
-            if ($staff) {
-                return $staff;
-            }
-        }
-
-        if (! empty($normalizedRow['legacy_psn'])) {
-            $staff = (clone $query)
-                ->where('legacy_psn', $normalizedRow['legacy_psn'])
+                ->where('legacy_cno', $legacyCno)
                 ->first();
 
             if ($staff) {

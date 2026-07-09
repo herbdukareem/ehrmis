@@ -33,8 +33,9 @@ class BudgetWorkbookWorkflowServiceTest extends TestCase
             'status' => 'approved',
         ]);
 
-        $approver = User::factory()->create();
-        $approver->assignRole('Approval Officer');
+        $approver = User::factory()->mdaUser($mda)->create();
+        $approver->assignRole('MDA Admin');
+        $approver->givePermissionTo('approve-budgets');
 
         $workbook = BudgetWorkbook::query()->create([
             'mda_id' => $mda->id,

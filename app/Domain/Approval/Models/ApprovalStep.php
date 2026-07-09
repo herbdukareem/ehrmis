@@ -8,6 +8,13 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class ApprovalStep extends Model
 {
+    protected const LEGACY_WORKFLOW_PERMISSION_MAP = [
+        'legacy_staff_import_publication' => ['approve-staff-imports'],
+        'movement_workbook_approval' => ['approve-movement-sheets'],
+        'budget_workbook_approval' => ['approve-budgets'],
+        'promotion_sitting_print_authorization' => ['approve-promotion-printing'],
+    ];
+
     protected $fillable = [
         'workflow_id',
         'step_no',
@@ -49,10 +56,44 @@ class ApprovalStep extends Model
             return (int) $this->reviewer_user_id === (int) $user->id;
         }
 
-        if ($this->reviewer_role !== null) {
-            return $user->hasRole($this->reviewer_role);
+        $requiredPermissions = collect(data_get($this->metadata ?? [], 'required_permissions', []))
+            ->filter(fn ($permission): bool => is_string($permission) && $permission !== '')
+            ->values();
+
+        $requiredPermission = data_get($this->metadata ?? [], 'required_permission');
+
+        if (is_string($requiredPermission) && $requiredPermission !== '') {
+            $requiredPermissions->prepend($requiredPermission);
+        }
+
+        if ($requiredPermissions->isEmpty()) {
+            $requiredPermissions = collect($this->legacyRequiredPermissions());
+        }
+
+        if ($requiredPermissions->isNotEmpty() && $requiredPermissions->contains(fn (string $permission): bool => $user->can($permission))) {
+            return true;
+        }
+
+        if ($this->reviewer_role !== null && $user->hasRole($this->reviewer_role)) {
+            return true;
         }
 
         return false;
+    }
+
+    /**
+     * @return list<string>
+     */
+    protected function legacyRequiredPermissions(): array
+    {
+        $workflowType = $this->relationLoaded('workflow')
+            ? $this->workflow?->workflow_type
+            : $this->workflow()->value('workflow_type');
+
+        if (! is_string($workflowType) || $workflowType === '') {
+            return [];
+        }
+
+        return self::LEGACY_WORKFLOW_PERMISSION_MAP[$workflowType] ?? [];
     }
 }

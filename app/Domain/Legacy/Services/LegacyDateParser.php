@@ -32,12 +32,20 @@ class LegacyDateParser
         $formats = [
             'Y-m-d',
             'Y-m-d H:i:s',
-            'd/m/Y',
-            'd/m/y',
-            'd-m-Y',
-            'd-m-y',
             'm/d/Y',
             'm/d/y',
+            'n/j/Y',
+            'n/j/y',
+            'n-j-Y',
+            'n-j-y',
+            'd/m/Y',
+            'd/m/y',
+            'j/n/Y',
+            'j/n/y',
+            'd-m-Y',
+            'd-m-y',
+            'j-n-Y',
+            'j-n-y',
         ];
 
         foreach ($formats as $format) {

@@ -4,6 +4,7 @@ import DonutChart from '../components/DonutChart.vue';
 import HorizontalBarChart from '../components/HorizontalBarChart.vue';
 import LoadingBlock from '../components/LoadingBlock.vue';
 import PageHeading from '../components/PageHeading.vue';
+import VerticalBarChart from '../components/VerticalBarChart.vue';
 import { api } from '../lib/api';
 import { can } from '../stores/auth';
 import { setPageError } from '../stores/app';
@@ -131,7 +132,7 @@ onMounted(async () => {
                         <span>{{ selectedCadre?.staff_count.toLocaleString() }} staff in cadre</span>
                     </div>
                     <p class="civic-muted">Counts show eligible staff within the selected cadre, not monetary values.</p>
-                    <HorizontalBarChart :rows="selectedCadre?.allowances ?? []" />
+                    <VerticalBarChart :rows="selectedCadre?.allowances ?? []" />
                 </div>
             </div>
 

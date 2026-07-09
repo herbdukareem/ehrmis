@@ -291,33 +291,21 @@ trait BuildsLegacyStaffImportFixtures
             'status' => 'active',
         ]);
 
-        QualificationType::query()->create([
-            'mda_id' => $moh->id,
-            'code' => 'HND',
-            'name' => 'HND',
-            'status' => 'active',
-        ]);
+        QualificationType::query()->firstOrCreate(
+            ['code' => 'HND'],
+            [
+                'name' => 'HND',
+                'status' => 'active',
+            ],
+        );
 
-        QualificationType::query()->create([
-            'mda_id' => $moh->id,
-            'code' => 'PHD',
-            'name' => 'PHD',
-            'status' => 'active',
-        ]);
-
-        QualificationType::query()->create([
-            'mda_id' => $hmb->id,
-            'code' => 'HND',
-            'name' => 'HND',
-            'status' => 'active',
-        ]);
-
-        QualificationType::query()->create([
-            'mda_id' => $hmb->id,
-            'code' => 'PHD',
-            'name' => 'PHD',
-            'status' => 'active',
-        ]);
+        QualificationType::query()->firstOrCreate(
+            ['code' => 'PHD'],
+            [
+                'name' => 'PHD',
+                'status' => 'active',
+            ],
+        );
 
         foreach ([
             ['code' => 'rural', 'name' => 'Rural Allowance'],

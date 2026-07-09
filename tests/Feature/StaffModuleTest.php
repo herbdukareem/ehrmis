@@ -690,12 +690,13 @@ class StaffModuleTest extends TestCase
             'status' => 'active',
         ]);
 
-        QualificationType::query()->create([
-            'mda_id' => $this->mdaA->id,
-            'code' => 'HND',
-            'name' => 'HND',
-            'status' => 'active',
-        ]);
+        QualificationType::query()->firstOrCreate(
+            ['code' => 'HND'],
+            [
+                'name' => 'HND',
+                'status' => 'active',
+            ],
+        );
 
         $this->hazardType = AllowanceType::query()->create([
             'mda_id' => $this->mdaA->id,

@@ -52,9 +52,9 @@ class LegacyStaffImportRowController extends Controller
                 'cadres' => Cadre::query()->orderBy('name')->get(['id', 'department_id', 'salary_scale_id', 'name'])->toArray(),
                 'ranks' => Rank::query()->orderBy('name')->get(['id', 'cadre_id', 'salary_scale_id', 'name', 'level'])->toArray(),
                 'qualification_types' => QualificationType::query()
-                    ->when($rowMdaId, fn ($query) => $query->forMda($rowMdaId), fn ($query) => $query->whereRaw('1 = 0'))
+                    ->unified()
                     ->orderBy('name')
-                    ->get(['id', 'mda_id', 'code', 'name'])
+                    ->get(['id', 'code', 'name'])
                     ->toArray(),
             ],
             'can' => [

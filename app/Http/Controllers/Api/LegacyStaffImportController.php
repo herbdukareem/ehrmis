@@ -118,9 +118,9 @@ class LegacyStaffImportController extends Controller
                         ->orderBy('name')
                         ->get(['id', 'cadre_id', 'salary_scale_id', 'name', 'level']),
                     'qualification_types' => QualificationType::query()
-                        ->when($rowMdaId, fn ($query) => $query->forMda($rowMdaId), fn ($query) => $query->whereRaw('1 = 0'))
+                        ->unified()
                         ->orderBy('name')
-                        ->get(['id', 'mda_id', 'code', 'name']),
+                        ->get(['id', 'code', 'name']),
                 ],
                 'can' => [
                     'publish' => $request->user()->can('publish', $row),
