@@ -5,15 +5,6 @@ on:
     branches:
       - main
   workflow_dispatch:
-    inputs:
-      run_migrations:
-        description: Run php artisan migrate --force after deploy
-        required: false
-        default: "false"
-        type: choice
-        options:
-          - "false"
-          - "true"
 
 permissions:
   contents: read
@@ -46,7 +37,7 @@ jobs:
           cache: npm
 
       - name: Install frontend dependencies
-        run: npm ci
+        run: npm install
 
       - name: Build frontend assets
         run: npm run build
@@ -82,8 +73,6 @@ jobs:
             "tar -xzf - -C \"$CPANEL_DEPLOY_PATH\""
 
       - name: Run remote post-deploy tasks
-        env:
-          RUN_MIGRATIONS: ${{ github.event.inputs.run_migrations || 'false' }}
         run: |
           ssh -p "$CPANEL_SSH_PORT" "$CPANEL_SSH_USERNAME@$CPANEL_SSH_HOST" /bin/bash <<EOF
           set -e
@@ -95,11 +84,7 @@ jobs:
           mkdir -p storage/framework/views
           mkdir -p storage/logs
 
-          if command -v composer >/dev/null 2>&1; then
-            composer install --no-dev --prefer-dist --optimize-autoloader --no-interaction
-          else
-            echo "composer not found on remote host; skipping composer install"
-          fi
+          composer install --no-dev --prefer-dist --optimize-autoloader --no-interaction
 
           if [ -f artisan ] && command -v php >/dev/null 2>&1 && [ -f vendor/autoload.php ]; then
             php artisan optimize:clear || true
@@ -107,10 +92,7 @@ jobs:
             php artisan route:cache || true
             php artisan view:cache
             php artisan storage:link || true
-
-            if [ "$RUN_MIGRATIONS" = "true" ]; then
-              php artisan migrate --force
-            fi
+            php artisan migrate --force
           else
             echo "Skipping artisan tasks; php and/or vendor dependencies are unavailable on remote host"
           fi
