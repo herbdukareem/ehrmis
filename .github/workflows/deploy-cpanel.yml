@@ -101,7 +101,7 @@ jobs:
             echo "composer not found on remote host; skipping composer install"
           fi
 
-          if [ -f artisan ]; then
+          if [ -f artisan ] && command -v php >/dev/null 2>&1 && [ -f vendor/autoload.php ]; then
             php artisan optimize:clear || true
             php artisan config:cache
             php artisan route:cache || true
@@ -111,5 +111,7 @@ jobs:
             if [ "$RUN_MIGRATIONS" = "true" ]; then
               php artisan migrate --force
             fi
+          else
+            echo "Skipping artisan tasks; php and/or vendor dependencies are unavailable on remote host"
           fi
           EOF
