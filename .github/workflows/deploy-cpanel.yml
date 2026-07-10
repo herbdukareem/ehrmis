@@ -94,6 +94,37 @@ jobs:
           mkdir -p storage/framework/views
           mkdir -p storage/logs
 
+          PHP_BIN=""
+          for candidate in \
+            /opt/cpanel/ea-php83/root/usr/bin/php \
+            /opt/alt/php83/usr/bin/php \
+            /usr/local/bin/ea-php83 \
+            /usr/bin/ea-php83 \
+            ea-php83 \
+            /usr/local/bin/alt-php83 \
+            alt-php83 \
+            php
+          do
+            if [[ "$candidate" == */* ]]; then
+              [ -x "$candidate" ] || continue
+              CANDIDATE_BIN="$candidate"
+            else
+              CANDIDATE_BIN="$(command -v "$candidate" || true)"
+              [ -n "$CANDIDATE_BIN" ] || continue
+            fi
+
+            if "$CANDIDATE_BIN" -r 'exit(PHP_VERSION_ID >= 80300 ? 0 : 1);' >/dev/null 2>&1; then
+              PHP_BIN="$CANDIDATE_BIN"
+              break
+            fi
+          done
+
+          if [ -z "$PHP_BIN" ]; then
+            echo "No PHP 8.3+ CLI binary was found on the remote host. This project requires PHP 8.3+."
+            echo "Install or enable a PHP 8.3 CLI binary in cPanel, then re-run this deployment."
+            exit 1
+          fi
+
           if [ ! -f vendor/autoload.php ]; then
             COMPOSER_BIN="$(command -v composer || true)"
             if [ -z "$COMPOSER_BIN" ] && [ -x /opt/cpanel/composer/bin/composer ]; then
@@ -105,17 +136,17 @@ jobs:
               exit 1
             fi
 
-            "$COMPOSER_BIN" install --no-dev --prefer-dist --optimize-autoloader --no-interaction
+            "$PHP_BIN" "$COMPOSER_BIN" install --no-dev --prefer-dist --optimize-autoloader --no-interaction
           fi
 
-          if [ -f artisan ] && command -v php >/dev/null 2>&1 && [ -f vendor/autoload.php ]; then
-            php artisan optimize:clear || true
-            php artisan config:cache
-            php artisan route:cache || true
-            php artisan view:cache
-            php artisan storage:link || true
-            php artisan migrate --force
+          if [ -f artisan ] && [ -f vendor/autoload.php ]; then
+            "$PHP_BIN" artisan optimize:clear || true
+            "$PHP_BIN" artisan config:cache
+            "$PHP_BIN" artisan route:cache || true
+            "$PHP_BIN" artisan view:cache
+            "$PHP_BIN" artisan storage:link || true
+            "$PHP_BIN" artisan migrate --force
           else
-            echo "Skipping artisan tasks; php and/or vendor dependencies are unavailable on remote host"
+            echo "Skipping artisan tasks; artisan and/or vendor dependencies are unavailable on remote host"
           fi
           EOF
