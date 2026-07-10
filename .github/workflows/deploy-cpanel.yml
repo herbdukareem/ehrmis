@@ -1,192 +1,159 @@
-name: Deploy To HMB cPanel
+name: Deploy Laravel + Vue to cPanel (SSH)
 
 on:
   push:
-    branches:
-      - main
-  workflow_dispatch:
-
-permissions:
-  contents: read
-
-concurrency:
-  group: cpanel-production-deploy
-  cancel-in-progress: false
+    branches: [ "main" ]
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        shell: bash
-
-    env:
-      CPANEL_DEPLOY_PATH: ${{ secrets.CPANEL_DEPLOY_PATH }}
-      CPANEL_SSH_HOST: ${{ secrets.CPANEL_SSH_HOST }}
-      CPANEL_SSH_PORT: ${{ secrets.CPANEL_SSH_PORT }}
-      CPANEL_SSH_USERNAME: ${{ secrets.CPANEL_SSH_USERNAME }}
 
     steps:
-      - name: Check out repository
-        uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v5
 
-      - name: Set up PHP
+      # ---------- PHP / Composer ----------
+      - name: Setup PHP
         uses: shivammathur/setup-php@v2
         with:
-          php-version: '8.2'
-          coverage: none
+          php-version: "8.2"
           tools: composer:v2
+          extensions: mbstring, bcmath, curl, dom, fileinfo, openssl, pdo, pdo_mysql, tokenizer, xml, ctype, json
 
-      - name: Resolve PHP 8.2-compatible backend dependencies
-        run: composer update spatie/laravel-permission maatwebsite/excel --with-all-dependencies --no-dev --prefer-dist --optimize-autoloader --no-interaction
+      - name: Install Composer dependencies (no-dev)
+        run: |
+          composer install --no-dev --prefer-dist --no-interaction --optimize-autoloader
 
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
+      # ---------- Node / Vite ----------
+      - name: Setup Node
+        uses: actions/setup-node@v5
         with:
-          node-version: 20
-          cache: npm
+          node-version: "24"
+          cache: "npm"
 
-      - name: Install frontend dependencies
-        run: npm install
+      - name: Install NPM deps
+        run: npm ci
 
-      - name: Build frontend assets
+      - name: Build Vite assets
         run: npm run build
+      - name: Ensure Laravel manifest path
+        run: |
+          if [ -f public/build/.vite/manifest.json ] && [ ! -f public/build/manifest.json ]; then
+            cp public/build/.vite/manifest.json public/build/manifest.json
+          fi
 
-      - name: Start SSH agent
-        uses: webfactory/ssh-agent@v0.9.0
+
+      # ---------- Laravel optimize ----------
+      - name: Laravel optimize (safe)
+        run: |
+          php artisan config:clear
+          php artisan route:clear
+          php artisan view:clear
+
+      # ---------- Prepare deploy folder ----------
+      - name: Prepare split deploy directories
+        run: |
+          mkdir -p ./deploy-app ./deploy-public
+
+          rsync -av --delete \
+            --exclude ".git" \
+            --exclude ".github" \
+            --exclude "vendor" \
+            --exclude "node_modules" \
+            --exclude "tests" \
+            --exclude ".env" \
+            --exclude "public" \
+            --exclude "deploy-app" \
+            --exclude "deploy-public" \
+            --exclude "storage/*.key" \
+            --exclude "storage/logs" \
+            --exclude "storage/framework/cache" \
+            --exclude "storage/framework/sessions" \
+            --exclude "storage/framework/views" \
+            --exclude "bootstrap/cache/*.php" \
+            ./ ./deploy-app/
+
+          rsync -av --delete \
+            ./public/ ./deploy-public/
+
+          # Adjust index.php only in deploy artifact for split hosting layout.
+          sed -i "s|__DIR__.'/../storage/framework/maintenance.php'|__DIR__.'/../website/storage/framework/maintenance.php'|" ./deploy-public/index.php
+          sed -i "s|__DIR__.'/../vendor/autoload.php'|__DIR__.'/../website/vendor/autoload.php'|" ./deploy-public/index.php
+          sed -i "s|__DIR__.'/../bootstrap/app.php'|__DIR__.'/../website/bootstrap/app.php'|" ./deploy-public/index.php
+
+      - name: Package deploy artifacts
+        run: |
+          rm -rf ./deploy-public/storage
+          tar -czf deploy-app.tar.gz -C deploy-app .
+          tar -czf deploy-public.tar.gz -C deploy-public .
+
+      - name: Ensure remote temp directory
+        uses: appleboy/ssh-action@v1
         with:
-          ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
+          host: ${{ secrets.CPANEL_SSH_HOST }}
+          username: ${{ secrets.CPANEL_SSH_USERNAME }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          passphrase: ${{ secrets.CPANEL_SSH_PASSPHRASE }}
+          password: ${{ secrets.CPANEL_SSH_PASSWORD }}
+          port: ${{ secrets.CPANEL_SSH_PORT }}
+          command_timeout: 30m
+          debug: true
+          script: |
+            mkdir -p /home/${{ secrets.CPANEL_SSH_USERNAME }}/tmp/gha-deploy
 
-      - name: Add server to known hosts
-        run: |
-          mkdir -p ~/.ssh
-          ssh-keyscan -p "$CPANEL_SSH_PORT" -H "$CPANEL_SSH_HOST" >> ~/.ssh/known_hosts
+      - name: Upload deploy archives via SCP
+        uses: appleboy/scp-action@v1
+        with:
+          host: ${{ secrets.CPANEL_SSH_HOST }}
+          username: ${{ secrets.CPANEL_SSH_USERNAME }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          passphrase: ${{ secrets.CPANEL_SSH_PASSPHRASE }}
+          password: ${{ secrets.CPANEL_SSH_PASSWORD }}
+          port: ${{ secrets.CPANEL_SSH_PORT }}
+          command_timeout: 30m
+          debug: true
+          source: "deploy-app.tar.gz,deploy-public.tar.gz"
+          target: "/home/${{ secrets.CPANEL_SSH_USERNAME }}/tmp/gha-deploy"
 
-      - name: Ensure remote deploy path exists
-        run: |
-          ssh -p "$CPANEL_SSH_PORT" "$CPANEL_SSH_USERNAME@$CPANEL_SSH_HOST" \
-            "mkdir -p \"$CPANEL_DEPLOY_PATH\""
+      - name: Extract archives on server
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.CPANEL_SSH_HOST }}
+          username: ${{ secrets.CPANEL_SSH_USERNAME }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          passphrase: ${{ secrets.CPANEL_SSH_PASSPHRASE }}
+          password: ${{ secrets.CPANEL_SSH_PASSWORD }}
+          port: ${{ secrets.CPANEL_SSH_PORT }}
+          command_timeout: 30m
+          debug: true
+          script: |
+            set -e
+            APP_DIR="${{ secrets.CPANEL_DEPLOY_PATH }}"
+            PUBLIC_DIR="${{ vars.CPANEL_SSH_PUBLIC_DIR }}"
+            TMP_DIR="/home/${{ secrets.CPANEL_SSH_USERNAME }}/tmp/gha-deploy"
 
-      - name: Validate remote PHP 8.2 CLI availability
-        run: |
-          ssh -p "$CPANEL_SSH_PORT" "$CPANEL_SSH_USERNAME@$CPANEL_SSH_HOST" /bin/bash <<EOF
-          set -e
+            if [ -z "$APP_DIR" ]; then APP_DIR="/home/${{ secrets.CPANEL_SSH_USERNAME }}/website"; fi
+            if [ -z "$PUBLIC_DIR" ]; then PUBLIC_DIR="/home/${{ secrets.CPANEL_SSH_USERNAME }}/public_html"; fi
 
-          PHP_BIN=""
-          for candidate in \
-            /opt/cpanel/ea-php82/root/usr/bin/php \
-            /opt/alt/php82/usr/bin/php \
-            /usr/local/bin/ea-php82 \
-            /usr/bin/ea-php82 \
-            ea-php82 \
-            /usr/local/bin/alt-php82 \
-            alt-php82 \
-            php
-          do
-            if [[ "$candidate" == */* ]]; then
-              [ -x "$candidate" ] || continue
-              CANDIDATE_BIN="$candidate"
-            else
-              CANDIDATE_BIN="$(command -v "$candidate" || true)"
-              [ -n "$CANDIDATE_BIN" ] || continue
+            echo "Extracting app archive to $APP_DIR"
+            mkdir -p "$APP_DIR" "$PUBLIC_DIR"
+            tar -xzf "$TMP_DIR/deploy-app.tar.gz" -C "$APP_DIR"
+
+            echo "Extracting public archive to $PUBLIC_DIR"
+            tar -xzf "$TMP_DIR/deploy-public.tar.gz" -C "$PUBLIC_DIR"
+
+            # Safety mirror: keep build artifacts available in APP_DIR/public/build too.
+            if [ -d "$PUBLIC_DIR/build" ]; then
+              echo "Mirroring build assets to $APP_DIR/public/build"
+              rm -rf "$APP_DIR/public/build"
+              mkdir -p "$APP_DIR/public/build"
+              cp -a "$PUBLIC_DIR/build/." "$APP_DIR/public/build/"
             fi
 
-            if "$CANDIDATE_BIN" -r 'exit(PHP_VERSION_ID >= 80200 ? 0 : 1);' >/dev/null 2>&1; then
-              PHP_BIN="$CANDIDATE_BIN"
-              break
-            fi
-          done
-
-          if [ -z "$PHP_BIN" ]; then
-            echo "No PHP 8.2+ CLI binary was found on the remote host. This project requires PHP 8.2+."
-            echo "Install or enable a PHP 8.2 CLI binary in cPanel, then re-run this deployment."
-            exit 1
-          fi
-
-          echo "Using remote PHP binary: $PHP_BIN"
-          "$PHP_BIN" -v
-          EOF
-
-      - name: Upload application archive
-        run: |
-          tar \
-            --exclude=".git" \
-            --exclude=".github" \
-            --exclude="node_modules" \
-            --exclude="tests" \
-            --exclude=".env" \
-            --exclude="storage/logs" \
-            --exclude="storage/framework" \
-            --exclude="public/storage" \
-            -czf - . \
-          | ssh -p "$CPANEL_SSH_PORT" "$CPANEL_SSH_USERNAME@$CPANEL_SSH_HOST" \
-            "tar -xzf - -C \"$CPANEL_DEPLOY_PATH\""
-
-      - name: Run remote post-deploy tasks
-        run: |
-          ssh -p "$CPANEL_SSH_PORT" "$CPANEL_SSH_USERNAME@$CPANEL_SSH_HOST" /bin/bash <<EOF
-          set -e
-          cd "$CPANEL_DEPLOY_PATH"
-
-          mkdir -p bootstrap/cache
-          mkdir -p storage/framework/cache/data
-          mkdir -p storage/framework/sessions
-          mkdir -p storage/framework/views
-          mkdir -p storage/logs
-
-          PHP_BIN=""
-          for candidate in \
-            /opt/cpanel/ea-php82/root/usr/bin/php \
-            /opt/alt/php82/usr/bin/php \
-            /usr/local/bin/ea-php82 \
-            /usr/bin/ea-php82 \
-            ea-php82 \
-            /usr/local/bin/alt-php82 \
-            alt-php82 \
-            php
-          do
-            if [[ "$candidate" == */* ]]; then
-              [ -x "$candidate" ] || continue
-              CANDIDATE_BIN="$candidate"
-            else
-              CANDIDATE_BIN="$(command -v "$candidate" || true)"
-              [ -n "$CANDIDATE_BIN" ] || continue
+            # Clear Laravel runtime caches on the server so new code/templates are served.
+            if [ -f "$APP_DIR/artisan" ]; then
+              echo "Clearing Laravel caches"
+              php "$APP_DIR/artisan" optimize:clear || true
             fi
 
-            if "$CANDIDATE_BIN" -r 'exit(PHP_VERSION_ID >= 80200 ? 0 : 1);' >/dev/null 2>&1; then
-              PHP_BIN="$CANDIDATE_BIN"
-              break
-            fi
-          done
-
-          if [ -z "$PHP_BIN" ]; then
-            echo "No PHP 8.2+ CLI binary was found on the remote host. This project requires PHP 8.2+."
-            echo "Install or enable a PHP 8.2 CLI binary in cPanel, then re-run this deployment."
-            exit 1
-          fi
-
-          if [ ! -f vendor/autoload.php ]; then
-            COMPOSER_BIN="$(command -v composer || true)"
-            if [ -z "$COMPOSER_BIN" ] && [ -x /opt/cpanel/composer/bin/composer ]; then
-              COMPOSER_BIN="/opt/cpanel/composer/bin/composer"
-            fi
-
-            if [ -z "$COMPOSER_BIN" ]; then
-              echo "vendor/autoload.php is missing and Composer is not available on the remote host PATH or at /opt/cpanel/composer/bin/composer"
-              exit 1
-            fi
-
-            "$PHP_BIN" "$COMPOSER_BIN" install --no-dev --prefer-dist --optimize-autoloader --no-interaction
-          fi
-
-          if [ -f artisan ] && [ -f vendor/autoload.php ]; then
-            "$PHP_BIN" artisan optimize:clear || true
-            "$PHP_BIN" artisan config:cache
-            "$PHP_BIN" artisan route:cache || true
-            "$PHP_BIN" artisan view:cache
-            "$PHP_BIN" artisan storage:link || true
-            "$PHP_BIN" artisan migrate --force
-          else
-            echo "Skipping artisan tasks; artisan and/or vendor dependencies are unavailable on remote host"
-          fi
-          EOF
+            rm -f "$TMP_DIR/deploy-app.tar.gz" "$TMP_DIR/deploy-public.tar.gz"
