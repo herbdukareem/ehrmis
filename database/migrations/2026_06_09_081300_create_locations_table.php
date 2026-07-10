@@ -10,10 +10,10 @@ return new class extends Migration
     {
         Schema::create('locations', function (Blueprint $table) {
             $table->id();
-            $table->string('state');
-            $table->string('lga')->index();
-            $table->string('ward')->nullable();
-            $table->string('town');
+            $table->string('state', 100);
+            $table->string('lga', 120)->index();
+            $table->string('ward', 150)->nullable();
+            $table->string('town', 150);
             $table->boolean('is_urban_center')->default(false)->index();
             $table->string('status', 20)->default('active')->index();
             $table->timestamps();
