@@ -112,7 +112,6 @@ return new class extends Migration
             $table->foreignId('reporting_period_id')->constrained('reporting_periods')->restrictOnDelete();
             $table->foreignId('mda_id')->constrained('mdas')->restrictOnDelete();
             $table->foreignId('station_id')->nullable()->constrained('stations')->nullOnDelete();
-            $table->unsignedBigInteger('station_unique_key')->storedAs('COALESCE(`station_id`, 0)');
             $table->foreignId('department_id')->nullable()->constrained('departments')->nullOnDelete();
             $table->foreignId('submitted_by')->nullable()->constrained('users')->nullOnDelete();
             $table->timestamp('submitted_at')->nullable();
@@ -134,7 +133,7 @@ return new class extends Migration
             $table->softDeletes();
 
             $table->unique(
-                ['report_template_id', 'reporting_period_id', 'mda_id', 'station_unique_key'],
+                ['report_template_id', 'reporting_period_id', 'mda_id', 'station_id'],
                 'report_submission_template_period_mda_station_unique'
             );
             $table->index(['mda_id', 'status']);
