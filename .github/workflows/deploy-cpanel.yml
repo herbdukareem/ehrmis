@@ -1,0 +1,118 @@
+name: Deploy To HMB cPanel
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+    inputs:
+      run_migrations:
+        description: Run php artisan migrate --force after deploy
+        required: false
+        default: "false"
+        type: choice
+        options:
+          - "false"
+          - "true"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cpanel-production-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash
+
+    env:
+      CPANEL_DEPLOY_PATH: ${{ secrets.CPANEL_DEPLOY_PATH }}
+      CPANEL_SSH_HOST: ${{ secrets.CPANEL_SSH_HOST }}
+      CPANEL_SSH_PORT: ${{ secrets.CPANEL_SSH_PORT }}
+      CPANEL_SSH_USERNAME: ${{ secrets.CPANEL_SSH_USERNAME }}
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: Build frontend assets
+        run: npm run build
+
+      - name: Start SSH agent
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
+
+      - name: Add server to known hosts
+        run: |
+          mkdir -p ~/.ssh
+          ssh-keyscan -p "$CPANEL_SSH_PORT" -H "$CPANEL_SSH_HOST" >> ~/.ssh/known_hosts
+
+      - name: Ensure remote deploy path exists
+        run: |
+          ssh -p "$CPANEL_SSH_PORT" "$CPANEL_SSH_USERNAME@$CPANEL_SSH_HOST" \
+            "mkdir -p \"$CPANEL_DEPLOY_PATH\""
+
+      - name: Sync application files
+        run: |
+          rsync -az \
+            -e "ssh -p $CPANEL_SSH_PORT" \
+            --omit-dir-times \
+            --no-perms \
+            --no-owner \
+            --no-group \
+            --exclude ".git/" \
+            --exclude ".github/" \
+            --exclude "node_modules/" \
+            --exclude "tests/" \
+            --exclude ".env" \
+            --exclude "storage/logs/" \
+            --exclude "storage/framework/" \
+            --exclude "public/storage/" \
+            ./ "$CPANEL_SSH_USERNAME@$CPANEL_SSH_HOST:$CPANEL_DEPLOY_PATH/"
+
+      - name: Run remote post-deploy tasks
+        env:
+          RUN_MIGRATIONS: ${{ github.event.inputs.run_migrations || 'false' }}
+        run: |
+          ssh -p "$CPANEL_SSH_PORT" "$CPANEL_SSH_USERNAME@$CPANEL_SSH_HOST" /bin/bash <<EOF
+          set -e
+          cd "$CPANEL_DEPLOY_PATH"
+
+          mkdir -p bootstrap/cache
+          mkdir -p storage/framework/cache/data
+          mkdir -p storage/framework/sessions
+          mkdir -p storage/framework/views
+          mkdir -p storage/logs
+
+          if command -v composer >/dev/null 2>&1; then
+            composer install --no-dev --prefer-dist --optimize-autoloader --no-interaction
+          else
+            echo "composer not found on remote host; skipping composer install"
+          fi
+
+          if [ -f artisan ]; then
+            php artisan optimize:clear || true
+            php artisan config:cache
+            php artisan route:cache || true
+            php artisan view:cache
+            php artisan storage:link || true
+
+            if [ "$RUN_MIGRATIONS" = "true" ]; then
+              php artisan migrate --force
+            fi
+          fi
+          EOF
