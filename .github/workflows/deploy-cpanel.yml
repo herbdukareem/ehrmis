@@ -74,11 +74,25 @@ jobs:
 
           PHP_BIN=""
           for candidate in \
+            /opt/cpanel/ea-php84/root/usr/bin/php \
+            /opt/cpanel/ea-php83/root/usr/bin/php \
             /opt/cpanel/ea-php82/root/usr/bin/php \
+            /opt/alt/php84/usr/bin/php \
+            /opt/alt/php83/usr/bin/php \
             /opt/alt/php82/usr/bin/php \
+            /usr/local/bin/ea-php84 \
+            /usr/bin/ea-php84 \
+            ea-php84 \
+            /usr/local/bin/ea-php83 \
+            /usr/bin/ea-php83 \
+            ea-php83 \
             /usr/local/bin/ea-php82 \
             /usr/bin/ea-php82 \
             ea-php82 \
+            /usr/local/bin/alt-php84 \
+            alt-php84 \
+            /usr/local/bin/alt-php83 \
+            alt-php83 \
             /usr/local/bin/alt-php82 \
             alt-php82 \
             php
@@ -136,11 +150,25 @@ jobs:
 
           PHP_BIN=""
           for candidate in \
+            /opt/cpanel/ea-php84/root/usr/bin/php \
+            /opt/cpanel/ea-php83/root/usr/bin/php \
             /opt/cpanel/ea-php82/root/usr/bin/php \
+            /opt/alt/php84/usr/bin/php \
+            /opt/alt/php83/usr/bin/php \
             /opt/alt/php82/usr/bin/php \
+            /usr/local/bin/ea-php84 \
+            /usr/bin/ea-php84 \
+            ea-php84 \
+            /usr/local/bin/ea-php83 \
+            /usr/bin/ea-php83 \
+            ea-php83 \
             /usr/local/bin/ea-php82 \
             /usr/bin/ea-php82 \
             ea-php82 \
+            /usr/local/bin/alt-php84 \
+            alt-php84 \
+            /usr/local/bin/alt-php83 \
+            alt-php83 \
             /usr/local/bin/alt-php82 \
             alt-php82 \
             php
