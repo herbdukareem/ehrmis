@@ -150,10 +150,46 @@ jobs:
               cp -a "$PUBLIC_DIR/build/." "$APP_DIR/public/build/"
             fi
 
-            # Clear Laravel runtime caches on the server so new code/templates are served.
+            PHP_BIN=""
+            for candidate in \
+              /opt/cpanel/ea-php83/root/usr/bin/php \
+              /opt/alt/php83/usr/bin/php \
+              /usr/local/bin/ea-php83 \
+              /usr/bin/ea-php83 \
+              ea-php83 \
+              /usr/local/bin/alt-php83 \
+              alt-php83 \
+              php
+            do
+              if [[ "$candidate" == */* ]]; then
+                [ -x "$candidate" ] || continue
+                CANDIDATE_BIN="$candidate"
+              else
+                CANDIDATE_BIN="$(command -v "$candidate" || true)"
+                [ -n "$CANDIDATE_BIN" ] || continue
+              fi
+
+              if "$CANDIDATE_BIN" -r 'exit(PHP_VERSION_ID >= 80300 ? 0 : 1);' >/dev/null 2>&1; then
+                PHP_BIN="$CANDIDATE_BIN"
+                break
+              fi
+            done
+
             if [ -f "$APP_DIR/artisan" ]; then
+              if [ -z "$PHP_BIN" ]; then
+                echo "No PHP 8.3+ CLI binary was found on the remote host."
+                echo "Automatic Laravel post-deploy commands were skipped."
+                exit 1
+              fi
+
+              echo "Using PHP binary: $PHP_BIN"
+              "$PHP_BIN" -v
+
               echo "Clearing Laravel caches"
-              php "$APP_DIR/artisan" optimize:clear || true
+              "$PHP_BIN" "$APP_DIR/artisan" optimize:clear || true
+
+              echo "Running database migrations"
+              "$PHP_BIN" "$APP_DIR/artisan" migrate --force
             fi
 
             rm -f "$TMP_DIR/deploy-app.tar.gz" "$TMP_DIR/deploy-public.tar.gz"
