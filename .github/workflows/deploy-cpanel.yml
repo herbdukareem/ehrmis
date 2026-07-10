@@ -1,4 +1,4 @@
-name: Deploy To HMB cPanel
+name: Deploy To HMB cPanel workflow
 
 on:
   push:
