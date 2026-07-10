@@ -30,6 +30,16 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v4
 
+      - name: Set up PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2'
+          coverage: none
+          tools: composer:v2
+
+      - name: Install backend dependencies
+        run: composer install --no-dev --prefer-dist --optimize-autoloader --no-interaction
+
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
@@ -84,17 +94,19 @@ jobs:
           mkdir -p storage/framework/views
           mkdir -p storage/logs
 
-          COMPOSER_BIN="$(command -v composer || true)"
-          if [ -z "$COMPOSER_BIN" ] && [ -x /opt/cpanel/composer/bin/composer ]; then
-            COMPOSER_BIN="/opt/cpanel/composer/bin/composer"
-          fi
+          if [ ! -f vendor/autoload.php ]; then
+            COMPOSER_BIN="$(command -v composer || true)"
+            if [ -z "$COMPOSER_BIN" ] && [ -x /opt/cpanel/composer/bin/composer ]; then
+              COMPOSER_BIN="/opt/cpanel/composer/bin/composer"
+            fi
 
-          if [ -z "$COMPOSER_BIN" ]; then
-            echo "Composer is not available on the remote host PATH or at /opt/cpanel/composer/bin/composer"
-            exit 1
-          fi
+            if [ -z "$COMPOSER_BIN" ]; then
+              echo "vendor/autoload.php is missing and Composer is not available on the remote host PATH or at /opt/cpanel/composer/bin/composer"
+              exit 1
+            fi
 
-          "$COMPOSER_BIN" install --no-dev --prefer-dist --optimize-autoloader --no-interaction
+            "$COMPOSER_BIN" install --no-dev --prefer-dist --optimize-autoloader --no-interaction
+          fi
 
           if [ -f artisan ] && command -v php >/dev/null 2>&1 && [ -f vendor/autoload.php ]; then
             php artisan optimize:clear || true
