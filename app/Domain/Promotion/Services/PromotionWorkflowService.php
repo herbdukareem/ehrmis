@@ -469,6 +469,10 @@ class PromotionWorkflowService
             'basic_salary' => $rate?->basic_salary,
             'gross_salary' => $rate?->legacy_gross_salary ?? $rate?->basic_salary,
             'basic_salary_snapshot' => $rate?->basic_salary,
+            'allowance_total_snapshot' => $rate?->legacy_gross_salary !== null && $rate?->basic_salary !== null
+                ? max(0, (float) $rate->legacy_gross_salary - (float) $rate->basic_salary)
+                : null,
+            'allowance_breakdown_snapshot' => null,
             'legacy_gross_salary_snapshot' => $rate?->legacy_gross_salary,
             'source' => 'promotion_letter',
             'is_current' => true,

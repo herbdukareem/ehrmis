@@ -114,6 +114,7 @@ class ModuleSeeder extends Seeder
                 'create-mdas',
                 'update-mdas',
                 'delete-mdas',
+                'manage-mdas',
                 'view-departments',
                 'create-departments',
                 'update-departments',

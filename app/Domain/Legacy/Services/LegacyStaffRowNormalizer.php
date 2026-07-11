@@ -113,15 +113,24 @@ class LegacyStaffRowNormalizer
         $highestQualificationName = $this->cleanString($legacyRow['highest_qualification'] ?? ($masterRow['highest_qualification'] ?? null));
         $qualificationType = $this->resolveQualificationType($highestQualificationName ?? $qualificationName);
         $allowances = $this->normalizeAllowances($legacyRow, $masterRow, $issues);
-        $isRetired = $this->truthy($legacyRow['is_retired'] ?? ($masterRow['is_retired'] ?? null));
+        $isRetiredFromSource = $this->truthy($legacyRow['is_retired'] ?? ($masterRow['is_retired'] ?? null));
         $isDuplicate = $this->truthy($legacyRow['duplicate'] ?? null);
         $resolvedExpectedRetirementDate = $this->resolveExpectedRetirementDate(
             $legacyEdor,
             $computedEdor,
             $dateOfFirstAppointment,
             $dateOfLastPromotion,
-            $isRetired,
+            $isRetiredFromSource,
         );
+        $isRetired = $isRetiredFromSource || $this->isRetiredByExpectedRetirementDate($resolvedExpectedRetirementDate);
+
+        if (! $isRetiredFromSource && $isRetired) {
+            $issues[] = $this->warning(
+                'is_retired',
+                'retirement_status_inferred',
+                'Staff was marked retired because the resolved EDOR `'.$resolvedExpectedRetirementDate.'` is due.',
+            );
+        }
         $legacyCno = LegacyIdentifier::normalize($legacyRow['cno'] ?? ($masterRow['cno'] ?? null));
         $legacyPsn = LegacyIdentifier::normalize($legacyRow['psn'] ?? ($masterRow['psn'] ?? null));
         $legacyCnoPsn = LegacyIdentifier::normalize($legacyRow['cno_psn'] ?? $this->makeLegacyCnoPsn($legacyCno, $legacyPsn));
@@ -413,7 +422,6 @@ class LegacyStaffRowNormalizer
             }
 
             $salaryScale = SalaryScale::query()
-                ->when($mdaId, fn ($query) => $query->forMda($mdaId))
                 ->where('code', $code)
                 ->first();
 
@@ -1117,6 +1125,15 @@ class LegacyStaffRowNormalizer
         }
 
         return $legacyEdor;
+    }
+
+    protected function isRetiredByExpectedRetirementDate(?string $expectedRetirementDate): bool
+    {
+        if ($expectedRetirementDate === null) {
+            return false;
+        }
+
+        return Carbon::parse($expectedRetirementDate)->lte(now()->endOfDay());
     }
 
     protected function yearGap(CarbonInterface $firstDate, CarbonInterface $secondDate): int

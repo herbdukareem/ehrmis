@@ -32,7 +32,7 @@ class MovementSummaryExport implements FromArray, ShouldAutoSize, WithStyles
             }
 
             $rows[] = [$department['department']];
-            $rows[] = ['S/N', 'Scale', 'Level', 'Present No. of Staff', 'No. of Staff Moving', 'No. of Staff Joining', 'Expected Total'];
+            $rows[] = ['S/N', 'Scale', 'Level', 'Present No. of Staff', 'No. of Staff Moving', 'No. of Staff Retiring', 'No. of Staff Joining', 'Expected Total'];
 
             foreach ($department['rows'] as $index => $row) {
                 $rows[] = [
@@ -41,6 +41,7 @@ class MovementSummaryExport implements FromArray, ShouldAutoSize, WithStyles
                     $row['level'],
                     $row['present_staff'],
                     $row['staff_moving'],
+                    $row['staff_retiring'],
                     $row['staff_joining'],
                     $row['expected_total'],
                 ];
@@ -54,18 +55,18 @@ class MovementSummaryExport implements FromArray, ShouldAutoSize, WithStyles
 
     public function styles(Worksheet $sheet): array
     {
-        $sheet->getStyle('A1:G1')->getFont()->setBold(true)->setSize(14);
+        $sheet->getStyle('A1:H1')->getFont()->setBold(true)->setSize(14);
 
         foreach ($sheet->getRowIterator() as $row) {
             $value = $sheet->getCell('A'.$row->getRowIndex())->getValue();
 
             if (is_string($value) && $value !== '' && $sheet->getCell('B'.$row->getRowIndex())->getValue() === null) {
-                $sheet->mergeCells("A{$row->getRowIndex()}:G{$row->getRowIndex()}");
-                $sheet->getStyle("A{$row->getRowIndex()}:G{$row->getRowIndex()}")->getFont()->setBold(true);
+                $sheet->mergeCells("A{$row->getRowIndex()}:H{$row->getRowIndex()}");
+                $sheet->getStyle("A{$row->getRowIndex()}:H{$row->getRowIndex()}")->getFont()->setBold(true);
             }
 
             if ($value === 'S/N') {
-                $sheet->getStyle("A{$row->getRowIndex()}:G{$row->getRowIndex()}")->getFont()->setBold(true);
+                $sheet->getStyle("A{$row->getRowIndex()}:H{$row->getRowIndex()}")->getFont()->setBold(true);
             }
         }
 

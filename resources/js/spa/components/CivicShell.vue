@@ -14,6 +14,7 @@ const navBlueprint = [
         label: 'Operations',
         items: [
             { label: 'Overview', to: '/dashboard', module: 'dashboards_analytics', permissionAny: ['view-reports'] },
+            { label: 'Executive dashboard', to: '/executive-dashboard', module: 'dashboards_analytics', permissionAny: ['view-reports'] },
             { label: 'Staff registry', to: '/staff', module: 'staff_registry', permissionAny: ['view-staff'] },
             { label: 'Data imports', to: '/legacy-staff-imports', module: 'legacy_import', permissionAny: ['view-staff-imports', 'import-staff', 'review-staff-imports', 'resolve-staff-import-issues', 'approve-staff-imports', 'publish-staff-imports', 'publish-own-mda-staff-imports'] },
             { label: 'Movement', to: '/movement-workbooks', module: 'movement_budget', permissionAny: ['view-movement-sheets', 'create-movement-sheets', 'approve-movement-sheets'] },

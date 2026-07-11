@@ -193,7 +193,6 @@ class StaffController extends Controller
 
             if ($placementChanged) {
                 $validated['salary_scale'] = SalaryScale::query()
-                    ->forMda((int) $staff->mda_id)
                     ->findOrFail((int) $validated['salary_scale_id']);
 
                 $staffSalaryPlacementService->createPlacement($staff, [
@@ -318,9 +317,9 @@ class StaffController extends Controller
                 'stations' => Station::query()->orderBy('name')->get(['id', 'mda_id', 'name']),
                 'cadres' => $cadres,
                 'ranks' => Rank::query()->whereIn('cadre_id', $cadres->pluck('id'))->orderBy('name')->get(['id', 'cadre_id', 'salary_scale_id', 'name', 'level']),
-                'salary_scales' => SalaryScale::query()->orderBy('code')->get(['id', 'mda_id', 'code', 'name']),
+                'salary_scales' => SalaryScale::query()->orderBy('code')->get(['id', 'code', 'name']),
                 'qualification_types' => QualificationType::query()->unified()->orderBy('name')->get(['id', 'code', 'name']),
-                'allowance_types' => AllowanceType::query()->orderBy('name')->get(['id', 'mda_id', 'code', 'name']),
+                'allowance_types' => AllowanceType::query()->orderBy('name')->get(['id', 'code', 'name']),
                 'statuses' => ['active', 'retired', 'duplicate', 'inactive'],
             ],
         ]);
@@ -388,9 +387,9 @@ class StaffController extends Controller
             }
         }
 
-        if (! empty($validated['salary_scale_id']) && ! SalaryScale::query()->forMda($mdaId)->whereKey($validated['salary_scale_id'])->exists()) {
+        if (! empty($validated['salary_scale_id']) && ! SalaryScale::query()->whereKey($validated['salary_scale_id'])->exists()) {
             throw ValidationException::withMessages([
-                'salary_scale_id' => 'The selected salary scale is not available for this MDA.',
+                'salary_scale_id' => 'The selected salary scale does not exist.',
             ]);
         }
     }

@@ -58,8 +58,8 @@ const mdaApplications = computed(() => {
     if (!selectedSitting.value) return data.value?.applications ?? [];
     return (data.value?.applications ?? []).filter((application) => application.mda_id === selectedSitting.value.mda_id);
 });
-const ranksForScreen = computed(() => options.value.ranks.filter((rank) => !selectedApplication.value?.mda_id || options.value.salary_scales.some((scale) => scale.id === rank.salary_scale_id && scale.mda_id === selectedApplication.value.mda_id)));
-const scalesForScreen = computed(() => options.value.salary_scales.filter((scale) => !selectedApplication.value?.mda_id || scale.mda_id === selectedApplication.value.mda_id));
+const ranksForScreen = computed(() => options.value.ranks.filter((rank) => !selectedApplication.value?.mda_id || Number(rank.mda_id) === Number(selectedApplication.value.mda_id)));
+const scalesForScreen = computed(() => options.value.salary_scales);
 
 const load = async () => {
     busy.value = true;

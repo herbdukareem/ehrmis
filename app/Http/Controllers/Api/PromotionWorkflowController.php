@@ -292,15 +292,22 @@ class PromotionWorkflowController extends Controller
 
     protected function options(Request $request): array
     {
-        $salaryScaleQuery = SalaryScale::query()->orderBy('code');
-        if (! $request->user()->hasGlobalMdaAccess()) {
-            $salaryScaleQuery->forMdas($request->user()->accessibleMdaIds()->all());
-        }
-
         return [
             'mdas' => Mda::query()->visibleToUser($request->user())->orderBy('name')->get(['id', 'code', 'name']),
-            'ranks' => Rank::query()->visibleToUser($request->user())->with('salaryScale:id,code,name')->orderBy('name')->get(['id', 'cadre_id', 'salary_scale_id', 'name', 'level']),
-            'salary_scales' => $salaryScaleQuery->get(['id', 'mda_id', 'code', 'name']),
+            'ranks' => Rank::query()
+                ->visibleToUser($request->user())
+                ->with(['cadre.department:id,mda_id', 'salaryScale:id,code,name'])
+                ->orderBy('name')
+                ->get(['id', 'cadre_id', 'salary_scale_id', 'name', 'level'])
+                ->map(fn (Rank $rank): array => [
+                    'id' => $rank->id,
+                    'mda_id' => $rank->cadre?->department?->mda_id,
+                    'cadre_id' => $rank->cadre_id,
+                    'salary_scale_id' => $rank->salary_scale_id,
+                    'name' => $rank->name,
+                    'level' => $rank->level,
+                ]),
+            'salary_scales' => SalaryScale::query()->orderBy('code')->get(['id', 'code', 'name']),
         ];
     }
 

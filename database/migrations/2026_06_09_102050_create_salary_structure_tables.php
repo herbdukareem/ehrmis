@@ -26,6 +26,8 @@ return new class extends Migration
             $table->foreignId('salary_scale_id')->constrained()->cascadeOnDelete();
             $table->unsignedTinyInteger('level');
             $table->unsignedTinyInteger('step');
+            $table->string('grade_code', 50)->default('');
+            $table->string('detail')->nullable();
             $table->decimal('basic_salary', 15, 2);
             $table->decimal('legacy_gross_salary', 15, 2)->nullable();
             $table->string('status', 30)->default('active')->index();
@@ -33,7 +35,7 @@ return new class extends Migration
             $table->date('effective_to')->nullable();
             $table->timestamps();
 
-            $table->unique(['salary_scale_id', 'level', 'step'], 'salary_structure_scale_level_step_unique');
+            $table->unique(['salary_scale_id', 'level', 'step', 'grade_code'], 'salary_structure_rate_identity_unique');
         });
 
         Schema::create('salary_structure_rate_allowances', function (Blueprint $table): void {

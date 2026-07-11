@@ -110,7 +110,6 @@ class StaffController extends Controller
         if (! empty($validated['salary_placement']['salary_scale_id'])) {
             $salaryPlacement = $validated['salary_placement'];
             $salaryPlacement['salary_scale'] = SalaryScale::query()
-                ->forMda((int) $staff->mda_id)
                 ->findOrFail((int) $salaryPlacement['salary_scale_id']);
             $salaryPlacementService->createPlacement($staff, $salaryPlacement);
         }
@@ -224,9 +223,9 @@ class StaffController extends Controller
             'stations' => Station::query()->orderBy('name')->get(['id', 'mda_id', 'name'])->toArray(),
             'cadres' => Cadre::query()->orderBy('name')->get(['id', 'department_id', 'salary_scale_id', 'name'])->toArray(),
             'ranks' => Rank::query()->orderBy('name')->get(['id', 'cadre_id', 'salary_scale_id', 'name', 'level'])->toArray(),
-            'salary_scales' => SalaryScale::query()->orderBy('code')->get(['id', 'mda_id', 'code', 'name'])->toArray(),
+            'salary_scales' => SalaryScale::query()->orderBy('code')->get(['id', 'code', 'name'])->toArray(),
             'qualification_types' => QualificationType::query()->unified()->orderBy('name')->get(['id', 'code', 'name'])->toArray(),
-            'allowance_types' => AllowanceType::query()->orderBy('name')->get(['id', 'mda_id', 'code', 'name'])->toArray(),
+            'allowance_types' => AllowanceType::query()->orderBy('name')->get(['id', 'code', 'name'])->toArray(),
             'status_options' => [
                 ['value' => 'active', 'label' => 'Active'],
                 ['value' => 'retired', 'label' => 'Retired'],

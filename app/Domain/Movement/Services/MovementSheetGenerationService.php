@@ -252,6 +252,7 @@ class MovementSheetGenerationService
         $proposedLevel = $currentLevel;
         $proposedStep = $currentStep;
         $eligibilityStatus = 'not_due';
+        $eligibilityReason = null;
         $nextPromotionDate = $employment?->next_promotion_date
             ? Carbon::parse($employment->next_promotion_date)
             : null;
@@ -285,20 +286,27 @@ class MovementSheetGenerationService
                     $eligibilityStatus = 'due';
                 } else {
                     $eligibilityStatus = 'blocked_by_policy';
+                    $eligibilityReason = ! $withinScale
+                        ? "Promotion would exceed {$currentScaleCode} maximum level {$scaleMaxLevel}."
+                        : "Promotion would exceed {$qualificationCode} qualification ceiling level {$qualificationMaxLevel} for {$currentScaleCode}.";
                 }
             }
         } elseif ($retirementStatus !== 'active') {
             $eligibilityStatus = 'retiring';
+            $eligibilityReason = 'Staff is retiring or already retired within the movement assessment period.';
         } else {
             $eligibilityStatus = 'blocked_by_policy';
+            $eligibilityReason = 'Current salary scale, level, step, or promotion policy data is incomplete.';
         }
 
         if ($retirementStatus === 'retiring') {
             $eligibilityStatus = 'retiring';
+            $eligibilityReason = 'Staff is retiring within the movement year.';
         }
 
         if ($retirementStatus === 'retired') {
             $eligibilityStatus = 'retired';
+            $eligibilityReason = 'Staff is already retired before the movement year.';
         }
 
         $proposedAmounts = $currentScaleCode !== null && $proposedLevel !== null && $proposedStep !== null
@@ -333,6 +341,7 @@ class MovementSheetGenerationService
                 'retirement_date' => $retirementDate?->toDateString(),
                 'current_status' => $staff->status,
                 'employment_status' => $employment?->employment_status,
+                'eligibility_reason' => $eligibilityReason,
             ],
             'calculation_source' => 'salary_calculation_service',
         ];

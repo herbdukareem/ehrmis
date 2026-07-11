@@ -2,7 +2,6 @@
 
 namespace App\Domain\Staff\Services;
 
-use App\Domain\Organization\Models\Mda;
 use App\Domain\Staff\Models\QualificationScaleCeiling;
 use App\Domain\Staff\Models\QualificationType;
 use App\Domain\Staff\Models\SalaryScale;
@@ -24,9 +23,7 @@ class QualificationCatalogSyncService
             ];
 
             if ($seedSalaryScales) {
-                Mda::query()->orderBy('id')->each(function (Mda $mda) use (&$summary): void {
-                    $this->syncDefaultSalaryScalesForMda($mda, $summary['salary_scales']);
-                });
+                $this->syncDefaultSalaryScales($summary['salary_scales']);
             }
 
             $this->syncQualificationTypes($summary['qualification_types']);
@@ -39,21 +36,27 @@ class QualificationCatalogSyncService
     /**
      * @param  array{created: int, updated: int, skipped: int}|null  $summary
      */
-    public function syncDefaultSalaryScalesForMda(Mda $mda, ?array &$summary = null): void
+    public function syncDefaultSalaryScalesForMda(int|object $mda, ?array &$summary = null): void
+    {
+        $this->syncDefaultSalaryScales($summary);
+    }
+
+    /**
+     * @param  array{created: int, updated: int, skipped: int}|null  $summary
+     */
+    public function syncDefaultSalaryScales(?array &$summary = null): void
     {
         $summary ??= ['created' => 0, 'updated' => 0, 'skipped' => 0];
 
         foreach (UnifiedQualificationCatalog::salaryScales() as $code => $definition) {
-            $scale = SalaryScale::withoutGlobalScopes()
+            $scale = SalaryScale::query()
                 ->withTrashed()
-                ->where('mda_id', $mda->id)
                 ->where('code', $code)
                 ->first();
 
             $wasRecentlyCreated = ! $scale;
             $scale ??= new SalaryScale();
             $scale->fill([
-                'mda_id' => $mda->id,
                 'code' => $code,
                 'name' => $definition['name'],
                 'min_level' => $definition['min_level'],
@@ -69,14 +72,11 @@ class QualificationCatalogSyncService
         }
     }
 
-    public function syncCeilingsForMda(Mda|int $mda): void
+    public function syncCeilingsForMda(int|object $mda): void
     {
-        $mdaId = $mda instanceof Mda ? $mda->id : $mda;
-
         $this->syncQualificationTypes();
 
-        SalaryScale::withoutGlobalScopes()
-            ->where('mda_id', $mdaId)
+        SalaryScale::query()
             ->whereIn('code', array_keys(UnifiedQualificationCatalog::salaryScales()))
             ->each(fn (SalaryScale $scale) => $this->syncCeilingsForSalaryScale($scale));
     }
@@ -163,7 +163,7 @@ class QualificationCatalogSyncService
     {
         $summary ??= ['created' => 0, 'updated' => 0, 'skipped' => 0];
 
-        SalaryScale::withoutGlobalScopes()
+        SalaryScale::query()
             ->whereIn('code', array_keys(UnifiedQualificationCatalog::salaryScales()))
             ->orderBy('id')
             ->each(function (SalaryScale $salaryScale) use (&$summary): void {

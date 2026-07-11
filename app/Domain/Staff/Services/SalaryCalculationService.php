@@ -19,14 +19,13 @@ class SalaryCalculationService
             return null;
         }
 
-        $cacheKey = implode('|', [$normalizedCode, $level, $step, $mdaId ?? 0]);
+        $cacheKey = implode('|', [$normalizedCode, $level, $step]);
 
         if (array_key_exists($cacheKey, $this->rateCache)) {
             return $this->rateCache[$cacheKey];
         }
 
         $salaryScale = SalaryScale::query()
-            ->when($mdaId, fn ($query) => $query->forMda($mdaId))
             ->where('code', $normalizedCode)
             ->first();
 
@@ -36,7 +35,6 @@ class SalaryCalculationService
 
         return $this->rateCache[$cacheKey] = SalaryStructureRate::query()
             ->with(['rateAllowances.allowanceType', 'salaryScale'])
-            ->when($mdaId, fn ($query) => $query->forMda($mdaId))
             ->where('salary_scale_id', $salaryScale->id)
             ->where('level', $level)
             ->where('step', $step)

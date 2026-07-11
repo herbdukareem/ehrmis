@@ -73,7 +73,6 @@ class StaffDetailResource extends JsonResource
             'qualifications' => StaffQualificationResource::collection($staff->qualifications)->resolve(),
             'allowance_assignments' => StaffAllowanceAssignmentResource::collection($effectiveAllowanceAssignments)->resolve(),
             'allowance_types' => AllowanceType::query()
-                ->forMda((int) $staff->mda_id)
                 ->where('status', 'active')
                 ->orderBy('name')
                 ->get(['id', 'code', 'name'])
@@ -152,8 +151,8 @@ class StaffDetailResource extends JsonResource
             'legacy_gross_salary' => $placement->legacy_gross_salary_snapshot !== null ? (float) $placement->legacy_gross_salary_snapshot : $calculation['legacy_gross_salary'],
             'calculated_gross_salary' => $placement->calculated_gross_salary_snapshot !== null ? (float) $placement->calculated_gross_salary_snapshot : $calculation['calculated_gross'],
             'gross_difference' => $placement->gross_difference_snapshot !== null ? (float) $placement->gross_difference_snapshot : $calculation['gross_difference'],
-            'allowance_breakdown' => $calculation['allowance_breakdown'],
-            'total_allowances' => $calculation['total_allowances'],
+            'allowance_breakdown' => $placement->allowance_breakdown_snapshot ?? $calculation['allowance_breakdown'],
+            'total_allowances' => $placement->allowance_total_snapshot !== null ? (float) $placement->allowance_total_snapshot : $calculation['total_allowances'],
         ];
     }
 

@@ -12,16 +12,17 @@ class SetupManagementRules
     public static function decisions(): array
     {
         return [
+            'mdas' => 'platform-owned',
             'departments' => 'mda-owned',
             'stations' => 'mda-owned',
             'cadres' => 'mda-owned-via-department',
             'ranks' => 'mda-owned-via-cadre',
-            'allowance-types' => 'mda-owned',
-            'salary-scales' => 'mda-owned',
+            'allowance-types' => 'unified-global',
+            'salary-scales' => 'unified-global',
             'qualification-types' => 'unified-global',
             'promotion-policies' => 'unified-global',
-            'salary-structure-rates' => 'mda-owned',
-            'salary-structure-rate-allowances' => 'mda-owned',
+            'salary-structure-rates' => 'unified-global',
+            'salary-structure-rate-allowances' => 'unified-global',
         ];
     }
 
@@ -31,6 +32,7 @@ class SetupManagementRules
     public static function managementPermissions(): array
     {
         return [
+            'manage-mdas',
             'manage-departments',
             'manage-stations',
             'manage-cadres',

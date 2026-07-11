@@ -130,6 +130,7 @@ class MovementWorkbookController extends Controller
                         : null,
                     'selection_state' => $line->selection_state,
                     'eligibility_status' => $line->eligibility_status,
+                    'eligibility_reason' => $line->decision_trace['eligibility_reason'] ?? null,
                     'retirement_status' => $line->retirement_status,
                 ])->sortBy(fn (array $line): string => strtolower(($line['department'] ?? '').'|'.($line['full_name'] ?? '')))->values(),
                 'summaries' => $workbook->summaries->map(fn ($summary): array => [

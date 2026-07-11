@@ -18,6 +18,7 @@ class DatabaseSeeder extends Seeder
             ServiceReportingSeeder::class,
             AllowanceTypeSeeder::class,
             SalaryScaleSeeder::class,
+            November2024SalaryStructureSeeder::class,
             QualificationCatalogSeeder::class,
             PromotionPolicyCatalogSeeder::class,
             SuperAdminSeeder::class,

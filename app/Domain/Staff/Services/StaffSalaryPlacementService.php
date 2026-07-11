@@ -58,6 +58,8 @@ class StaffSalaryPlacementService
                 'basic_salary' => $salaryBreakdown['basic_salary'],
                 'gross_salary' => $salaryBreakdown['calculated_gross'],
                 'basic_salary_snapshot' => $salaryBreakdown['basic_salary'],
+                'allowance_total_snapshot' => $salaryBreakdown['total_allowances'],
+                'allowance_breakdown_snapshot' => $salaryBreakdown['allowance_breakdown'],
                 'legacy_gross_salary_snapshot' => $salaryBreakdown['legacy_gross_salary'],
                 'calculated_gross_salary_snapshot' => $salaryBreakdown['calculated_gross'],
                 'gross_difference_snapshot' => $salaryBreakdown['gross_difference'],

@@ -14,6 +14,15 @@ class AllowanceTypeProvisioningService
      */
     public function ensureForMda(int $mdaId, array $codes = []): array
     {
+        return $this->ensureGlobal($codes);
+    }
+
+    /**
+     * @param  array<int, string>  $codes
+     * @return array{types: Collection<int, AllowanceType>, created: int, updated: int}
+     */
+    public function ensureGlobal(array $codes = []): array
+    {
         $normalizedCodes = collect($codes)
             ->filter(fn (mixed $code): bool => is_string($code) && trim($code) !== '')
             ->map(fn (string $code): string => strtolower(trim($code)))
@@ -28,7 +37,6 @@ class AllowanceTypeProvisioningService
             ->mapWithKeys(fn (string $code): array => [$code => AllowanceTypeCatalog::definitionFor($code)]);
 
         $existing = AllowanceType::query()
-            ->forMda($mdaId)
             ->whereIn('code', $normalizedCodes->all())
             ->get()
             ->keyBy('code');
@@ -42,7 +50,6 @@ class AllowanceTypeProvisioningService
             $wasExisting = $allowanceType->exists;
 
             $allowanceType->fill([
-                'mda_id' => $mdaId,
                 'code' => $definition['code'],
                 'name' => $definition['name'],
                 'description' => $definition['description'],

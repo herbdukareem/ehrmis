@@ -370,6 +370,46 @@ class LegacyStaffImportServiceTest extends TestCase
         $this->assertSame(1, $onlyRetired['retired_staff']);
     }
 
+    public function test_import_infers_retired_status_from_resolved_edor_when_legacy_flag_is_false(): void
+    {
+        DB::connection('legacy')->table('staff_list')->insert([
+            'id' => 99,
+            'cno' => 'C099',
+            'name' => 'Past Edor Retiree',
+            'psn' => 'P099',
+            'sex' => 'Male',
+            'mda' => 'MINISTRY OF HEALTH',
+            'station' => 'MOH HQTR',
+            'location' => 'MINNA',
+            'salary_scale' => 'GL',
+            'highest_qualification' => 'HND',
+            'department' => 'ADMIN',
+            'dob' => '1964-01-01',
+            'dfa' => '1990-01-01',
+            'dpa' => '2020-01-01',
+            'edor' => '2024-01-01',
+            'cadre' => 'ADMIN OFFICER',
+            'rank' => 'A.O I',
+            'level' => 9,
+            'step' => 2,
+            'basic_salary' => 45000,
+            'gross' => 50000,
+            'is_retired' => 0,
+            'duplicate' => 0,
+            'cno_psn' => 'C099P099',
+            'status' => '1',
+        ]);
+
+        $summary = app(LegacyStaffImportService::class)->import(['limit' => 100]);
+        $row = LegacyStaffImportRow::query()->where('legacy_cno', 'C099')->firstOrFail();
+
+        $this->assertSame(1, $summary['retired_staff']);
+        $this->assertTrue($row->normalized_payload['is_retired']);
+        $this->assertSame('retired', $row->normalized_payload['employment_status']);
+        $this->assertSame('retired', $row->normalized_payload['status']);
+        $this->assertSame('2024-01-01', $row->normalized_payload['resolved_expected_retirement_date']);
+    }
+
     public function test_invalid_dates_missing_references_and_mismatches_create_warnings(): void
     {
         $summary = app(LegacyStaffImportService::class)->import([

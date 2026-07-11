@@ -21,6 +21,12 @@ class AllowanceTypeCatalog
             ['code' => 'call_pharm_lab', 'name' => 'Call Allowance - Pharmacy/Lab', 'description' => 'Resolved from the `call_` staff-list import column when pharmacy or lab call eligibility is detected.'],
             ['code' => 'call_opt_odd', 'name' => 'Call Allowance - Optometry/ODD', 'description' => 'Resolved from the `call_` staff-list import column when optometry or ODD call eligibility is detected.'],
             ['code' => 'call_nurse_others', 'name' => 'Call Allowance - Nurse/Others', 'description' => 'Resolved from the `call_` staff-list import column when nursing or other call eligibility is detected.'],
+            ['code' => 'domestic', 'name' => 'Domestic Allowance', 'description' => 'Special Grade allowance for domestic support.'],
+            ['code' => 'entertainment', 'name' => 'Entertainment Allowance', 'description' => 'Special Grade allowance for official entertainment responsibilities.'],
+            ['code' => 'newspaper', 'name' => 'Newspaper Allowance', 'description' => 'Special Grade allowance for newspaper and publication costs.'],
+            ['code' => 'personal_assistant', 'name' => 'Personal Assistant Allowance', 'description' => 'Special Grade allowance for personal assistant support.'],
+            ['code' => 'utility', 'name' => 'Utility Allowance', 'description' => 'Special Grade allowance for official utility costs.'],
+            ['code' => 'vehicle_maintenance', 'name' => 'Vehicle Maintenance Allowance', 'description' => 'Special Grade allowance for vehicle maintenance costs.'],
         ];
     }
 

@@ -5,6 +5,7 @@ use App\Http\Controllers\Api\AccessManagementController;
 use App\Http\Controllers\Api\CurrentUserContextController;
 use App\Http\Controllers\Api\DashboardController;
 use App\Http\Controllers\Api\DepartmentController;
+use App\Http\Controllers\Api\ExecutiveDashboardController;
 use App\Http\Controllers\Api\LegacyStaffImportController;
 use App\Http\Controllers\Api\LocationController;
 use App\Http\Controllers\Api\MdaController;
@@ -73,6 +74,9 @@ Route::middleware('auth')->group(function (): void {
     Route::get('/dashboard', [DashboardController::class, 'show'])
         ->middleware('ensure.module:dashboards_analytics')
         ->name('api.dashboard');
+    Route::get('/executive-dashboard', ExecutiveDashboardController::class)
+        ->middleware('ensure.module:dashboards_analytics')
+        ->name('api.executive-dashboard');
 
     Route::middleware('ensure.module:settings')->group(function (): void {
         Route::get('/settings', [SettingsController::class, 'show'])->name('api.settings.show');
@@ -175,6 +179,7 @@ Route::middleware('auth')->group(function (): void {
         Route::get('/budget-workbooks', [BudgetWorkbookController::class, 'index'])->name('api.budget-workbooks.index');
         Route::post('/budget-workbooks', [BudgetWorkbookController::class, 'store'])->name('api.budget-workbooks.store');
         Route::get('/budget-workbooks/{budgetWorkbook}', [BudgetWorkbookController::class, 'show'])->name('api.budget-workbooks.show');
+        Route::get('/budget-workbooks/{budgetWorkbook}/reports/{report}', [BudgetWorkbookController::class, 'report'])->name('api.budget-workbooks.reports.show');
         Route::post('/budget-workbooks/{budgetWorkbook}/submit', [WorkflowActionController::class, 'budgetSubmit'])->name('api.budget-workbooks.submit');
         Route::post('/budget-workbooks/{budgetWorkbook}/approve', [WorkflowActionController::class, 'budgetApprove'])->name('api.budget-workbooks.approve');
         Route::post('/budget-workbooks/{budgetWorkbook}/reject', [WorkflowActionController::class, 'budgetReject'])->name('api.budget-workbooks.reject');

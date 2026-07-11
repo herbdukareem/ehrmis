@@ -162,15 +162,10 @@ class StateMdaDemoDistributionSeeder extends Seeder
             ))
             ->values();
 
-        $salaryScales = collect([
-            ['code' => 'CM', 'name' => 'CONMESS', 'min_level' => 1, 'max_level' => 8, 'min_step' => 1, 'max_step' => 11],
-            ['code' => 'CH', 'name' => 'CONHESS', 'min_level' => 1, 'max_level' => 15, 'min_step' => 1, 'max_step' => 15],
-            ['code' => 'GL', 'name' => 'GRADE LEVEL', 'min_level' => 1, 'max_level' => 17, 'min_step' => 1, 'max_step' => 15],
-            ['code' => 'SG', 'name' => 'SPECIAL GRADE', 'min_level' => 1, 'max_level' => 5, 'min_step' => 1, 'max_step' => 9],
-        ])->map(fn (array $scale): SalaryScale => SalaryScale::query()->updateOrCreate(
-            ['mda_id' => $mda->id, 'code' => $scale['code']],
-            $scale + ['mda_id' => $mda->id, 'status' => 'active'],
-        ))->values();
+        $salaryScales = SalaryScale::query()
+            ->whereIn('code', ['CM', 'CH', 'GL', 'SG'])
+            ->orderBy('code')
+            ->get();
 
         $cadres = $departments->map(function (Department $department) use ($salaryScales): Cadre {
             $scaleCode = match ($department->code) {

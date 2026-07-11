@@ -34,6 +34,7 @@ const summaryColumns = [
     { key: 'level', label: 'Level' },
     { key: 'present_staff', label: 'Present No. of Staff' },
     { key: 'staff_moving', label: 'No. of Staff Moving' },
+    { key: 'staff_retiring', label: 'No. of Staff Retiring' },
     { key: 'staff_joining', label: 'No. of Staff Joining' },
     { key: 'expected_total', label: 'Expected Total' },
 ];
@@ -107,7 +108,10 @@ onMounted(load);
                 </summary>
                 <DataTable :columns="detailColumns" :rows="department.lines">
                     <template #legacy_cno="{ row }"><RouterLink class="civic-record-link" :to="`/staff/${row.staff_id}`">{{ row.legacy_cno ?? row.staff_number }}</RouterLink></template>
-                    <template #eligibility_status="{ row }"><StatusPill :status="row.eligibility_status" /></template>
+                    <template #eligibility_status="{ row }">
+                        <StatusPill :status="row.eligibility_status" />
+                        <small v-if="row.eligibility_reason" class="civic-policy-reason">{{ row.eligibility_reason }}</small>
+                    </template>
                 </DataTable>
             </details>
         </section>

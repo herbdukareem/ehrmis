@@ -29,4 +29,11 @@ class BudgetWorkbookPolicy
     {
         return $user->can('approve-budgets') && $this->canAccessMda($user, $workbook->mda_id);
     }
+
+    public function print(User $user, BudgetWorkbook $workbook): bool
+    {
+        return $user->can('view-budgets')
+            && $this->canAccessMda($user, $workbook->mda_id)
+            && in_array($workbook->status, ['approved', 'locked'], true);
+    }
 }

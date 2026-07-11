@@ -762,7 +762,6 @@ class OperationalDataImportService
     {
         $code = Str::upper($this->required($row, 'salary_scale_code', $index));
         $scale = SalaryScale::query()
-            ->when($mdaId, fn ($query) => $query->forMda((int) $mdaId))
             ->where('code', $code)
             ->first();
 

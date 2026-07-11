@@ -2,8 +2,6 @@
 
 namespace App\Domain\Staff\Models;
 
-use App\Domain\Organization\Models\Mda;
-use App\Models\Concerns\HasMdaScope;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
@@ -11,13 +9,12 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class SalaryStructureRate extends Model
 {
-    use HasMdaScope;
-
     protected $fillable = [
-        'mda_id',
         'salary_scale_id',
         'level',
         'step',
+        'grade_code',
+        'detail',
         'basic_salary',
         'legacy_gross_salary',
         'status',
@@ -33,11 +30,6 @@ class SalaryStructureRate extends Model
             'effective_from' => 'date',
             'effective_to' => 'date',
         ];
-    }
-
-    public function mda(): BelongsTo
-    {
-        return $this->belongsTo(Mda::class);
     }
 
     public function salaryScale(): BelongsTo

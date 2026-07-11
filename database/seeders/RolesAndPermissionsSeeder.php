@@ -18,6 +18,7 @@ class RolesAndPermissionsSeeder extends Seeder
             'create-mdas',
             'update-mdas',
             'delete-mdas',
+            'manage-mdas',
             'create-users',
             'update-users',
             'deactivate-users',
