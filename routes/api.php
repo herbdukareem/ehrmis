@@ -170,6 +170,7 @@ Route::middleware('auth')->group(function (): void {
         Route::post('/posting-requests/{postingRequest}/approve-receiving', [StaffPostingRequestController::class, 'approveReceiving'])->name('api.posting-requests.approve-receiving');
         Route::post('/posting-requests/{postingRequest}/approve-final', [StaffPostingRequestController::class, 'approveFinal'])->name('api.posting-requests.approve-final');
         Route::post('/posting-requests/{postingRequest}/reject', [StaffPostingRequestController::class, 'reject'])->name('api.posting-requests.reject');
+        Route::post('/posting-requests/{postingRequest}/revert', [StaffPostingRequestController::class, 'revert'])->name('api.posting-requests.revert');
         Route::post('/posting-requests/{postingRequest}/issue', [StaffPostingRequestController::class, 'issue'])->name('api.posting-requests.issue');
         Route::post('/posting-requests/{postingRequest}/effect', [StaffPostingRequestController::class, 'effect'])->name('api.posting-requests.effect');
         Route::get('/posting-requests/{postingRequest}/letter-pdf', [StaffPostingRequestController::class, 'letterPdf'])->name('api.posting-requests.letter-pdf');

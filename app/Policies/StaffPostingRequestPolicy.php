@@ -49,6 +49,20 @@ class StaffPostingRequestPolicy
             || ($user->can('approve-inter-mda-postings') && $this->canAccessEitherMda($user, $request));
     }
 
+    public function revert(User $user, StaffPostingRequest $request): bool
+    {
+        return match ($request->status) {
+            'submitted' => $this->submit($user, $request),
+            'from_mda_approved' => $this->approveOrigin($user, $request),
+            'receiving_mda_approved' => $this->approveReceiving($user, $request),
+            'approved' => (int) $request->from_mda_id === (int) $request->to_mda_id
+                ? $this->approveOrigin($user, $request)
+                : $this->approveFinal($user, $request),
+            'issued' => $this->issue($user, $request),
+            default => false,
+        };
+    }
+
     public function issue(User $user, StaffPostingRequest $request): bool
     {
         return $user->can('print-posting-letters') && $this->canAccessEitherMda($user, $request);

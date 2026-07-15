@@ -6,6 +6,20 @@ export const auth = reactive({
     ready: false,
 });
 
+let csrfBootstrap = null;
+
+async function ensureCsrfCookie() {
+    if (!csrfBootstrap) {
+        csrfBootstrap = api.get('/csrf-cookie', { baseURL: '/sanctum' })
+            .catch((error) => {
+                csrfBootstrap = null;
+                throw error;
+            });
+    }
+
+    return csrfBootstrap;
+}
+
 export async function loadSession() {
     try {
         const response = await api.get('/me');
@@ -24,6 +38,7 @@ export async function loadSession() {
 }
 
 export async function signIn(credentials) {
+    await ensureCsrfCookie();
     await api.post('/login', credentials);
     return loadSession();
 }

@@ -11,6 +11,16 @@ class StaffPostingLetter extends Model
     protected $fillable = [
         'posting_request_id',
         'letter_number',
+        'official_reference',
+        'reference_sequence',
+        'subject_line',
+        'recipient_name',
+        'recipient_organisation',
+        'recipient_location',
+        'attention_line',
+        'signatory_name',
+        'signatory_title',
+        'signatory_for_line',
         'status',
         'pdf_path',
         'generated_by',
@@ -22,6 +32,7 @@ class StaffPostingLetter extends Model
     protected function casts(): array
     {
         return [
+            'reference_sequence' => 'integer',
             'generated_at' => 'datetime',
             'printed_at' => 'datetime',
         ];

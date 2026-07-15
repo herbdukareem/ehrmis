@@ -31,7 +31,7 @@ class StaffPostingRequestController extends Controller
         }
 
         return response()->json([
-            'data' => $query->limit(200)->get()->map(fn (StaffPostingRequest $posting): array => $this->payload($posting))->values(),
+            'data' => $query->limit(200)->get()->map(fn (StaffPostingRequest $posting): array => $this->payload($posting, false))->values(),
             'options' => $this->options($request),
         ]);
     }
@@ -41,7 +41,9 @@ class StaffPostingRequestController extends Controller
         $this->authorize('create', StaffPostingRequest::class);
 
         $validated = $request->validate([
-            'staff_id' => ['required', 'integer', 'exists:staff,id'],
+            'staff_id' => ['nullable', 'integer', 'exists:staff,id', 'required_without:staff_ids'],
+            'staff_ids' => ['nullable', 'array', 'min:1', 'required_without:staff_id'],
+            'staff_ids.*' => ['integer', 'exists:staff,id'],
             'to_mda_id' => ['required', 'integer', 'exists:mdas,id'],
             'to_department_id' => ['nullable', 'integer', 'exists:departments,id'],
             'to_station_id' => ['nullable', 'integer', 'exists:stations,id'],
@@ -49,8 +51,13 @@ class StaffPostingRequestController extends Controller
             'reason' => ['nullable', 'string', 'max:2000'],
         ]);
 
-        $staff = Staff::query()->findOrFail((int) $validated['staff_id']);
-        abort_unless($request->user()->canAccessMda((int) $staff->mda_id), 403);
+        $staffIds = collect($validated['staff_ids'] ?? [$validated['staff_id'] ?? null])
+            ->filter()
+            ->map(fn ($value) => (int) $value)
+            ->values();
+        $staffMembers = Staff::query()->whereIn('id', $staffIds)->get();
+        abort_unless($staffMembers->count() === $staffIds->count(), 404);
+        abort_unless($staffMembers->every(fn (Staff $staff) => $request->user()->canAccessMda((int) $staff->mda_id)), 403);
 
         try {
             $posting = $service->create($validated, $request->user());
@@ -104,12 +111,32 @@ class StaffPostingRequestController extends Controller
         return $this->run(fn () => $service->reject($postingRequest, $request->user(), $validated['comment']), 'Posting request rejected.');
     }
 
+    public function revert(Request $request, StaffPostingRequest $postingRequest, StaffPostingWorkflowService $service): JsonResponse
+    {
+        $this->authorize('revert', $postingRequest);
+
+        return $this->run(
+            fn () => $service->revertToPreviousStage($postingRequest, $request->user(), $request->string('comment')->toString() ?: null),
+            'Posting request returned to the previous stage.',
+        );
+    }
+
     public function issue(Request $request, StaffPostingRequest $postingRequest, StaffPostingWorkflowService $service): JsonResponse
     {
         $this->authorize('issue', $postingRequest);
+        $validated = $request->validate([
+            'subject_line' => ['required', 'string', 'max:255'],
+            'recipient_name' => ['required', 'string', 'max:255'],
+            'recipient_organisation' => ['required', 'string', 'max:255'],
+            'recipient_location' => ['nullable', 'string', 'max:255'],
+            'attention_line' => ['nullable', 'string', 'max:255'],
+            'signatory_name' => ['required', 'string', 'max:255'],
+            'signatory_title' => ['required', 'string', 'max:255'],
+            'signatory_for_line' => ['nullable', 'string', 'max:255'],
+        ]);
 
         try {
-            $service->issueLetter($postingRequest, $request->user());
+            $service->issueLetter($postingRequest, $request->user(), $validated);
             return response()->json([
                 'message' => 'Posting letter issued.',
                 'data' => $this->payload($postingRequest->fresh($this->relations())),
@@ -139,7 +166,7 @@ class StaffPostingRequestController extends Controller
 
         return response()->file(Storage::disk('local')->path($letter->pdf_path), [
             'Content-Type' => 'application/pdf',
-            'Content-Disposition' => 'inline; filename="'.str_replace('"', '', $letter->letter_number).'.pdf"',
+            'Content-Disposition' => 'inline; filename="'.str_replace('"', '', $letter->official_reference ?: $letter->letter_number).'.pdf"',
         ]);
     }
 
@@ -181,14 +208,40 @@ class StaffPostingRequestController extends Controller
         ];
     }
 
-    protected function payload(StaffPostingRequest $posting): array
+    protected function payload(StaffPostingRequest $posting, bool $includeLetterDraft = true): array
     {
+        $items = $posting->items && $posting->items->isNotEmpty()
+            ? $posting->items
+            : collect([
+                (object) [
+                    'staff_id' => $posting->staff_id,
+                    'staff_snapshot' => $posting->staff_snapshot,
+                ],
+            ]);
+
+        $primaryStaff = $posting->staff?->only(['id', 'staff_number', 'full_name', 'mda_id'])
+            ?? $items->map(fn ($item) => $item->staff_snapshot)->filter()->first();
+
         return [
             'id' => $posting->id,
             'request_number' => $posting->request_number,
             'posting_type' => $posting->posting_type,
             'staff_id' => $posting->staff_id,
-            'staff' => $posting->staff?->only(['id', 'staff_number', 'full_name', 'mda_id']),
+            'staff' => $primaryStaff,
+            'staff_count' => $items->count(),
+            'items' => $items->values()->map(function ($item): array {
+                $snapshot = $item->staff_snapshot ?? [];
+
+                return [
+                    'staff_id' => $item->staff_id,
+                    'staff_number' => $snapshot['staff_number'] ?? $item->staff?->staff_number,
+                    'full_name' => $snapshot['full_name'] ?? $item->staff?->full_name,
+                    'mda' => $snapshot['mda'] ?? null,
+                    'department' => $snapshot['department'] ?? null,
+                    'station' => $snapshot['station'] ?? null,
+                    'rank' => $snapshot['rank'] ?? null,
+                ];
+            })->all(),
             'from_mda' => $posting->fromMda?->only(['id', 'code', 'name']),
             'to_mda' => $posting->toMda?->only(['id', 'code', 'name']),
             'from_department' => $posting->fromDepartment?->only(['id', 'name']),
@@ -214,10 +267,20 @@ class StaffPostingRequestController extends Controller
             ])->values() ?? [],
             'letter' => $posting->letter ? [
                 'letter_number' => $posting->letter->letter_number,
+                'official_reference' => $posting->letter->official_reference,
                 'status' => $posting->letter->status,
+                'subject_line' => $posting->letter->subject_line,
+                'recipient_name' => $posting->letter->recipient_name,
+                'recipient_organisation' => $posting->letter->recipient_organisation,
+                'recipient_location' => $posting->letter->recipient_location,
+                'attention_line' => $posting->letter->attention_line,
+                'signatory_name' => $posting->letter->signatory_name,
+                'signatory_title' => $posting->letter->signatory_title,
+                'signatory_for_line' => $posting->letter->signatory_for_line,
                 'printed_at' => $posting->letter->printed_at?->toDateTimeString(),
                 'pdf_url' => route('api.posting-requests.letter-pdf', $posting, false),
             ] : null,
+            'letter_draft' => $includeLetterDraft ? app(StaffPostingWorkflowService::class)->letterDraft($posting) : null,
         ];
     }
 
@@ -231,6 +294,7 @@ class StaffPostingRequestController extends Controller
             'toDepartment',
             'fromStation',
             'toStation',
+            'items.staff',
             'approvals.actor',
             'letter',
         ];

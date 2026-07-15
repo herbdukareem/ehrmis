@@ -57,6 +57,7 @@ class OfficialLetterPdfService
     public function renderPostingLetter(StaffPostingLetter $letter): StaffPostingLetter
     {
         $letter->load([
+            'request.items.staff.currentEmployment.rank',
             'request.staff.currentEmployment.rank',
             'request.fromMda.setting.headStaff',
             'request.fromMda.setting.headRank',
@@ -75,15 +76,12 @@ class OfficialLetterPdfService
         $html = view('pdf.posting-letter', [
             'letter' => $letter,
             'posting' => $posting,
-            'staff' => $posting->staff,
             'setting' => $setting,
             'platform' => $platform,
             'stateName' => $platform?->state_name ?? 'Niger State',
             'logoData' => $this->embedImage($setting?->logo_path, 'public') ?? $this->embedImage('images/niger-state-logo.jpg', 'public'),
             'signatureData' => $this->embedImage($setting?->signature_path, 'public'),
-            'headName' => $setting?->headStaff?->full_name ?? $setting?->headRank?->name ?? 'Authorized Officer',
-            'headTitle' => $setting?->head_title ?? 'Head of Establishment',
-            'generatedAt' => now(),
+            'generatedAt' => $letter->generated_at ?? now(),
         ])->render();
 
         $path = 'letters/postings/'.$posting->id.'/'.$this->safeFilename($letter->letter_number).'.pdf';

@@ -68,6 +68,8 @@ class SettingsController extends Controller
             'head_rank_id' => ['nullable', 'integer', 'exists:ranks,id'],
             'head_staff_id' => ['nullable', 'integer', 'exists:staff,id'],
             'head_title' => ['nullable', 'string', 'max:255'],
+            'posting_reference_prefix' => ['nullable', 'string', 'max:120'],
+            'posting_reference_suffix' => ['nullable', 'string', 'max:120'],
             'logo' => ['nullable', 'image', 'max:4096'],
             'signature' => ['nullable', 'image', 'max:4096'],
         ]);

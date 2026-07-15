@@ -92,6 +92,11 @@ class StaffPostingRequest extends Model
         return $this->hasMany(StaffPostingApproval::class, 'posting_request_id');
     }
 
+    public function items(): HasMany
+    {
+        return $this->hasMany(StaffPostingRequestItem::class, 'posting_request_id');
+    }
+
     public function letter(): HasOne
     {
         return $this->hasOne(StaffPostingLetter::class, 'posting_request_id');

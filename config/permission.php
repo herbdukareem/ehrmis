@@ -151,6 +151,11 @@ return [
     'teams' => false,
 
     /*
+     * Enable package-specific SQLite test workarounds.
+     */
+    'testing' => env('PERMISSION_TESTING', false),
+
+    /*
      * The class to use to resolve the permissions team id
      */
     'team_resolver' => DefaultTeamResolver::class,

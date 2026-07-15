@@ -27,6 +27,8 @@ const fillMda = () => {
         mission_html: mda.setting?.mission_html ?? '', phone: mda.setting?.phone ?? '',
         email: mda.setting?.email ?? '', head_rank_id: mda.setting?.head_rank_id ?? '',
         head_staff_id: mda.setting?.head_staff_id ?? '', head_title: mda.setting?.head_title ?? '',
+        posting_reference_prefix: mda.setting?.posting_reference_prefix ?? `${mda.code}/STA`,
+        posting_reference_suffix: mda.setting?.posting_reference_suffix ?? 'VOL.1',
     });
 };
 watch(selectedMdaId, fillMda);
@@ -92,6 +94,8 @@ onMounted(load);
             <label class="civic-field"><span>Head of MDA</span><select v-model="mdaForm.head_staff_id"><option value="">Not selected</option><option v-for="staff in eligibleHeads" :key="staff.id" :value="staff.id">{{ staff.full_name }} / {{ staff.staff_number }}</option></select></label>
             <label class="civic-field"><span>Official head title</span><input v-model="mdaForm.head_title" placeholder="Permanent Secretary"></label>
             <label class="civic-field"><span>Signature image</span><input type="file" accept="image/*" @change="signature = $event.target.files[0]"></label>
+            <label class="civic-field"><span>Posting reference prefix</span><input v-model="mdaForm.posting_reference_prefix" placeholder="HMB/STA"></label>
+            <label class="civic-field"><span>Posting reference suffix</span><input v-model="mdaForm.posting_reference_suffix" placeholder="VOL.1"></label>
             <label class="civic-field civic-field-wide"><span>Vision</span><RichTextEditor v-model="mdaForm.vision_html" /></label>
             <label class="civic-field civic-field-wide"><span>Mission</span><RichTextEditor v-model="mdaForm.mission_html" /></label>
             <div class="civic-field-wide"><button class="civic-button civic-button-primary">Save MDA settings</button></div>
