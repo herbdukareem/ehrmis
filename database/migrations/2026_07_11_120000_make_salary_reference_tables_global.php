@@ -209,13 +209,7 @@ return new class extends Migration
             return;
         }
 
-        Schema::table($table, function (Blueprint $blueprint): void {
-            try {
-                $blueprint->dropForeign(['mda_id']);
-            } catch (Throwable) {
-                //
-            }
-        });
+        $this->dropForeignKeyIfExists($table, 'mda_id');
 
         Schema::table($table, function (Blueprint $blueprint): void {
             $blueprint->dropColumn('mda_id');
@@ -253,6 +247,42 @@ return new class extends Migration
         Schema::table($table, function (Blueprint $blueprint) use ($indexName, $unique): void {
             $unique ? $blueprint->dropUnique($indexName) : $blueprint->dropIndex($indexName);
         });
+    }
+
+    protected function dropForeignKeyIfExists(string $table, string $column): void
+    {
+        $foreignKeyName = $this->foreignKeyName($table, $column);
+
+        if (! $foreignKeyName) {
+            return;
+        }
+
+        Schema::table($table, function (Blueprint $blueprint) use ($foreignKeyName): void {
+            $blueprint->dropForeign($foreignKeyName);
+        });
+    }
+
+    protected function foreignKeyName(string $table, string $column): ?string
+    {
+        $driver = DB::getDriverName();
+
+        if ($driver === 'mysql') {
+            $row = DB::table('information_schema.key_column_usage')
+                ->select('constraint_name')
+                ->where('table_schema', DB::getDatabaseName())
+                ->where('table_name', $table)
+                ->where('column_name', $column)
+                ->whereNotNull('referenced_table_name')
+                ->first();
+
+            return $row?->constraint_name;
+        }
+
+        if ($driver === 'sqlite') {
+            return "{$table}_{$column}_foreign";
+        }
+
+        return "{$table}_{$column}_foreign";
     }
 
     protected function hasIndex(string $table, string $indexName): bool

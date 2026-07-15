@@ -4,12 +4,9 @@ namespace App\Policies;
 
 use App\Domain\Staff\Models\Staff;
 use App\Models\User;
-use App\Policies\Concerns\MdaScopedPolicy;
 
 class StaffPolicy
 {
-    use MdaScopedPolicy;
-
     public function viewAny(User $user): bool
     {
         return $user->can('view-staff');
@@ -17,7 +14,7 @@ class StaffPolicy
 
     public function view(User $user, Staff $staff): bool
     {
-        return $user->can('view-staff') && $this->canAccessMda($user, $staff->mda_id);
+        return $user->can('view-staff') && $user->canAccessStaff($staff);
     }
 
     public function create(User $user): bool
@@ -27,21 +24,21 @@ class StaffPolicy
 
     public function update(User $user, Staff $staff): bool
     {
-        return $user->can('update-staff') && $this->canAccessMda($user, $staff->mda_id);
+        return $user->can('update-staff') && $user->canAccessStaff($staff);
     }
 
     public function updateAppointment(User $user, Staff $staff): bool
     {
-        return $user->can('update-staff-appointment') && $this->canAccessMda($user, $staff->mda_id);
+        return $user->can('update-staff-appointment') && $user->canAccessStaff($staff);
     }
 
     public function updateAllowances(User $user, Staff $staff): bool
     {
-        return $user->can('update-staff-allowances') && $this->canAccessMda($user, $staff->mda_id);
+        return $user->can('update-staff-allowances') && $user->canAccessStaff($staff);
     }
 
     public function delete(User $user, Staff $staff): bool
     {
-        return $user->can('delete-staff') && $this->canAccessMda($user, $staff->mda_id);
+        return $user->can('delete-staff') && $user->canAccessStaff($staff);
     }
 }

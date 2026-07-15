@@ -4,6 +4,7 @@ namespace Tests\Feature;
 
 use App\Domain\Organization\Models\Mda;
 use App\Domain\Staff\Models\Staff;
+use App\Domain\Staff\Models\StaffEmployment;
 use App\Models\User;
 use App\Models\UserAccessScope;
 use App\Policies\StaffPolicy;
@@ -89,5 +90,72 @@ class StaffPolicyTest extends TestCase
         $this->assertFalse($policy->view($user, $staffC));
         $this->assertFalse($policy->update($user, $staffC));
         $this->assertFalse($policy->delete($user, $staffC));
+    }
+
+    public function test_staff_policy_enforces_department_scope_within_the_same_mda(): void
+    {
+        $this->seed(RolesAndPermissionsSeeder::class);
+
+        $mda = Mda::query()->create(['code' => 'HMB', 'name' => 'Hospital Management Board', 'status' => 'active']);
+        $departmentA = \App\Domain\Organization\Models\Department::query()->create([
+            'mda_id' => $mda->id,
+            'code' => 'ADMIN',
+            'name' => 'Administration',
+            'status' => 'active',
+        ]);
+        $departmentB = \App\Domain\Organization\Models\Department::query()->create([
+            'mda_id' => $mda->id,
+            'code' => 'FIN',
+            'name' => 'Finance',
+            'status' => 'active',
+        ]);
+
+        $staffA = Staff::withoutGlobalScopes()->create([
+            'mda_id' => $mda->id,
+            'staff_number' => 'STF-40',
+            'surname' => 'Admin',
+            'first_name' => 'Scoped',
+            'full_name' => 'Admin Scoped',
+            'status' => 'active',
+        ]);
+        $staffB = Staff::withoutGlobalScopes()->create([
+            'mda_id' => $mda->id,
+            'staff_number' => 'STF-41',
+            'surname' => 'Finance',
+            'first_name' => 'Blocked',
+            'full_name' => 'Finance Blocked',
+            'status' => 'active',
+        ]);
+
+        StaffEmployment::query()->create([
+            'staff_id' => $staffA->id,
+            'mda_id' => $mda->id,
+            'department_id' => $departmentA->id,
+            'employment_status' => 'active',
+            'is_current' => true,
+        ]);
+        StaffEmployment::query()->create([
+            'staff_id' => $staffB->id,
+            'mda_id' => $mda->id,
+            'department_id' => $departmentB->id,
+            'employment_status' => 'active',
+            'is_current' => true,
+        ]);
+
+        $user = User::factory()->mdaUser($mda)->create();
+        $user->assignRole('MDA Admin');
+        UserAccessScope::query()->create([
+            'user_id' => $user->id,
+            'scope_type' => 'department',
+            'mda_id' => $mda->id,
+            'department_id' => $departmentA->id,
+        ]);
+
+        $policy = app(StaffPolicy::class);
+
+        $this->assertTrue($policy->view($user, $staffA));
+        $this->assertTrue($policy->update($user, $staffA));
+        $this->assertFalse($policy->view($user, $staffB));
+        $this->assertFalse($policy->update($user, $staffB));
     }
 }

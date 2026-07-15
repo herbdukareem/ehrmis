@@ -209,6 +209,137 @@ class StaffModuleTest extends TestCase
         );
     }
 
+    public function test_department_scoped_user_only_sees_staff_in_assigned_departments(): void
+    {
+        $otherDepartment = Department::query()->create([
+            'mda_id' => $this->mdaA->id,
+            'code' => 'FIN',
+            'name' => 'FINANCE',
+            'status' => 'active',
+        ]);
+        $otherStation = Station::withoutGlobalScopes()->create([
+            'mda_id' => $this->mdaA->id,
+            'code' => 'FIN_HQ',
+            'name' => 'FINANCE HQ',
+            'status' => 'active',
+        ]);
+        $otherStaff = $this->makeStaff(
+            $this->mdaA,
+            $otherDepartment->id,
+            $otherStation->id,
+            $this->staffA->currentEmployment->cadre_id,
+            $this->staffA->currentEmployment->rank_id,
+            'STF004',
+            'CNO-A3',
+            'PSN-A3',
+            'Finance User',
+            'active',
+        );
+
+        $user = User::factory()->mdaUser($this->mdaA)->create();
+        $user->assignRole('MDA Admin');
+        UserAccessScope::query()->create([
+            'user_id' => $user->id,
+            'scope_type' => 'department',
+            'mda_id' => $this->mdaA->id,
+            'department_id' => $this->staffA->currentEmployment->department_id,
+        ]);
+
+        $indexResponse = $this->actingAs($user)
+            ->getJson('/api/staff')
+            ->assertOk();
+
+        $this->assertContains($this->staffA->id, array_column($indexResponse->json('data'), 'id'));
+        $this->assertNotContains($otherStaff->id, array_column($indexResponse->json('data'), 'id'));
+
+        $this->actingAs($user)
+            ->getJson('/api/staff/options')
+            ->assertOk()
+            ->assertJsonFragment(['id' => $this->staffA->currentEmployment->department_id])
+            ->assertJsonMissing(['id' => $otherDepartment->id, 'name' => $otherDepartment->name]);
+
+        $this->actingAs($user)
+            ->getJson('/api/staff/'.$otherStaff->id)
+            ->assertForbidden();
+    }
+
+    public function test_department_scoped_user_cannot_move_staff_outside_assigned_departments(): void
+    {
+        $targetDepartment = Department::query()->create([
+            'mda_id' => $this->mdaA->id,
+            'code' => 'FIN',
+            'name' => 'FINANCE',
+            'status' => 'active',
+        ]);
+        $targetStation = Station::withoutGlobalScopes()->create([
+            'mda_id' => $this->mdaA->id,
+            'code' => 'FIN_HQ',
+            'name' => 'FINANCE HQ',
+            'status' => 'active',
+        ]);
+        $targetScale = SalaryScale::query()->create([
+            'mda_id' => $this->mdaA->id,
+            'code' => 'CONHESS',
+            'name' => 'CONHESS',
+            'min_level' => 1,
+            'max_level' => 17,
+            'min_step' => 1,
+            'max_step' => 15,
+            'status' => 'active',
+        ]);
+        $targetCadre = Cadre::query()->create([
+            'salary_scale_id' => $targetScale->id,
+            'department_id' => $targetDepartment->id,
+            'name' => 'ACCOUNT OFFICER',
+            'legacy_department_name' => 'FINANCE',
+            'status' => 'active',
+        ]);
+        $targetRank = Rank::query()->create([
+            'cadre_id' => $targetCadre->id,
+            'salary_scale_id' => $targetScale->id,
+            'name' => 'AO II',
+            'level' => 10,
+            'status' => 'active',
+        ]);
+        SalaryStructureRate::query()->create([
+            'mda_id' => $this->mdaA->id,
+            'salary_scale_id' => $targetScale->id,
+            'level' => 10,
+            'step' => 3,
+            'basic_salary' => 73000,
+            'legacy_gross_salary' => 76000,
+            'status' => 'active',
+        ]);
+
+        $user = User::factory()->mdaUser($this->mdaA)->create();
+        $user->givePermissionTo('view-staff', 'update-staff-appointment');
+        UserAccessScope::query()->create([
+            'user_id' => $user->id,
+            'scope_type' => 'department',
+            'mda_id' => $this->mdaA->id,
+            'department_id' => $this->staffA->currentEmployment->department_id,
+        ]);
+
+        $this->actingAs($user)
+            ->putJson("/api/staff/{$this->staffA->id}/appointment", [
+                'department_id' => $targetDepartment->id,
+                'station_id' => $targetStation->id,
+                'location_name' => 'Central Accounts',
+                'cadre_id' => $targetCadre->id,
+                'rank_id' => $targetRank->id,
+                'date_first_appointment' => '2010-01-01',
+                'date_last_promotion' => '2024-05-01',
+                'expected_retirement_date' => '2049-01-01',
+                'employment_status' => 'active',
+                'effective_from' => '2026-06-01',
+                'salary_scale_id' => $targetScale->id,
+                'level' => 10,
+                'step' => 3,
+            ])
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors('department_id');
+    }
+
     public function test_staff_passport_and_multi_page_documents_are_private_and_mda_scoped(): void
     {
         Storage::fake('local');

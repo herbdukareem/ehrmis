@@ -29,6 +29,7 @@ class StaffQueryService
                 'currentSalaryPlacement.salaryScale',
             ]);
 
+        $user->scopeToAccessibleStaff($query);
         $this->applyFilters($query, $filters, $user);
 
         return $query

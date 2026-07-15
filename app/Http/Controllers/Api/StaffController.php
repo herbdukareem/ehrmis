@@ -102,6 +102,8 @@ class StaffController extends Controller
 
     public function update(UpdateStaffRequest $request, Staff $staff, StaffUpdateService $staffUpdateService): JsonResponse
     {
+        $this->authorize('update', $staff);
+
         $validated = $request->validated();
         abort_unless($request->user()->canAccessMda((int) $validated['mda_id']), 403);
 
@@ -166,6 +168,7 @@ class StaffController extends Controller
         ];
 
         $this->assertAppointmentReferencesBelongToStaffMda($staff, $employmentData, $validated);
+        $this->assertAppointmentReferencesAreAccessibleToUser($request->user(), $employmentData);
         $employmentChanged = $this->employmentDataHasChanges($currentEmployment, $employmentData);
         $placementChanged = $this->placementDataHasChanges($currentPlacement, $validated);
 
@@ -253,6 +256,7 @@ class StaffController extends Controller
         $staff = Staff::query()
             ->whereHas('importRows.errors', $unresolvedErrors)
             ->with(['mda', 'importRows.errors' => $unresolvedErrors])
+            ->tap(fn ($query) => $user->scopeToAccessibleStaff($query))
             ->limit(100)
             ->get();
 
@@ -303,6 +307,7 @@ class StaffController extends Controller
         $this->authorize('viewAny', Staff::class);
         $user = $request->user();
         $departments = Department::query()
+            ->tap(fn ($query) => $user->scopeToAccessibleDepartments($query, 'id'))
             ->orderBy('name')
             ->get(['id', 'mda_id', 'name']);
         $cadres = Cadre::query()
@@ -323,6 +328,40 @@ class StaffController extends Controller
                 'statuses' => ['active', 'retired', 'duplicate', 'inactive'],
             ],
         ]);
+    }
+
+    /**
+     * @param  array<string, mixed>  $employmentData
+     */
+    protected function assertAppointmentReferencesAreAccessibleToUser($user, array $employmentData): void
+    {
+        if (! $user || ! $user->hasDepartmentRestrictedAccess()) {
+            return;
+        }
+
+        if (! empty($employmentData['department_id']) && ! $user->canAccessDepartment((int) $employmentData['department_id'])) {
+            throw ValidationException::withMessages([
+                'department_id' => 'You may only manage staff within your assigned departments.',
+            ]);
+        }
+
+        if (! empty($employmentData['cadre_id']) && ! Cadre::query()
+            ->whereKey($employmentData['cadre_id'])
+            ->whereHas('department', fn ($query) => $user->scopeToAccessibleDepartments($query, 'id'))
+            ->exists()) {
+            throw ValidationException::withMessages([
+                'cadre_id' => 'The selected cadre is outside your assigned departments.',
+            ]);
+        }
+
+        if (! empty($employmentData['rank_id']) && ! Rank::query()
+            ->whereKey($employmentData['rank_id'])
+            ->whereHas('cadre.department', fn ($query) => $user->scopeToAccessibleDepartments($query, 'id'))
+            ->exists()) {
+            throw ValidationException::withMessages([
+                'rank_id' => 'The selected rank is outside your assigned departments.',
+            ]);
+        }
     }
 
     protected function loadStaffRelations(Staff $staff): void

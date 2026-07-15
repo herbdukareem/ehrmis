@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Domain\Organization\Models\Mda;
+use App\Domain\Staff\Models\Staff;
 use App\Enums\RecordStatus;
 use App\Enums\UserType;
 use Illuminate\Database\Eloquent\Builder;
@@ -94,16 +95,33 @@ class User extends Authenticatable
     {
         $scopeIds = $this->relationLoaded('accessScopes')
             ? $this->accessScopes
-                ->where('scope_type', 'mda')
+                ->whereIn('scope_type', ['mda', 'department'])
                 ->pluck('mda_id')
             : $this->accessScopes()
-                ->where('scope_type', 'mda')
+                ->whereIn('scope_type', ['mda', 'department'])
                 ->pluck('mda_id');
 
         return collect([$this->mda_id])
             ->merge($scopeIds)
             ->filter(fn ($mdaId) => $mdaId !== null)
             ->map(fn ($mdaId): int => (int) $mdaId)
+            ->unique()
+            ->values();
+    }
+
+    public function accessibleDepartmentIds(): Collection
+    {
+        $scopeIds = $this->relationLoaded('accessScopes')
+            ? $this->accessScopes
+                ->where('scope_type', 'department')
+                ->pluck('department_id')
+            : $this->accessScopes()
+                ->where('scope_type', 'department')
+                ->pluck('department_id');
+
+        return collect($scopeIds)
+            ->filter(fn ($departmentId) => $departmentId !== null)
+            ->map(fn ($departmentId): int => (int) $departmentId)
             ->unique()
             ->values();
     }
@@ -118,6 +136,11 @@ class User extends Authenticatable
         return $this->hasGlobalMdaAccess() || $this->accessibleMdaIds()->isNotEmpty();
     }
 
+    public function hasDepartmentRestrictedAccess(): bool
+    {
+        return ! $this->hasGlobalMdaAccess() && $this->accessibleDepartmentIds()->isNotEmpty();
+    }
+
     public function canAccessMda(?int $mdaId): bool
     {
         if ($mdaId === null) {
@@ -126,6 +149,34 @@ class User extends Authenticatable
 
         return $this->hasGlobalMdaAccess()
             || $this->accessibleMdaIds()->contains((int) $mdaId);
+    }
+
+    public function canAccessDepartment(?int $departmentId): bool
+    {
+        if ($departmentId === null) {
+            return false;
+        }
+
+        if (! $this->hasDepartmentRestrictedAccess()) {
+            return true;
+        }
+
+        return $this->accessibleDepartmentIds()->contains((int) $departmentId);
+    }
+
+    public function canAccessStaff(Staff $staff): bool
+    {
+        if (! $this->canAccessMda($staff->mda_id)) {
+            return false;
+        }
+
+        if (! $this->hasDepartmentRestrictedAccess()) {
+            return true;
+        }
+
+        $staff->loadMissing('currentEmployment');
+
+        return $this->canAccessDepartment($staff->currentEmployment?->department_id);
     }
 
     public function scopeToAccessibleMdas(Builder $query, string $column = 'mda_id'): Builder
@@ -141,6 +192,44 @@ class User extends Authenticatable
         }
 
         return $query->whereIn($column, $accessibleMdaIds->all());
+    }
+
+    public function scopeToAccessibleDepartments(Builder $query, string $column = 'department_id'): Builder
+    {
+        if ($this->hasGlobalMdaAccess()) {
+            return $query;
+        }
+
+        if (! $this->hasDepartmentRestrictedAccess()) {
+            return $query;
+        }
+
+        $accessibleDepartmentIds = $this->accessibleDepartmentIds();
+
+        if ($accessibleDepartmentIds->isEmpty()) {
+            return $query->whereRaw('1 = 0');
+        }
+
+        return $query->whereIn($column, $accessibleDepartmentIds->all());
+    }
+
+    public function scopeToAccessibleStaff(Builder $query): Builder
+    {
+        $this->scopeToAccessibleMdas($query, 'mda_id');
+
+        if (! $this->hasDepartmentRestrictedAccess()) {
+            return $query;
+        }
+
+        $accessibleDepartmentIds = $this->accessibleDepartmentIds();
+
+        if ($accessibleDepartmentIds->isEmpty()) {
+            return $query->whereRaw('1 = 0');
+        }
+
+        return $query->whereHas('currentEmployment', function (Builder $employmentQuery) use ($accessibleDepartmentIds): void {
+            $employmentQuery->whereIn('department_id', $accessibleDepartmentIds->all());
+        });
     }
 
     public function scopeVisibleTo(Builder $query, self $user): Builder

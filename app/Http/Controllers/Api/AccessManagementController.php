@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api;
 
 use App\Domain\Module\Models\MdaModule;
 use App\Domain\Module\Services\ModuleAccessService;
+use App\Domain\Organization\Models\Department;
 use App\Domain\Organization\Models\Mda;
 use App\Enums\RecordStatus;
 use App\Http\Controllers\Controller;
@@ -47,6 +48,7 @@ class AccessManagementController extends Controller
                 'mda_module_assignments' => $this->mdaModuleAssignmentsFor($user),
                 'role_templates_by_module' => $modules->roleTemplatesGrouped(),
                 'mdas' => Mda::query()->visibleToUser($user)->orderBy('name')->get(['id', 'code', 'name']),
+                'departments' => Department::query()->orderBy('name')->get(['id', 'mda_id', 'code', 'name']),
                 'role_scope_options' => $this->roleScopeOptionsFor($user),
                 'mda_role_permissions' => AccessManagementRules::mdaRolePermissionNames(),
                 'can_manage_roles' => $user->can('manage-roles'),
@@ -60,7 +62,7 @@ class AccessManagementController extends Controller
                 'can_manage_users_in_own_mda' => AccessManagementRules::canManageUsersInOwnMda($user),
                 'can_create_users' => AccessManagementRules::canCreateUser($user),
                 'can_manage_user_status' => AccessManagementRules::canManageUserStatus($user),
-                'scope_types' => ['platform', 'state', 'mda'],
+                'scope_types' => ['platform', 'state', 'mda', 'department'],
                 'user_statuses' => array_map(fn (RecordStatus $status): string => $status->value, RecordStatus::cases()),
             ],
         ]);
@@ -78,11 +80,13 @@ class AccessManagementController extends Controller
             'status' => ['required', Rule::in(array_map(fn (RecordStatus $status): string => $status->value, RecordStatus::cases()))],
             'role_ids' => ['sometimes', 'array'],
             'role_ids.*' => ['integer', 'exists:roles,id'],
-            'scope_type' => ['sometimes', Rule::in(['platform', 'state', 'mda'])],
+            'scope_type' => ['sometimes', Rule::in(['platform', 'state', 'mda', 'department'])],
             'state_code' => ['nullable', 'string', 'max:20'],
             'mda_id' => ['nullable', 'integer', 'exists:mdas,id'],
             'mda_ids' => ['nullable', 'array'],
             'mda_ids.*' => ['integer', 'exists:mdas,id'],
+            'department_ids' => ['nullable', 'array'],
+            'department_ids.*' => ['integer', 'exists:departments,id'],
         ]);
 
         if (! AccessManagementRules::canManageAccessScopes($actor)) {
@@ -128,7 +132,7 @@ class AccessManagementController extends Controller
                 'user_type' => $this->inferUserType($selectedRoles, $user->user_type?->value),
             ])->save();
 
-            return $user->fresh(['mda', 'roles.mda', 'accessScopes.mda']);
+            return $user->fresh(['mda', 'roles.mda', 'accessScopes.mda', 'accessScopes.department']);
         });
 
         return response()->json([
@@ -209,11 +213,13 @@ class AccessManagementController extends Controller
             'status' => ['sometimes', Rule::in(array_map(fn (RecordStatus $status): string => $status->value, RecordStatus::cases()))],
             'role_ids' => ['sometimes', 'array'],
             'role_ids.*' => ['integer', 'exists:roles,id'],
-            'scope_type' => ['sometimes', Rule::in(['platform', 'state', 'mda'])],
+            'scope_type' => ['sometimes', Rule::in(['platform', 'state', 'mda', 'department'])],
             'state_code' => ['nullable', 'string', 'max:20'],
             'mda_id' => ['nullable', 'integer', 'exists:mdas,id'],
             'mda_ids' => ['nullable', 'array'],
             'mda_ids.*' => ['integer', 'exists:mdas,id'],
+            'department_ids' => ['nullable', 'array'],
+            'department_ids.*' => ['integer', 'exists:departments,id'],
         ]);
 
         if (! AccessManagementRules::canManageAccessScopes($actor)) {
@@ -288,7 +294,7 @@ class AccessManagementController extends Controller
             'message' => AccessManagementRules::canManageAccessScopes($actor)
                 ? 'User access updated.'
                 : 'User roles updated.',
-            'data' => $managedUser->fresh(['mda', 'roles.mda', 'accessScopes.mda']),
+            'data' => $managedUser->fresh(['mda', 'roles.mda', 'accessScopes.mda', 'accessScopes.department']),
         ]);
     }
 
@@ -458,7 +464,7 @@ class AccessManagementController extends Controller
 
     protected function rejectUnauthorizedScopeMutation(Request $request): void
     {
-        foreach (['scope_type', 'state_code', 'mda_id', 'mda_ids'] as $field) {
+        foreach (['scope_type', 'state_code', 'mda_id', 'mda_ids', 'department_ids'] as $field) {
             if ($request->has($field)) {
                 abort(403);
             }
@@ -466,26 +472,32 @@ class AccessManagementController extends Controller
     }
 
     /**
-     * @return array{scope_type:string,state_code:?string,primary_mda_id:?int,accessible_mda_ids:array<int,int>}
+     * @return array{scope_type:string,state_code:?string,primary_mda_id:?int,accessible_mda_ids:array<int,int>,accessible_department_ids:array<int,int>}
      */
     protected function currentScopeState(User $managedUser): array
     {
+        $departmentScopeIds = $managedUser->accessibleDepartmentIds()->all();
         $mdaScopeIds = $managedUser->accessibleMdaIds()->all();
         $nonMdaScope = $managedUser->accessScopes()
-            ->whereIn('scope_type', ['platform', 'state'])
+            ->whereIn('scope_type', ['platform', 'state', 'department'])
             ->first();
+        $scopeType = $nonMdaScope?->scope_type ?? ($departmentScopeIds !== [] ? 'department' : 'mda');
+        $primaryMdaId = $managedUser->mda_id
+            ? (int) $managedUser->mda_id
+            : ($managedUser->accessScopes()->where('scope_type', 'department')->value('mda_id') ?: ($mdaScopeIds[0] ?? null));
 
         return [
-            'scope_type' => $nonMdaScope?->scope_type ?? 'mda',
+            'scope_type' => $scopeType,
             'state_code' => $nonMdaScope?->state_code,
-            'primary_mda_id' => $managedUser->mda_id ? (int) $managedUser->mda_id : ($mdaScopeIds[0] ?? null),
+            'primary_mda_id' => $primaryMdaId ? (int) $primaryMdaId : null,
             'accessible_mda_ids' => $mdaScopeIds,
+            'accessible_department_ids' => $departmentScopeIds,
         ];
     }
 
     /**
      * @param  array<string, mixed>  $validated
-     * @return array{scope_type:string,state_code:?string,primary_mda_id:?int,accessible_mda_ids:array<int,int>}
+     * @return array{scope_type:string,state_code:?string,primary_mda_id:?int,accessible_mda_ids:array<int,int>,accessible_department_ids:array<int,int>}
      */
     protected function resolveSubmittedScopeState(array $validated, User $managedUser): array
     {
@@ -521,6 +533,51 @@ class AccessManagementController extends Controller
                 'state_code' => null,
                 'primary_mda_id' => $primaryMdaId,
                 'accessible_mda_ids' => $accessibleMdaIds,
+                'accessible_department_ids' => [],
+            ];
+        }
+
+        if ($scopeType === 'department') {
+            $primaryMdaId = isset($validated['mda_id'])
+                ? (int) $validated['mda_id']
+                : $currentState['primary_mda_id'];
+
+            if (! $primaryMdaId) {
+                throw ValidationException::withMessages([
+                    'mda_id' => 'A primary MDA is required for department-scoped users.',
+                ]);
+            }
+
+            $departmentIds = collect($validated['department_ids'] ?? $currentState['accessible_department_ids'])
+                ->filter()
+                ->map(fn ($departmentId): int => (int) $departmentId)
+                ->unique()
+                ->values();
+
+            if ($departmentIds->isEmpty()) {
+                throw ValidationException::withMessages([
+                    'department_ids' => 'At least one department must be assigned.',
+                ]);
+            }
+
+            $invalidDepartmentIds = Department::query()
+                ->whereIn('id', $departmentIds->all())
+                ->where('mda_id', '!=', $primaryMdaId)
+                ->pluck('id')
+                ->all();
+
+            if ($invalidDepartmentIds !== []) {
+                throw ValidationException::withMessages([
+                    'department_ids' => 'All selected departments must belong to the chosen primary MDA.',
+                ]);
+            }
+
+            return [
+                'scope_type' => 'department',
+                'state_code' => null,
+                'primary_mda_id' => $primaryMdaId,
+                'accessible_mda_ids' => [$primaryMdaId],
+                'accessible_department_ids' => $departmentIds->all(),
             ];
         }
 
@@ -529,6 +586,7 @@ class AccessManagementController extends Controller
             'state_code' => $validated['state_code'] ?? $currentState['state_code'] ?? 'NG-NI',
             'primary_mda_id' => null,
             'accessible_mda_ids' => [],
+            'accessible_department_ids' => [],
         ];
     }
 
@@ -573,7 +631,7 @@ class AccessManagementController extends Controller
 
     /**
      * @param  array<string, mixed>  $validated
-     * @return array{scope_type:string,state_code:?string,primary_mda_id:?int,accessible_mda_ids:array<int,int>}
+     * @return array{scope_type:string,state_code:?string,primary_mda_id:?int,accessible_mda_ids:array<int,int>,accessible_department_ids:array<int,int>}
      */
     protected function resolveScopeStateForCreate(array $validated, User $actor): array
     {
@@ -583,6 +641,7 @@ class AccessManagementController extends Controller
                 'state_code' => null,
                 'primary_mda_id' => (int) $actor->mda_id,
                 'accessible_mda_ids' => [(int) $actor->mda_id],
+                'accessible_department_ids' => [],
             ];
         }
 
@@ -592,7 +651,7 @@ class AccessManagementController extends Controller
     }
 
     /**
-     * @param  array{scope_type:string,state_code:?string,primary_mda_id:?int,accessible_mda_ids:array<int,int>}  $scopeState
+     * @param  array{scope_type:string,state_code:?string,primary_mda_id:?int,accessible_mda_ids:array<int,int>,accessible_department_ids:array<int,int>}  $scopeState
      */
     protected function syncUserScopes(User $user, array $scopeState): void
     {
@@ -612,10 +671,26 @@ class AccessManagementController extends Controller
             return;
         }
 
+        if ($scopeState['scope_type'] === 'department') {
+            foreach ($scopeState['accessible_department_ids'] as $departmentId) {
+                $user->accessScopes()->create([
+                    'scope_type' => 'department',
+                    'state_code' => null,
+                    'mda_id' => $scopeState['primary_mda_id'],
+                    'department_id' => $departmentId,
+                ]);
+            }
+
+            $user->forceFill(['mda_id' => $scopeState['primary_mda_id']])->save();
+
+            return;
+        }
+
         $user->accessScopes()->create([
             'scope_type' => $scopeState['scope_type'],
             'state_code' => $scopeState['state_code'],
             'mda_id' => null,
+            'department_id' => null,
         ]);
         $user->forceFill(['mda_id' => null])->save();
     }

@@ -191,7 +191,7 @@ class AccessManagementRules
     public static function manageableUsersQuery(User $user): Builder
     {
         if (self::canManageAccessScopes($user)) {
-            return User::query()->with(['mda', 'roles.mda', 'accessScopes.mda'])->orderBy('name');
+            return User::query()->with(['mda', 'roles.mda', 'accessScopes.mda', 'accessScopes.department'])->orderBy('name');
         }
 
         if (self::canManageUsersInOwnMda($user)) {
@@ -203,12 +203,12 @@ class AccessManagementRules
                             ->whereIn('scope_type', ['platform', 'state'])
                             ->orWhere(function (Builder $mdaScopeQuery) use ($user): void {
                                 $mdaScopeQuery
-                                    ->where('scope_type', 'mda')
+                                    ->whereIn('scope_type', ['mda', 'department'])
                                     ->where('mda_id', '!=', $user->mda_id);
                             });
                     });
                 })
-                ->with(['mda', 'roles.mda', 'accessScopes.mda'])
+                ->with(['mda', 'roles.mda', 'accessScopes.mda', 'accessScopes.department'])
                 ->orderBy('name');
         }
 

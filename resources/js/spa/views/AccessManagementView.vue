@@ -33,12 +33,13 @@ const canCreateRole = computed(() => (data.value?.role_scope_options?.length ?? 
 const canCreateUsers = computed(() => Boolean(data.value?.can_create_users));
 const canManageUserStatus = computed(() => Boolean(data.value?.can_manage_user_status));
 const canManageModules = computed(() => Boolean(data.value?.can_manage_modules));
-const scopeTypes = computed(() => data.value?.scope_types ?? ['platform', 'state', 'mda']);
+const scopeTypes = computed(() => data.value?.scope_types ?? ['platform', 'state', 'mda', 'department']);
 const userStatuses = computed(() => data.value?.user_statuses ?? ['active', 'inactive']);
 const permissions = computed(() => data.value?.permissions ?? []);
 const permissionsByModule = computed(() => data.value?.permissions_by_module ?? []);
 const modules = computed(() => data.value?.modules ?? []);
 const mdas = computed(() => data.value?.mdas ?? []);
+const departments = computed(() => data.value?.departments ?? []);
 const mdaPermissionNames = computed(() => data.value?.mda_role_permissions ?? []);
 const selectedModuleMda = computed(() => mdas.value.find((mda) => Number(mda.id) === Number(selectedModuleMdaId.value)) ?? null);
 const visibleUsers = computed(() => {
@@ -88,6 +89,7 @@ const defaultUserForm = () => ({
     state_code: 'NG-NI',
     mda_id: Number(data.value?.mdas?.[0]?.id ?? 0) || null,
     mda_ids: [],
+    department_ids: [],
 });
 
 const resetNewRoleForm = () => {
@@ -109,7 +111,13 @@ const buildUserForm = (user) => {
     const mdaScopes = (user.access_scopes ?? [])
         .filter((scope) => scope.scope_type === 'mda' && scope.mda_id)
         .map((scope) => Number(scope.mda_id));
-    const primaryMdaId = Number(user.mda_id ?? mdaScopes[0] ?? 0) || null;
+    const departmentScopes = (user.access_scopes ?? [])
+        .filter((scope) => scope.scope_type === 'department' && scope.department_id)
+        .map((scope) => ({
+            department_id: Number(scope.department_id),
+            mda_id: Number(scope.mda_id ?? scope.department?.mda_id ?? 0) || null,
+        }));
+    const primaryMdaId = Number(user.mda_id ?? departmentScopes[0]?.mda_id ?? mdaScopes[0] ?? 0) || null;
     const nonMdaScope = (user.access_scopes ?? []).find((scope) => scope.scope_type !== 'mda');
 
     return {
@@ -123,6 +131,7 @@ const buildUserForm = (user) => {
         state_code: nonMdaScope?.state_code ?? 'NG-NI',
         mda_id: primaryMdaId,
         mda_ids: mdaScopes.filter((mdaId) => mdaId !== primaryMdaId),
+        department_ids: uniqueNumericIds(departmentScopes.map((scope) => scope.department_id)),
     };
 };
 
@@ -136,7 +145,7 @@ const buildRoleForm = (role) => ({
 const assignableRolesFor = (form) => {
     const roles = data.value?.roles ?? [];
     const primaryMdaId = Number(form.mda_id ?? 0) || null;
-    const isMdaScope = !canManageAccessScopes.value || form.scope_type === 'mda';
+    const isMdaScope = !canManageAccessScopes.value || ['mda', 'department'].includes(form.scope_type);
 
     return roles.filter((role) => {
         if (role.scope === 'global') return true;
@@ -154,19 +163,35 @@ const syncUserRoleSelection = (form) => {
 const syncUserScopeDefaults = (form) => {
     if (!form) return;
 
-    if (form.scope_type === 'mda') {
+    if (form.scope_type === 'mda' || form.scope_type === 'department') {
         if (!Number(form.mda_id ?? 0)) {
             form.mda_id = Number(mdas.value[0]?.id ?? 0) || null;
         }
-
-        form.mda_ids = uniqueNumericIds(form.mda_ids).filter((mdaId) => mdaId !== Number(form.mda_id));
     } else {
         form.mda_id = null;
+    }
+
+    if (form.scope_type === 'mda') {
+        form.mda_ids = uniqueNumericIds(form.mda_ids).filter((mdaId) => mdaId !== Number(form.mda_id));
+    } else {
         form.mda_ids = [];
+    }
+
+    if (form.scope_type === 'department') {
+        const visibleDepartmentIds = new Set(
+            departments.value
+                .filter((department) => Number(department.mda_id) === Number(form.mda_id))
+                .map((department) => Number(department.id))
+        );
+        form.department_ids = uniqueNumericIds(form.department_ids).filter((departmentId) => visibleDepartmentIds.has(departmentId));
+    } else {
+        form.department_ids = [];
     }
 
     syncUserRoleSelection(form);
 };
+
+const departmentOptionsFor = (form) => departments.value.filter((department) => Number(department.mda_id) === Number(form.mda_id));
 
 const permissionGroups = computed(() => {
     const term = permissionSearch.value.trim().toLowerCase();
@@ -264,8 +289,9 @@ const buildUserPayload = (form) => {
     if (canManageAccessScopes.value) {
         payload.scope_type = form.scope_type;
         payload.state_code = form.scope_type === 'state' ? form.state_code : null;
-        payload.mda_id = form.scope_type === 'mda' ? form.mda_id : null;
+        payload.mda_id = ['mda', 'department'].includes(form.scope_type) ? form.mda_id : null;
         payload.mda_ids = form.scope_type === 'mda' ? form.mda_ids : [];
+        payload.department_ids = form.scope_type === 'department' ? form.department_ids : [];
     }
 
     return payload;
@@ -421,6 +447,7 @@ const saveModuleAccess = async () => {
 const scopeLabel = (scope) => {
     if (scope === 'platform') return 'Platform-wide';
     if (scope === 'state') return 'State-wide';
+    if (scope === 'department') return 'Department-scoped';
     return 'MDA-scoped';
 };
 
@@ -428,6 +455,7 @@ const userFacts = computed(() => {
     if (!selectedUser.value) return [];
     const user = selectedUser.value;
     const mdaScopes = (user.access_scopes ?? []).filter((scope) => scope.scope_type === 'mda' && scope.mda);
+    const departmentScopes = (user.access_scopes ?? []).filter((scope) => scope.scope_type === 'department' && scope.department);
 
     return [
         { label: 'Primary MDA', value: user.mda ? `${user.mda.code} - ${user.mda.name}` : 'Platform / state user' },
@@ -435,6 +463,7 @@ const userFacts = computed(() => {
         { label: 'Roles', value: user.roles.map((role) => role.name).join(', ') || 'No roles assigned' },
         { label: 'Access scope', value: scopeLabel((user.access_scopes ?? []).find((scope) => scope.scope_type !== 'mda')?.scope_type ?? 'mda') },
         ...(mdaScopes.length ? [{ label: 'Additional MDAs', value: mdaScopes.map((scope) => scope.mda.code).join(', ') }] : []),
+        ...(departmentScopes.length ? [{ label: 'Departments', value: departmentScopes.map((scope) => scope.department.name).join(', ') }] : []),
     ];
 });
 
@@ -669,7 +698,7 @@ onMounted(load);
                         <option v-for="scope in scopeTypes" :key="scope" :value="scope">{{ scopeLabel(scope) }}</option>
                     </select>
                 </label>
-                <label v-if="!canManageAccessScopes || activeUserForm.scope_type === 'mda'" class="civic-field">
+                <label v-if="!canManageAccessScopes || ['mda', 'department'].includes(activeUserForm.scope_type)" class="civic-field">
                     <span>Primary MDA</span>
                     <select v-model="activeUserForm.mda_id" :disabled="busy || (!canManageAccessScopes && mdas.length <= 1)">
                         <option v-for="mda in mdas" :key="mda.id" :value="mda.id">{{ mda.code }} - {{ mda.name }}</option>
@@ -684,6 +713,14 @@ onMounted(load);
                 <label v-if="canManageAccessScopes && activeUserForm.scope_type === 'state'" class="civic-field">
                     <span>State code</span>
                     <input v-model="activeUserForm.state_code" type="text" :disabled="busy">
+                </label>
+                <label v-if="canManageAccessScopes && activeUserForm.scope_type === 'department'" class="civic-field civic-field-wide">
+                    <span>Departments</span>
+                    <select v-model="activeUserForm.department_ids" multiple size="5" :disabled="busy || !activeUserForm.mda_id">
+                        <option v-for="department in departmentOptionsFor(activeUserForm)" :key="department.id" :value="department.id">
+                            {{ department.code ? `${department.code} - ` : '' }}{{ department.name }}
+                        </option>
+                    </select>
                 </label>
                 <div class="civic-field civic-field-wide">
                     <span>Assignable roles</span>

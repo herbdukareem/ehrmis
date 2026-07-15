@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api;
 
 use App\Domain\Module\Services\ModuleAccessService;
+use App\Domain\Organization\Models\Department;
 use App\Domain\Organization\Models\Mda;
 use App\Http\Controllers\Controller;
 use Illuminate\Http\JsonResponse;
@@ -44,7 +45,14 @@ class CurrentUserContextController extends Controller
                     ->visibleToUser($user)
                     ->orderBy('name')
                     ->get(['id', 'code', 'name', 'status']),
-                'access_scopes' => $user->accessScopes()->with('mda')->get(),
+                'accessible_departments' => Department::query()
+                    ->when(
+                        $user->hasDepartmentRestrictedAccess(),
+                        fn ($query) => $user->scopeToAccessibleDepartments($query, 'id')
+                    )
+                    ->orderBy('name')
+                    ->get(['id', 'mda_id', 'code', 'name', 'status']),
+                'access_scopes' => $user->accessScopes()->with(['mda', 'department'])->get(),
                 'branding' => $context->publicProfile(),
             ],
         ]);
