@@ -9,7 +9,6 @@ import { api, apiMessage } from '../lib/api';
 import { can } from '../stores/auth';
 import { pushToast } from '../stores/app';
 
-
 const rows = ref([]);
 const options = ref({ mdas: [], staff: [], departments: [], stations: [] });
 const busy = ref(true);
