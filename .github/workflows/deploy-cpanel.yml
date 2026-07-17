@@ -154,8 +154,13 @@ jobs:
             for candidate in \
               /opt/cpanel/ea-php83/root/usr/bin/php \
               /opt/alt/php83/usr/bin/php \
+              /usr/local/bin/php83 \
+              /usr/bin/php83 \
               /usr/local/bin/ea-php83 \
               /usr/bin/ea-php83 \
+              php83 \
+              php8.3 \
+              php3 \
               ea-php83 \
               /usr/local/bin/alt-php83 \
               alt-php83 \
