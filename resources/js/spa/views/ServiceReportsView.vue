@@ -106,6 +106,10 @@ const canApprove = computed(() => can('approve-service-reports'));
 const canLock = computed(() => can('lock-service-reports'));
 const canReview = computed(() => can('review-service-reports') || can('return-service-reports'));
 const canExport = computed(() => can('export-service-reports'));
+const assignedStation = computed(() => auth.user?.assigned_station ?? null);
+const assignedStationId = computed(() => Number(assignedStation.value?.id ?? 0) || null);
+const assignedStationMdaId = computed(() => Number(assignedStation.value?.mda_id ?? 0) || null);
+const hasAssignedStationScope = computed(() => Boolean(assignedStationId.value));
 
 const mdas = computed(() => dashboard.value?.mdas ?? []);
 const allStations = computed(() => dashboard.value?.stations ?? []);
@@ -146,13 +150,35 @@ const selectedTemplateForDraft = computed(() => {
     return templates.value.find((template) => Number(template.id) === Number(draftForm.template_id)) ?? null;
 });
 
-const draftStations = computed(() => stationsForMda(draftForm.mda_id));
-const filterStations = computed(() => stationsForMda(submissionFilters.mda_id));
-const analyticsStations = computed(() => stationsForMda(analyticsForm.mda_id));
+const draftStations = computed(() => hasAssignedStationScope.value
+    ? allStations.value.filter((station) => Number(station.id) === assignedStationId.value)
+    : stationsForMda(draftForm.mda_id));
+const filterStations = computed(() => hasAssignedStationScope.value
+    ? allStations.value.filter((station) => Number(station.id) === assignedStationId.value)
+    : stationsForMda(submissionFilters.mda_id));
+const analyticsStations = computed(() => hasAssignedStationScope.value
+    ? allStations.value.filter((station) => Number(station.id) === assignedStationId.value)
+    : stationsForMda(analyticsForm.mda_id));
 const draftCanEdit = computed(() => !selectedDraftSubmission.value || ['draft', 'returned'].includes(selectedDraftSubmission.value.status));
 
 function stationsForMda(mdaId) {
     return allStations.value.filter((station) => !mdaId || Number(station.mda_id) === Number(mdaId));
+}
+
+function syncReportingScopeDefaults() {
+    if (!hasAssignedStationScope.value) {
+        return;
+    }
+
+    if (!selectedDraftSubmission.value) {
+        draftForm.mda_id = assignedStationMdaId.value ?? '';
+        draftForm.station_id = assignedStationId.value ?? '';
+    }
+
+    submissionFilters.mda_id = assignedStationMdaId.value ?? '';
+    submissionFilters.station_id = assignedStationId.value ?? '';
+    analyticsForm.mda_id = assignedStationMdaId.value ?? '';
+    analyticsForm.station_id = assignedStationId.value ?? '';
 }
 
 function goToTab(tabId) {
@@ -162,6 +188,7 @@ function goToTab(tabId) {
 
 async function loadDashboard() {
     dashboard.value = (await api.get('/service-reports')).data.data;
+    syncReportingScopeDefaults();
 }
 
 async function loadTemplates() {
@@ -212,6 +239,8 @@ async function loadDraftSubmission(id) {
     for (const value of submission.values ?? []) {
         draftForm.values[valueKey(value.indicator_code, value.dimension_key ?? '', value.dimension_value ?? '')] = value.value;
     }
+
+    syncReportingScopeDefaults();
 }
 
 async function load() {
@@ -252,8 +281,12 @@ function selectTemplateForDraft(id) {
 
     const template = templates.value.find((candidate) => Number(candidate.id) === Number(id));
     const assignment = template?.assignments?.[0];
-    draftForm.mda_id = assignment?.mda_id ?? dashboard.value?.mdas?.[0]?.id ?? '';
-    draftForm.station_id = assignment?.station_id ?? '';
+    draftForm.mda_id = hasAssignedStationScope.value
+        ? (assignedStationMdaId.value ?? '')
+        : (assignment?.mda_id ?? dashboard.value?.mdas?.[0]?.id ?? '');
+    draftForm.station_id = hasAssignedStationScope.value
+        ? (assignedStationId.value ?? '')
+        : (assignment?.station_id ?? '');
 }
 
 function clearSubmissionFilters() {
@@ -262,8 +295,8 @@ function clearSubmissionFilters() {
         status: '',
         month: '',
         year: '',
-        mda_id: '',
-        station_id: '',
+        mda_id: assignedStationMdaId.value ?? '',
+        station_id: assignedStationId.value ?? '',
     });
     loadSubmissions();
 }
@@ -295,12 +328,14 @@ async function createOrSaveDraft(submitAfterSave = false) {
 
     try {
         let submission = selectedDraftSubmission.value;
+        const resolvedMdaId = hasAssignedStationScope.value ? assignedStationMdaId.value : draftForm.mda_id;
+        const resolvedStationId = hasAssignedStationScope.value ? assignedStationId.value : (draftForm.station_id || null);
 
         if (!submission) {
             submission = (await api.post('/service-reports/submissions', {
                 template_id: draftForm.template_id,
-                mda_id: draftForm.mda_id,
-                station_id: draftForm.station_id || null,
+                mda_id: resolvedMdaId,
+                station_id: resolvedStationId,
                 period: draftForm.period,
             })).data.data;
         }
@@ -471,6 +506,7 @@ onMounted(load);
                 :selected-template="selectedTemplateForDraft"
                 :templates="templates"
                 :is-global-user="isGlobalUser"
+                :assigned-station="assignedStation"
                 :mdas="mdas"
                 :stations="draftStations"
                 :busy="busy"

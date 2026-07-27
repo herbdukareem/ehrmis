@@ -17,6 +17,7 @@ const props = defineProps({
     selectedTemplate: { type: Object, default: null },
     templates: { type: Array, default: () => [] },
     isGlobalUser: { type: Boolean, default: false },
+    assignedStation: { type: Object, default: null },
     mdas: { type: Array, default: () => [] },
     stations: { type: Array, default: () => [] },
     busy: { type: Boolean, default: false },
@@ -66,7 +67,7 @@ function sectionColspan(section) {
 
                 <label v-if="isGlobalUser" class="civic-field">
                     <span>Step 3: MDA</span>
-                    <select v-model="draftForm.mda_id" :disabled="Boolean(selectedDraftSubmission) || !draftCanEdit">
+                    <select v-model="draftForm.mda_id" :disabled="Boolean(selectedDraftSubmission) || !draftCanEdit || Boolean(assignedStation)">
                         <option v-for="mda in mdas" :key="mda.id" :value="mda.id">{{ mda.code }} - {{ mda.name }}</option>
                     </select>
                     <small v-for="message in showFieldErrors('mda_id')" :key="message" class="civic-field-error">{{ message }}</small>
@@ -74,13 +75,17 @@ function sectionColspan(section) {
 
                 <label class="civic-field">
                     <span>Step 4: Station / Facility</span>
-                    <select v-model="draftForm.station_id" :disabled="Boolean(selectedDraftSubmission) || !draftCanEdit">
+                    <select v-model="draftForm.station_id" :disabled="Boolean(selectedDraftSubmission) || !draftCanEdit || Boolean(assignedStation)">
                         <option value="">MDA-level</option>
                         <option v-for="station in stations" :key="station.id" :value="station.id">{{ station.name }}</option>
                     </select>
                     <small v-for="message in showFieldErrors('station_id')" :key="message" class="civic-field-error">{{ message }}</small>
                 </label>
             </div>
+
+            <p v-if="assignedStation" class="civic-section-note">
+                Reporting is locked to {{ assignedStation.code ? `${assignedStation.code} - ` : '' }}{{ assignedStation.name }} for this account.
+            </p>
         </article>
 
         <div v-if="!selectedTemplate" class="civic-reporting-empty">

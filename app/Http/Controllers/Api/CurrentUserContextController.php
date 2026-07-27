@@ -13,7 +13,7 @@ class CurrentUserContextController extends Controller
 {
     public function show(Request $request, DomainContext $context, ModuleAccessService $modules): JsonResponse
     {
-        $user = $request->user();
+        $user = $request->user()->loadMissing('mda', 'station');
         $userPermissions = $user->getAllPermissions()->pluck('name')->values();
         $enabledModules = $modules->enabledModulesForUser($user)
             ->map(function ($module) use ($modules, $userPermissions): array {
@@ -39,6 +39,7 @@ class CurrentUserContextController extends Controller
                 'modules' => $enabledModules,
                 'enabled_modules' => $enabledModules->pluck('code')->values(),
                 'assigned_mda' => $user->mda?->only(['id', 'code', 'name', 'status']),
+                'assigned_station' => $user->station?->only(['id', 'mda_id', 'code', 'name', 'status']),
                 'has_global_access' => $user->hasGlobalMdaAccess(),
                 'accessible_mdas' => Mda::query()
                     ->visibleToUser($user)

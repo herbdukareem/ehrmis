@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Domain\Module\Models\MdaModule;
 use App\Domain\Module\Services\ModuleAccessService;
 use App\Domain\Organization\Models\Mda;
+use App\Domain\Organization\Models\Station;
 use App\Enums\RecordStatus;
 use App\Http\Controllers\Controller;
 use App\Models\Role;
@@ -47,6 +48,10 @@ class AccessManagementController extends Controller
                 'mda_module_assignments' => $this->mdaModuleAssignmentsFor($user),
                 'role_templates_by_module' => $modules->roleTemplatesGrouped(),
                 'mdas' => Mda::query()->visibleToUser($user)->orderBy('name')->get(['id', 'code', 'name']),
+                'stations' => Station::query()
+                    ->when(! $user->hasGlobalMdaAccess(), fn ($query) => $query->whereIn('mda_id', $user->accessibleMdaIds()->all()))
+                    ->orderBy('name')
+                    ->get(['id', 'mda_id', 'code', 'name', 'status']),
                 'role_scope_options' => $this->roleScopeOptionsFor($user),
                 'mda_role_permissions' => AccessManagementRules::mdaRolePermissionNames(),
                 'can_manage_roles' => $user->can('manage-roles'),
@@ -83,6 +88,7 @@ class AccessManagementController extends Controller
             'mda_id' => ['nullable', 'integer', 'exists:mdas,id'],
             'mda_ids' => ['nullable', 'array'],
             'mda_ids.*' => ['integer', 'exists:mdas,id'],
+            'station_id' => ['nullable', 'integer', 'exists:stations,id'],
         ]);
 
         if (! AccessManagementRules::canManageAccessScopes($actor)) {
@@ -104,6 +110,7 @@ class AccessManagementController extends Controller
         }
 
         $scopeState = $this->resolveScopeStateForCreate($validated, $actor);
+        $stationId = $this->resolveReportingStationId($validated, $scopeState);
         $primaryMdaId = $scopeState['primary_mda_id'];
         $placeholderUser = new User([
             'mda_id' => $primaryMdaId,
@@ -115,6 +122,7 @@ class AccessManagementController extends Controller
         $user = DB::transaction(function () use ($validated, $selectedRoles, $scopeState): User {
             $user = User::query()->create([
                 'mda_id' => $scopeState['primary_mda_id'],
+                'station_id' => $stationId,
                 'name' => $validated['name'],
                 'email' => strtolower((string) $validated['email']),
                 'password' => Hash::make($validated['password']),
@@ -128,7 +136,7 @@ class AccessManagementController extends Controller
                 'user_type' => $this->inferUserType($selectedRoles, $user->user_type?->value),
             ])->save();
 
-            return $user->fresh(['mda', 'roles.mda', 'accessScopes.mda']);
+            return $user->fresh(['mda', 'station', 'roles.mda', 'accessScopes.mda']);
         });
 
         return response()->json([
@@ -214,6 +222,7 @@ class AccessManagementController extends Controller
             'mda_id' => ['nullable', 'integer', 'exists:mdas,id'],
             'mda_ids' => ['nullable', 'array'],
             'mda_ids.*' => ['integer', 'exists:mdas,id'],
+            'station_id' => ['nullable', 'integer', 'exists:stations,id'],
         ]);
 
         if (! AccessManagementRules::canManageAccessScopes($actor)) {
@@ -242,6 +251,7 @@ class AccessManagementController extends Controller
         $scopeState = AccessManagementRules::canManageAccessScopes($actor)
             ? $this->resolveSubmittedScopeState($validated, $managedUser)
             : $this->currentScopeState($managedUser);
+        $stationId = $this->resolveReportingStationId($validated, $scopeState, $managedUser);
 
         $this->assertRolesAssignable($actor, $managedUser, $selectedRoles, $scopeState['primary_mda_id']);
 
@@ -262,6 +272,10 @@ class AccessManagementController extends Controller
 
             if (filled($validated['password'] ?? null)) {
                 $attributes['password'] = Hash::make($validated['password']);
+            }
+
+            if (array_key_exists('station_id', $validated) || $scopeState['scope_type'] !== 'mda' || (int) $managedUser->mda_id !== (int) $scopeState['primary_mda_id']) {
+                $attributes['station_id'] = $stationId;
             }
 
             $managedUser->syncRoles($selectedRoles);
@@ -288,7 +302,7 @@ class AccessManagementController extends Controller
             'message' => AccessManagementRules::canManageAccessScopes($actor)
                 ? 'User access updated.'
                 : 'User roles updated.',
-            'data' => $managedUser->fresh(['mda', 'roles.mda', 'accessScopes.mda']),
+            'data' => $managedUser->fresh(['mda', 'station', 'roles.mda', 'accessScopes.mda']),
         ]);
     }
 
@@ -635,5 +649,35 @@ class AccessManagementController extends Controller
             $roleNames->contains('Report Viewer') => 'report_viewer',
             default => $fallback ?: 'report_viewer',
         };
+    }
+
+    /**
+     * @param  array<string, mixed>  $validated
+     * @param  array{scope_type:string,state_code:?string,primary_mda_id:?int,accessible_mda_ids:array<int,int>}  $scopeState
+     */
+    protected function resolveReportingStationId(array $validated, array $scopeState, ?User $managedUser = null): ?int
+    {
+        if ($scopeState['scope_type'] !== 'mda') {
+            return null;
+        }
+
+        $currentPrimaryMdaId = $managedUser?->mda_id ? (int) $managedUser->mda_id : null;
+        $stationId = array_key_exists('station_id', $validated)
+            ? ($validated['station_id'] ? (int) $validated['station_id'] : null)
+            : ((int) $scopeState['primary_mda_id'] === $currentPrimaryMdaId ? $managedUser?->station_id : null);
+
+        if ($stationId === null) {
+            return null;
+        }
+
+        $stationMdaId = Station::query()->whereKey($stationId)->value('mda_id');
+
+        if ((int) $stationMdaId !== (int) $scopeState['primary_mda_id']) {
+            throw ValidationException::withMessages([
+                'station_id' => 'The reporting station must belong to the selected primary MDA.',
+            ]);
+        }
+
+        return $stationId;
     }
 }

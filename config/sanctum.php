@@ -5,6 +5,25 @@ use Illuminate\Foundation\Http\Middleware\ValidateCsrfToken;
 use Laravel\Sanctum\Http\Middleware\AuthenticateSession;
 use Laravel\Sanctum\Sanctum;
 
+$defaultStatefulDomains = implode(',', array_filter([
+    'localhost',
+    'localhost:3000',
+    '127.0.0.1',
+    '127.0.0.1:8000',
+    '127.0.0.1:8001',
+    '::1',
+    ltrim((string) Sanctum::currentApplicationUrlWithPort(), ','),
+    ltrim((string) Sanctum::currentRequestHost(), ','),
+]));
+
+$statefulDomains = array_values(array_unique(array_filter(
+    array_map(
+        static fn (string $domain): string => trim($domain),
+        explode(',', env('SANCTUM_STATEFUL_DOMAINS', $defaultStatefulDomains)),
+    ),
+    static fn (string $domain): bool => $domain !== '',
+)));
+
 return [
 
     /*
@@ -18,12 +37,7 @@ return [
     |
     */
 
-    'stateful' => explode(',', env('SANCTUM_STATEFUL_DOMAINS', sprintf(
-        '%s%s',
-        'localhost,localhost:3000,127.0.0.1,127.0.0.1:8000,::1',
-        Sanctum::currentApplicationUrlWithPort(),
-        // Sanctum::currentRequestHost(),
-    ))),
+    'stateful' => $statefulDomains,
 
     /*
     |--------------------------------------------------------------------------

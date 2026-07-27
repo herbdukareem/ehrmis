@@ -24,9 +24,12 @@ class ReportSubmissionService
 
     public function createDraft(ReportTemplate $template, array $data, User $actor): ReportSubmission
     {
-        $mdaId = (int) $data['mda_id'];
+        $context = $this->resolveDraftContext($data, $actor);
+        $mdaId = $context['mda_id'];
+        $stationId = $context['station_id'];
+
         $this->assertUserCan($actor, 'create-service-reports', $mdaId);
-        $this->assertTemplateAssigned($template, $mdaId, $data['station_id'] ?? null);
+        $this->assertTemplateAssigned($template, $mdaId, $stationId);
 
         $period = $this->periods->fromPeriodString(
             $template->frequency,
@@ -34,13 +37,13 @@ class ReportSubmissionService
             $template->submission_deadline_day,
         );
 
-        return DB::transaction(function () use ($template, $data, $actor, $period, $mdaId): ReportSubmission {
+        return DB::transaction(function () use ($template, $data, $actor, $period, $mdaId, $stationId): ReportSubmission {
             $submission = ReportSubmission::query()->firstOrCreate(
                 [
                     'report_template_id' => $template->id,
                     'reporting_period_id' => $period->id,
                     'mda_id' => $mdaId,
-                    'station_id' => $data['station_id'] ?? null,
+                    'station_id' => $stationId,
                 ],
                 [
                     'department_id' => $data['department_id'] ?? null,
@@ -71,7 +74,7 @@ class ReportSubmissionService
 
     public function saveDraft(ReportSubmission $submission, array $values, User $actor): ReportSubmission
     {
-        $this->assertUserCan($actor, 'create-service-reports', (int) $submission->mda_id);
+        $this->assertSubmissionAccess($submission, $actor, 'create-service-reports');
         abort_unless($submission->canEditValues(), 403, 'Only draft or returned submissions can be edited.');
 
         return DB::transaction(function () use ($submission, $values, $actor): ReportSubmission {
@@ -96,7 +99,7 @@ class ReportSubmissionService
 
     public function submit(ReportSubmission $submission, User $actor, ?string $comment = null): ReportSubmission
     {
-        $this->assertUserCan($actor, 'submit-service-reports', (int) $submission->mda_id);
+        $this->assertSubmissionAccess($submission, $actor, 'submit-service-reports');
         abort_unless(in_array($submission->status, ['draft', 'returned'], true), 403, 'Only draft or returned submissions can be submitted.');
         $this->validateRequiredValues($submission);
 
@@ -109,7 +112,7 @@ class ReportSubmissionService
 
     public function review(ReportSubmission $submission, User $actor, ?string $comment = null): ReportSubmission
     {
-        $this->assertUserCan($actor, 'review-service-reports', (int) $submission->mda_id);
+        $this->assertSubmissionAccess($submission, $actor, 'review-service-reports');
         abort_unless($submission->status === 'submitted', 403, 'Only submitted reports can be moved under review.');
 
         return $this->transition($submission, 'reviewed', 'under_review', $actor, $comment, [
@@ -120,7 +123,7 @@ class ReportSubmissionService
 
     public function returnForCorrection(ReportSubmission $submission, User $actor, string $reason): ReportSubmission
     {
-        $this->assertUserCan($actor, 'return-service-reports', (int) $submission->mda_id);
+        $this->assertSubmissionAccess($submission, $actor, 'return-service-reports');
         abort_unless(in_array($submission->status, ['submitted', 'under_review'], true), 403, 'Only submitted reports can be returned.');
 
         return $this->transition($submission, 'returned', 'returned', $actor, $reason, [
@@ -132,7 +135,7 @@ class ReportSubmissionService
 
     public function approve(ReportSubmission $submission, User $actor, ?string $comment = null): ReportSubmission
     {
-        $this->assertUserCan($actor, 'approve-service-reports', (int) $submission->mda_id);
+        $this->assertSubmissionAccess($submission, $actor, 'approve-service-reports');
         abort_unless(in_array($submission->status, ['submitted', 'under_review'], true), 403, 'Only submitted or reviewed reports can be approved.');
 
         return $this->transition($submission, 'approved', 'approved', $actor, $comment, [
@@ -143,7 +146,7 @@ class ReportSubmissionService
 
     public function lock(ReportSubmission $submission, User $actor, ?string $comment = null): ReportSubmission
     {
-        $this->assertUserCan($actor, 'lock-service-reports', (int) $submission->mda_id);
+        $this->assertSubmissionAccess($submission, $actor, 'lock-service-reports');
         abort_unless($submission->status === 'approved', 403, 'Only approved reports can be locked.');
 
         return $this->transition($submission, 'locked', 'locked', $actor, $comment, [
@@ -154,7 +157,7 @@ class ReportSubmissionService
 
     public function reopen(ReportSubmission $submission, User $actor, ?string $comment = null): ReportSubmission
     {
-        $this->assertUserCan($actor, 'return-service-reports', (int) $submission->mda_id);
+        $this->assertSubmissionAccess($submission, $actor, 'return-service-reports');
         abort_unless(in_array($submission->status, ['returned', 'approved'], true), 403, 'Only returned or approved reports can be reopened.');
 
         return $this->transition($submission, 'reopened', 'draft', $actor, $comment, [
@@ -307,6 +310,42 @@ class ReportSubmissionService
         }
     }
 
+    protected function resolveDraftContext(array $data, User $actor): array
+    {
+        if (! $actor->hasStationScope()) {
+            return [
+                'mda_id' => (int) $data['mda_id'],
+                'station_id' => ! empty($data['station_id']) ? (int) $data['station_id'] : null,
+            ];
+        }
+
+        $actor->loadMissing('station');
+        $station = $actor->station;
+
+        if (! $station) {
+            throw ValidationException::withMessages([
+                'station_id' => 'This account has a reporting scope but no linked station.',
+            ]);
+        }
+
+        if (! empty($data['station_id']) && (int) $data['station_id'] !== (int) $station->id) {
+            throw ValidationException::withMessages([
+                'station_id' => 'You can only create or edit reports for your assigned station.',
+            ]);
+        }
+
+        if (! empty($data['mda_id']) && (int) $data['mda_id'] !== (int) $station->mda_id) {
+            throw ValidationException::withMessages([
+                'mda_id' => 'You can only create or edit reports within your assigned station MDA.',
+            ]);
+        }
+
+        return [
+            'mda_id' => (int) $station->mda_id,
+            'station_id' => (int) $station->id,
+        ];
+    }
+
     protected function assertUserCan(User $actor, string $permission, int $mdaId): void
     {
         abort_unless(
@@ -314,6 +353,19 @@ class ReportSubmissionService
             403,
             'You do not have access to this service reporting action.'
         );
+    }
+
+    protected function assertSubmissionAccess(ReportSubmission $submission, User $actor, string $permission): void
+    {
+        $this->assertUserCan($actor, $permission, (int) $submission->mda_id);
+
+        if ($actor->hasStationScope()) {
+            abort_unless(
+                $actor->canAccessStation($submission->station_id),
+                403,
+                'You do not have access to this reporting station.'
+            );
+        }
     }
 
     protected function recordAction(ReportSubmission $submission, string $action, User $actor, ?string $beforeStatus, string $afterStatus, ?string $comment = null): void

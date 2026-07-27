@@ -39,6 +39,7 @@ const permissions = computed(() => data.value?.permissions ?? []);
 const permissionsByModule = computed(() => data.value?.permissions_by_module ?? []);
 const modules = computed(() => data.value?.modules ?? []);
 const mdas = computed(() => data.value?.mdas ?? []);
+const allStations = computed(() => data.value?.stations ?? []);
 const mdaPermissionNames = computed(() => data.value?.mda_role_permissions ?? []);
 const selectedModuleMda = computed(() => mdas.value.find((mda) => Number(mda.id) === Number(selectedModuleMdaId.value)) ?? null);
 const visibleUsers = computed(() => {
@@ -51,6 +52,8 @@ const visibleUsers = computed(() => {
         user.email,
         user.mda?.code,
         user.mda?.name,
+        user.station?.code,
+        user.station?.name,
         ...(user.roles ?? []).map((role) => role.name),
     ].filter(Boolean).join(' ').toLowerCase().includes(term));
 });
@@ -67,6 +70,15 @@ const visibleRoles = computed(() => {
 });
 const activeUserForm = computed(() => modalState.value.mode === 'create' ? newUserForm.value : userForm.value);
 const activeRoleForm = computed(() => modalState.value.mode === 'create' ? newRoleForm.value : roleForm.value);
+const availableStations = computed(() => {
+    const primaryMdaId = Number(activeUserForm.value?.mda_id ?? 0) || null;
+
+    if (!primaryMdaId) {
+        return [];
+    }
+
+    return allStations.value.filter((station) => Number(station.mda_id) === primaryMdaId);
+});
 
 const defaultRoleScope = () => {
     const scopeOptions = data.value?.role_scope_options ?? [];
@@ -87,6 +99,7 @@ const defaultUserForm = () => ({
     scope_type: 'mda',
     state_code: 'NG-NI',
     mda_id: Number(data.value?.mdas?.[0]?.id ?? 0) || null,
+    station_id: null,
     mda_ids: [],
 });
 
@@ -122,6 +135,7 @@ const buildUserForm = (user) => {
         scope_type: nonMdaScope?.scope_type ?? 'mda',
         state_code: nonMdaScope?.state_code ?? 'NG-NI',
         mda_id: primaryMdaId,
+        station_id: Number(user.station_id ?? user.station?.id ?? 0) || null,
         mda_ids: mdaScopes.filter((mdaId) => mdaId !== primaryMdaId),
     };
 };
@@ -160,8 +174,19 @@ const syncUserScopeDefaults = (form) => {
         }
 
         form.mda_ids = uniqueNumericIds(form.mda_ids).filter((mdaId) => mdaId !== Number(form.mda_id));
+
+        const availableStationIds = new Set(
+            allStations.value
+                .filter((station) => Number(station.mda_id) === Number(form.mda_id))
+                .map((station) => Number(station.id))
+        );
+
+        if (!availableStationIds.has(Number(form.station_id ?? 0))) {
+            form.station_id = null;
+        }
     } else {
         form.mda_id = null;
+        form.station_id = null;
         form.mda_ids = [];
     }
 
@@ -265,7 +290,10 @@ const buildUserPayload = (form) => {
         payload.scope_type = form.scope_type;
         payload.state_code = form.scope_type === 'state' ? form.state_code : null;
         payload.mda_id = form.scope_type === 'mda' ? form.mda_id : null;
+        payload.station_id = form.scope_type === 'mda' ? (form.station_id || null) : null;
         payload.mda_ids = form.scope_type === 'mda' ? form.mda_ids : [];
+    } else {
+        payload.station_id = form.station_id || null;
     }
 
     return payload;
@@ -431,6 +459,7 @@ const userFacts = computed(() => {
 
     return [
         { label: 'Primary MDA', value: user.mda ? `${user.mda.code} - ${user.mda.name}` : 'Platform / state user' },
+        { label: 'Reporting station', value: user.station ? `${user.station.code} - ${user.station.name}` : 'No station assignment' },
         { label: 'Status', value: user.status ?? 'active' },
         { label: 'Roles', value: user.roles.map((role) => role.name).join(', ') || 'No roles assigned' },
         { label: 'Access scope', value: scopeLabel((user.access_scopes ?? []).find((scope) => scope.scope_type !== 'mda')?.scope_type ?? 'mda') },
@@ -673,6 +702,13 @@ onMounted(load);
                     <span>Primary MDA</span>
                     <select v-model="activeUserForm.mda_id" :disabled="busy || (!canManageAccessScopes && mdas.length <= 1)">
                         <option v-for="mda in mdas" :key="mda.id" :value="mda.id">{{ mda.code }} - {{ mda.name }}</option>
+                    </select>
+                </label>
+                <label v-if="!canManageAccessScopes || activeUserForm.scope_type === 'mda'" class="civic-field">
+                    <span>Reporting station</span>
+                    <select v-model="activeUserForm.station_id" :disabled="busy || availableStations.length === 0">
+                        <option :value="null">No station assignment</option>
+                        <option v-for="station in availableStations" :key="station.id" :value="station.id">{{ station.code }} - {{ station.name }}</option>
                     </select>
                 </label>
                 <label v-if="canManageAccessScopes && activeUserForm.scope_type === 'mda'" class="civic-field civic-field-wide">
