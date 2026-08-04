@@ -4,6 +4,7 @@ namespace App\Support;
 
 use App\Domain\Organization\Models\Mda;
 use App\Domain\Organization\Models\PlatformSetting;
+use App\Models\User;
 
 class DomainContext
 {
@@ -41,5 +42,29 @@ class DomainContext
             'email' => $setting?->email ?? $this->platform?->support_email,
             'mda_id' => $this->mda?->id,
         ];
+    }
+
+    public function authenticatedProfile(User $user): array
+    {
+        $profile = $this->publicProfile();
+        $platformName = $this->platform?->platform_name ?? 'HMB EHRMIS';
+
+        $profile['acronym'] = $user->hasGlobalMdaAccess() ? 'MIS' : 'eHRMIS';
+        $profile['name'] = $user->hasGlobalMdaAccess()
+            ? $this->stateWideSystemName($platformName)
+            : $platformName;
+
+        return $profile;
+    }
+
+    protected function stateWideSystemName(string $platformName): string
+    {
+        $resolved = preg_replace('/\behrmis\b/i', 'MIS', $platformName, 1);
+
+        if (is_string($resolved) && $resolved !== '') {
+            return $resolved;
+        }
+
+        return 'MIS';
     }
 }

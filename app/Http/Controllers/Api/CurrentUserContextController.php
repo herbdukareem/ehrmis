@@ -46,7 +46,7 @@ class CurrentUserContextController extends Controller
                     ->orderBy('name')
                     ->get(['id', 'code', 'name', 'status']),
                 'access_scopes' => $user->accessScopes()->with('mda')->get(),
-                'branding' => $context->publicProfile(),
+                'branding' => $context->authenticatedProfile($user),
             ],
         ]);
     }

@@ -411,22 +411,22 @@ button, a { -webkit-tap-highlight-color: transparent; }
 .civic-prose p, .civic-muted { color: var(--civic-muted); }
 
 .civic-login {
-    min-height: 100svh;
-    height: 100svh;
+    min-height: 100vh;
     display: grid;
-    grid-template-columns: minmax(0, 1.08fr) minmax(420px, .92fr);
-    background: linear-gradient(180deg, #f5faf7, #edf5f1);
-    overflow: hidden;
+    grid-template-columns: minmax(0, 1.15fr) minmax(380px, .85fr);
+    background: var(--civic-paper);
 }
 .civic-login-statement {
     position: relative;
     display: flex;
     flex-direction: column;
     justify-content: center;
-    padding: clamp(22px, 3.8vw, 42px);
+    padding: clamp(42px, 8vw, 120px);
     overflow: hidden;
     color: #fff;
-    background-color: #eef5f0;
+    background:
+        linear-gradient(135deg, rgb(13 57 55 / .96), rgb(19 80 76 / .9)),
+        repeating-linear-gradient(45deg, transparent 0 22px, rgb(255 255 255 / .04) 22px 23px);
 }
 .civic-login-statement-image {
     background-position: center;
@@ -434,237 +434,14 @@ button, a { -webkit-tap-highlight-color: transparent; }
     background-size: cover;
 }
 .civic-login-statement-image::after { display: none; }
-.civic-login-statement::after { content: ""; position: absolute; inset: 0; background: linear-gradient(180deg, rgb(255 255 255 / .04), rgb(16 24 40 / .06)); pointer-events: none; }
-.civic-login-statement-focus::before {
-    content: "";
-    position: absolute;
-    inset: 32px;
-    border: 1px solid rgb(47 143 115 / .12);
-    border-radius: 32px;
-    background: linear-gradient(180deg, rgb(255 255 255 / .24), rgb(255 255 255 / .08));
-    box-shadow: inset 0 1px 0 rgb(255 255 255 / .4);
-    pointer-events: none;
-}
-.civic-login-statement-focus {
-    background-position: center;
-    background-size: contain;
-}
+.civic-login-statement::after { content: ""; position: absolute; width: 370px; height: 370px; right: -140px; bottom: -140px; border: 1px solid rgb(228 199 125 / .35); border-radius: 50%; box-shadow: 0 0 0 45px rgb(228 199 125 / .04), 0 0 0 90px rgb(228 199 125 / .035); }
 .civic-login-seal { width: 76px; height: 76px; margin-bottom: 34px; font-size: 20px; }
 .civic-login-logo { position: relative; z-index: 1; width: 98px; height: 98px; margin-bottom: 34px; object-fit: contain; background: #fff; border: 3px solid var(--civic-brass); border-radius: 50%; box-shadow: 0 10px 30px rgb(0 0 0 / .2); }
 .civic-login-statement h1 { max-width: 720px; margin: 12px 0 18px; font-family: "Source Serif 4", serif; font-size: clamp(42px, 6vw, 72px); line-height: .98; letter-spacing: -.035em; }
 .civic-login-statement p { max-width: 600px; color: #c4cede; font-size: 15px; line-height: 1.7; }
 .civic-login-note { margin-top: 38px; padding-top: 15px; border-top: 1px solid rgb(255 255 255 / .2); color: #e4c77d; font-size: 10px; font-weight: 700; letter-spacing: .16em; text-transform: uppercase; }
-.civic-login-panel {
-    display: flex;
-    flex-direction: column;
-    justify-content: center;
-    align-items: center;
-    padding: clamp(16px, 3.2vw, 34px);
-    background: linear-gradient(180deg, #f8fbf8, #eff6f2);
-}
-.civic-login-panel-shell { width: min(100%, 490px); display: grid; gap: 10px; }
-.civic-login-card {
-    padding: 24px;
-    background: #fff;
-    border: 1px solid #d9e6de;
-    border-radius: 22px;
-    box-shadow: 0 18px 44px rgb(10 42 40 / .1);
-}
-.civic-login-brand {
-    display: flex;
-    align-items: center;
-    gap: 14px;
-    padding-bottom: 14px;
-    border-bottom: 1px solid #e5eee8;
-}
-.civic-login-brand-logo {
-    width: 58px;
-    height: 58px;
-    padding: 7px;
-    object-fit: contain;
-    background: #fff;
-    border: 1px solid #d9e6de;
-    border-radius: 16px;
-    box-shadow: 0 10px 20px rgb(10 42 40 / .07);
-}
-.civic-login-brand-title { color: #17312c; font-size: 17px; font-weight: 700; line-height: 1.2; }
-.civic-login-brand-subtitle {
-    margin-top: 4px;
-    color: #5d6c66;
-    font-size: 10px;
-    font-weight: 700;
-    letter-spacing: .12em;
-    text-transform: uppercase;
-}
-.civic-login-card-copy { margin-top: 18px; }
-.civic-login-card-copy h1 {
-    margin: 6px 0 8px;
-    color: #132823;
-    font-size: clamp(28px, 3vw, 33px);
-    font-weight: 700;
-    line-height: 1.05;
-    letter-spacing: -.03em;
-}
-.civic-login-commissioner {
-    display: grid;
-    grid-template-columns: 96px minmax(0, 1fr);
-    gap: 14px;
-    align-items: center;
-    margin: 14px 0 0;
-    padding: 12px;
-    border: 1px solid #d9e6de;
-    border-radius: 18px;
-    background: linear-gradient(145deg, #f7fbf8, #eef6f1);
-}
-.civic-login-commissioner img {
-    width: 96px;
-    height: 112px;
-    object-fit: cover;
-    object-position: center top;
-    border-radius: 16px;
-    box-shadow: 0 12px 24px rgb(10 42 40 / .12);
-}
-.civic-login-commissioner figcaption {
-    display: grid;
-    gap: 4px;
-    min-width: 0;
-}
-.civic-login-commissioner-label {
-    color: #0d7b69;
-    font-size: 10px;
-    font-weight: 800;
-    letter-spacing: .12em;
-    text-transform: uppercase;
-}
-.civic-login-commissioner figcaption strong {
-    color: #17312c;
-    font-size: 18px;
-    line-height: 1.15;
-}
-.civic-login-commissioner figcaption span {
-    color: #60716a;
-    font-size: 11px;
-    font-weight: 700;
-}
-.civic-login-form { gap: 14px; margin-top: 20px; }
-.civic-login-field { gap: 6px; }
-.civic-login-field > span { font-size: 11px; font-weight: 700; letter-spacing: .02em; }
-.civic-login-input-wrap {
-    position: relative;
-    display: flex;
-    align-items: center;
-    min-height: 50px;
-    background: #fff;
-    border: 1px solid #d3ddd7;
-    border-radius: 12px;
-    transition: border-color .2s ease, box-shadow .2s ease, transform .2s ease;
-}
-.civic-login-input-wrap:focus-within {
-    border-color: #2f8f73;
-    box-shadow: 0 0 0 4px rgb(47 143 115 / .14);
-}
-.civic-login-input-wrap.is-invalid {
-    border-color: #d47b7b;
-    box-shadow: 0 0 0 3px rgb(190 66 66 / .08);
-}
-.civic-login-input-icon {
-    position: absolute;
-    left: 16px;
-    width: 18px;
-    height: 18px;
-    color: #70817a;
-    pointer-events: none;
-}
-.civic-login-input-wrap input {
-    width: 100%;
-    height: 50px;
-    padding: 0 14px 0 46px;
-    color: #18322d;
-    background: transparent;
-    border: 0;
-    border-radius: 12px;
-    outline: none;
-    font-size: 14px;
-    font-weight: 500;
-}
-.civic-login-input-wrap input::placeholder { color: #95a29d; }
-.civic-login-visibility {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 40px;
-    height: 40px;
-    margin-right: 6px;
-    color: #60716a;
-    background: transparent;
-    border: 0;
-    border-radius: 10px;
-    cursor: pointer;
-}
-.civic-login-visibility svg { width: 18px; height: 18px; }
-.civic-login-visibility:hover { background: #f2f7f4; }
-.civic-login-visibility:focus-visible {
-    outline: none;
-    box-shadow: 0 0 0 3px rgb(47 143 115 / .16);
-}
-.civic-login-assist {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 12px;
-}
-.civic-login-check { flex: 1; min-width: 0; }
-.civic-login-check strong { font-size: 11px; line-height: 1.5; }
-.civic-login-link { text-align: right; }
-.civic-login-error {
-    margin: 0;
-    border: 1px solid #f0cccc;
-    border-left: 1px solid #f0cccc;
-    border-radius: 12px;
-}
-.civic-login-submit {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    gap: 10px;
-    min-height: 50px;
-    border-radius: 14px;
-    background: linear-gradient(180deg, #198a70, #0f766e);
-    border-color: #0f766e;
-    box-shadow: 0 16px 28px rgb(15 118 110 / .22);
-    font-size: 12px;
-    font-weight: 800;
-    letter-spacing: .1em;
-    text-transform: uppercase;
-    transition: transform .2s ease, box-shadow .2s ease, background .2s ease;
-}
-.civic-login-submit svg { width: 18px; height: 18px; }
-.civic-login-submit:hover:not(:disabled) {
-    background: linear-gradient(180deg, #1f9a7b, #117c73);
-    box-shadow: 0 18px 32px rgb(15 118 110 / .24);
-    transform: translateY(-1px);
-}
-.civic-login-submit:disabled {
-    opacity: 1;
-    color: rgb(255 255 255 / .88);
-    background: #7eb7a6;
-    border-color: #7eb7a6;
-    box-shadow: none;
-    cursor: not-allowed;
-}
-.civic-login-footer {
-    display: grid;
-    gap: 4px;
-    color: #62716b;
-    font-size: 10px;
-    text-align: center;
-}
-.civic-login-footer span:first-child {
-    color: #294f44;
-    font-weight: 800;
-    letter-spacing: .08em;
-    text-transform: uppercase;
-}
+.civic-login-panel { display: flex; flex-direction: column; justify-content: center; padding: clamp(34px, 8vw, 100px); background: var(--civic-surface); }
+.civic-login-panel h2 { margin: 9px 0 6px; font-family: "Source Serif 4", serif; font-size: 31px; }
 .civic-form-stack { display: grid; gap: 16px; margin-top: 30px; }
 .civic-metric-band-wide { grid-template-columns: repeat(4, minmax(0, 1fr)); }
 .civic-retirement-strip { display: grid; grid-template-columns: 1.35fr repeat(4, 1fr); margin: 14px 0 20px; color: #fff; background: var(--civic-blue); border: 1px solid #284e7b; }
@@ -1635,28 +1412,10 @@ button, a { -webkit-tap-highlight-color: transparent; }
     .civic-form-grid, .civic-inline-form { grid-template-columns: 1fr; }
     .civic-field-wide { grid-column: auto; }
     .civic-detail-grid { grid-template-columns: 1fr 1fr; }
-    .civic-login {
-        height: auto;
-        min-height: 100svh;
-        grid-template-columns: 1fr;
-        overflow: visible;
-    }
-    .civic-login-statement {
-        order: 2;
-        min-height: 34vh;
-        padding: 20px;
-    }
-    .civic-login-statement-focus { background-position: center; background-size: contain; }
+    .civic-login { grid-template-columns: 1fr; }
+    .civic-login-statement { min-height: 42vh; padding: 38px 24px; }
     .civic-login-statement h1 { font-size: 38px; }
-    .civic-login-panel {
-        order: 1;
-        padding: 24px 18px 20px;
-    }
-    .civic-login-panel-shell { width: min(100%, 540px); }
-    .civic-login-card { padding: 26px 22px; border-radius: 20px; }
-    .civic-login-card-copy h1 { font-size: 30px; }
-    .civic-login-assist { align-items: stretch; flex-direction: column; }
-    .civic-login-link { text-align: left; }
+    .civic-login-panel { padding: 38px 24px; }
     .civic-action-cluster { width: 100%; overflow-x: auto; }
     .civic-document-list section { align-items: stretch; flex-direction: column; }
     .civic-check-grid { grid-template-columns: 1fr; }
@@ -1682,48 +1441,4 @@ button, a { -webkit-tap-highlight-color: transparent; }
     .civic-dialog-actions { flex-direction: column-reverse; }
     .civic-toast-stack { top: 42px; right: 9px; left: 9px; width: auto; }
     .civic-setup-detail-grid { grid-template-columns: 1fr; }
-}
-
-@media (max-height: 900px) and (min-width: 761px) {
-    .civic-login-panel { padding: 14px 20px; }
-    .civic-login-panel-shell { gap: 8px; }
-    .civic-login-card { padding: 20px; }
-    .civic-login-card-copy { margin-top: 14px; }
-    .civic-login-commissioner {
-        grid-template-columns: 84px minmax(0, 1fr);
-        gap: 12px;
-        margin-top: 12px;
-        padding: 10px;
-    }
-    .civic-login-commissioner img {
-        width: 84px;
-        height: 98px;
-    }
-    .civic-login-commissioner figcaption strong { font-size: 16px; }
-    .civic-login-card-copy h1 { font-size: 30px; }
-    .civic-login-form { gap: 12px; margin-top: 16px; }
-    .civic-login-input-wrap,
-    .civic-login-input-wrap input { min-height: 48px; height: 48px; }
-    .civic-login-submit { min-height: 48px; }
-}
-
-@media (max-width: 640px) {
-    .civic-login-panel-shell { width: 100%; }
-    .civic-login-brand { align-items: flex-start; }
-    .civic-login-brand-logo { width: 58px; height: 58px; }
-    .civic-login-card-copy h1 { font-size: 28px; }
-    .civic-login-submit { min-height: 54px; }
-    .civic-login-statement { min-height: 190px; }
-    .civic-login-statement-focus { background-position: center; background-size: contain; }
-    .civic-login-commissioner {
-        grid-template-columns: 76px minmax(0, 1fr);
-        gap: 10px;
-        padding: 10px;
-    }
-    .civic-login-commissioner img {
-        width: 76px;
-        height: 88px;
-    }
-    .civic-login-commissioner figcaption strong { font-size: 15px; }
-    .civic-login-commissioner figcaption span { font-size: 10px; }
 }
