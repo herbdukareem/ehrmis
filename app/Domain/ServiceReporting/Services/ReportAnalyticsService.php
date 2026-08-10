@@ -13,6 +13,7 @@ class ReportAnalyticsService
 {
     public function trend(array $filters, User $user): array
     {
+        $user->loadMissing('station');
         $template = ReportTemplate::query()->where('code', $filters['template_code'])->firstOrFail();
         $indicator = ReportTemplateIndicator::query()
             ->where('code', $filters['indicator_code'])
@@ -67,11 +68,26 @@ class ReportAnalyticsService
 
     public function compliance(array $filters, User $user): array
     {
+        $user->loadMissing('station');
+
         $query = ReportTemplate::query()
             ->active()
             ->withCount(['assignments as expected_submissions' => function ($query) use ($filters, $user): void {
                 $query->active();
-                if (! $user->hasGlobalMdaAccess()) {
+                if ($user->hasStationScope()) {
+                    if (! $user->station) {
+                        $query->whereRaw('1 = 0');
+                        return;
+                    }
+
+                    $query
+                        ->where('mda_id', $user->station->mda_id)
+                        ->where(function ($stationQuery) use ($user): void {
+                            $stationQuery
+                                ->whereNull('station_id')
+                                ->orWhere('station_id', $user->station_id);
+                        });
+                } elseif (! $user->hasGlobalMdaAccess()) {
                     $query->whereIn('mda_id', $user->accessibleMdaIds()->all());
                 }
                 if (! empty($filters['mda_id'])) {
@@ -110,7 +126,20 @@ class ReportAnalyticsService
             ->leftJoin('stations', 'report_submissions.station_id', '=', 'stations.id')
             ->where('report_submissions.report_template_id', $template->id)
             ->where('report_submission_values.report_template_indicator_id', $indicator->id)
-            ->when(! $user->hasGlobalMdaAccess(), fn ($query) => $query->whereIn('report_submissions.mda_id', $user->accessibleMdaIds()->all()))
+            ->when($user->hasStationScope(), function ($query) use ($user): void {
+                if (! $user->station) {
+                    $query->whereRaw('1 = 0');
+                    return;
+                }
+
+                $query
+                    ->where('report_submissions.mda_id', $user->station->mda_id)
+                    ->where('report_submissions.station_id', $user->station_id);
+            }, function ($query) use ($user): void {
+                if (! $user->hasGlobalMdaAccess()) {
+                    $query->whereIn('report_submissions.mda_id', $user->accessibleMdaIds()->all());
+                }
+            })
             ->when(! empty($filters['mda_id']), fn ($query) => $query->where('report_submissions.mda_id', $filters['mda_id']))
             ->when(! empty($filters['station_id']), fn ($query) => $query->where('report_submissions.station_id', $filters['station_id']))
             ->when(! empty($filters['status']), fn ($query) => $query->whereIn('report_submissions.status', is_array($filters['status']) ? $filters['status'] : explode(',', $filters['status'])))
@@ -144,7 +173,20 @@ class ReportAnalyticsService
     {
         return $query
             ->whereIn('status', $statuses)
-            ->when(! $user->hasGlobalMdaAccess(), fn ($submissions) => $submissions->whereIn('mda_id', $user->accessibleMdaIds()->all()))
+            ->when($user->hasStationScope(), function ($submissions) use ($user): void {
+                if (! $user->station) {
+                    $submissions->whereRaw('1 = 0');
+                    return;
+                }
+
+                $submissions
+                    ->where('mda_id', $user->station->mda_id)
+                    ->where('station_id', $user->station_id);
+            }, function ($submissions) use ($user): void {
+                if (! $user->hasGlobalMdaAccess()) {
+                    $submissions->whereIn('mda_id', $user->accessibleMdaIds()->all());
+                }
+            })
             ->when(! empty($filters['mda_id']), fn ($submissions) => $submissions->where('mda_id', $filters['mda_id']));
     }
 }

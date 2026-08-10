@@ -23,25 +23,33 @@ class ReportTemplateAssignmentService
 
     public function availableTemplatesFor(User $user, ?int $mdaId = null): Collection
     {
+        $user->loadMissing('station');
+
         return ReportTemplate::query()
             ->active()
-            ->with(['ownerMda', 'sections.indicators.dimensions', 'assignments.mda', 'assignments.station'])
+            ->with(['ownerMda', 'sections.indicators.dimensions', 'assignments.mda', 'assignments.station', 'assignments.department'])
             ->whereHas('assignments', function (Builder $query) use ($user, $mdaId): void {
-                $query->active();
-
-                if ($mdaId) {
-                    $query->where('mda_id', $mdaId);
-                    return;
-                }
-
-                if (! $user->hasGlobalMdaAccess()) {
-                    $query->whereIn('mda_id', $user->accessibleMdaIds()->all());
-                }
+                $this->scopeAssignmentsVisibleToUser($query, $user, $mdaId);
             })
             ->orderBy('name')
             ->get()
-            ->filter(fn (ReportTemplate $template): bool => $template->assignments
-                ->contains(fn (ReportTemplateAssignment $assignment): bool => $this->moduleAccess->userCanAccessModule($user, 'service_reporting', (int) $assignment->mda_id)))
+            ->map(function (ReportTemplate $template) use ($user, $mdaId): ReportTemplate {
+                $template->setRelation('assignments', $this->visibleAssignmentsFor($user, $template, $mdaId)->values());
+
+                return $template;
+            })
+            ->filter(fn (ReportTemplate $template): bool => $template->assignments->isNotEmpty())
+            ->values();
+    }
+
+    public function visibleAssignmentsFor(User $user, ReportTemplate $template, ?int $mdaId = null): Collection
+    {
+        $user->loadMissing('station');
+        $template->loadMissing('assignments.mda', 'assignments.station', 'assignments.department');
+
+        return $template->assignments
+            ->where('status', 'active')
+            ->filter(fn (ReportTemplateAssignment $assignment): bool => $this->assignmentVisibleToUser($assignment, $user, $mdaId))
             ->values();
     }
 
@@ -54,9 +62,25 @@ class ReportTemplateAssignmentService
             $ids = [];
 
             foreach ($assignments as $assignmentData) {
+                $departmentId = ! empty($assignmentData['department_id']) ? (int) $assignmentData['department_id'] : null;
                 if (! $actor->canAccessMda((int) $assignmentData['mda_id'])) {
                     throw ValidationException::withMessages([
                         'assignments' => 'You cannot assign templates outside your accessible MDA scope.',
+                    ]);
+                }
+
+                if ($actor->hasDepartmentRestrictedAccess() && ! $actor->canAccessDepartment($departmentId)) {
+                    throw ValidationException::withMessages([
+                        'assignments' => 'Department-scoped users may only assign templates to their assigned departments.',
+                    ]);
+                }
+
+                if ($departmentId && ! \App\Domain\Organization\Models\Department::query()
+                    ->whereKey($departmentId)
+                    ->where('mda_id', $assignmentData['mda_id'])
+                    ->exists()) {
+                    throw ValidationException::withMessages([
+                        'assignments' => 'Selected department assignments must belong to the same MDA.',
                     ]);
                 }
 
@@ -66,11 +90,17 @@ class ReportTemplateAssignmentService
                     ]);
                 }
 
+                if (! empty($assignmentData['station_id']) && ! $this->stationBelongsToMda((int) $assignmentData['station_id'], (int) $assignmentData['mda_id'])) {
+                    throw ValidationException::withMessages([
+                        'assignments' => 'Selected station assignments must belong to the same MDA.',
+                    ]);
+                }
+
                 $assignment = $template->assignments()->updateOrCreate(
                     [
                         'mda_id' => $assignmentData['mda_id'],
                         'station_id' => $assignmentData['station_id'] ?? null,
-                        'department_id' => $assignmentData['department_id'] ?? null,
+                        'department_id' => $departmentId,
                     ],
                     [
                         'facility_type' => $assignmentData['facility_type'] ?? null,
@@ -104,17 +134,76 @@ class ReportTemplateAssignmentService
 
     public function userCanSeeTemplate(User $user, ReportTemplate $template, ?int $mdaId = null): bool
     {
-        $template->loadMissing('assignments');
+        return $this->visibleAssignmentsFor($user, $template, $mdaId)->isNotEmpty();
+    }
 
-        return $template->assignments
-            ->where('status', 'active')
-            ->contains(function (ReportTemplateAssignment $assignment) use ($user, $mdaId): bool {
-                if ($mdaId && (int) $assignment->mda_id !== $mdaId) {
-                    return false;
-                }
+    protected function scopeAssignmentsVisibleToUser(Builder $query, User $user, ?int $mdaId = null): void
+    {
+        $query->active();
 
-                return $user->canAccessMda((int) $assignment->mda_id)
-                    && $this->moduleAccess->userCanAccessModule($user, 'service_reporting', (int) $assignment->mda_id);
+        if ($user->hasStationScope()) {
+            $station = $user->station;
+
+            if (! $station) {
+                $query->whereRaw('1 = 0');
+                return;
+            }
+
+            $query
+                ->where('mda_id', $station->mda_id)
+                ->where(function (Builder $stationQuery) use ($user): void {
+                    $stationQuery
+                        ->whereNull('station_id')
+                        ->orWhere('station_id', $user->station_id);
+                });
+        } elseif ($mdaId) {
+            $query->where('mda_id', $mdaId);
+        } elseif (! $user->hasGlobalMdaAccess()) {
+            $query->whereIn('mda_id', $user->accessibleMdaIds()->all());
+        }
+
+        if ($mdaId) {
+            $query->where('mda_id', $mdaId);
+        }
+
+        if ($user->hasDepartmentRestrictedAccess()) {
+            $query->where(function (Builder $departmentQuery) use ($user): void {
+                $departmentQuery
+                    ->whereNull('department_id')
+                    ->orWhereIn('department_id', $user->accessibleDepartmentIds()->all());
             });
+        }
+    }
+
+    protected function assignmentVisibleToUser(ReportTemplateAssignment $assignment, User $user, ?int $mdaId = null): bool
+    {
+        if ($mdaId && (int) $assignment->mda_id !== $mdaId) {
+            return false;
+        }
+
+        if (! $this->moduleAccess->userCanAccessModule($user, 'service_reporting', (int) $assignment->mda_id)) {
+            return false;
+        }
+
+        if ($user->hasStationScope()) {
+            $station = $user->station;
+
+            return $station !== null
+                && (int) $assignment->mda_id === (int) $station->mda_id
+                && ($assignment->station_id === null || (int) $assignment->station_id === (int) $user->station_id);
+        }
+
+        return $user->canAccessMda((int) $assignment->mda_id)
+            && (! $user->hasDepartmentRestrictedAccess()
+                || $assignment->department_id === null
+                || $user->canAccessDepartment((int) $assignment->department_id));
+    }
+
+    protected function stationBelongsToMda(int $stationId, int $mdaId): bool
+    {
+        return \App\Domain\Organization\Models\Station::query()
+            ->whereKey($stationId)
+            ->where('mda_id', $mdaId)
+            ->exists();
     }
 }

@@ -211,9 +211,11 @@ return new class extends Migration
 
         $this->dropForeignKeyIfExists($table, 'mda_id');
 
-        Schema::table($table, function (Blueprint $blueprint): void {
-            $blueprint->dropColumn('mda_id');
-        });
+        if (Schema::hasColumn($table, 'mda_id')) {
+            Schema::table($table, function (Blueprint $blueprint): void {
+                $blueprint->dropColumn('mda_id');
+            });
+        }
     }
 
     protected function addNullableMdaScope(string $table): void
@@ -299,6 +301,22 @@ return new class extends Migration
                 ->where('table_schema', DB::getDatabaseName())
                 ->where('table_name', $table)
                 ->where('index_name', $indexName)
+                ->exists();
+        }
+
+        return false;
+    }
+
+    protected function hasForeignKeyOnColumn(string $table, string $column): bool
+    {
+        $driver = DB::getDriverName();
+
+        if ($driver === 'mysql') {
+            return DB::table('information_schema.key_column_usage')
+                ->where('table_schema', DB::getDatabaseName())
+                ->where('table_name', $table)
+                ->where('column_name', $column)
+                ->whereNotNull('referenced_table_name')
                 ->exists();
         }
 

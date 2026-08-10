@@ -34,6 +34,7 @@ class DashboardController extends Controller
         $scope = fn (Builder $query, string $column = 'mda_id'): Builder => $user->scopeToAccessibleMdas($query, $column);
 
         $staffQuery = Staff::query();
+        $user->scopeToAccessibleStaff($staffQuery);
         $today = CarbonImmutable::today();
         $visibleMdas = Mda::query()
             ->visibleToUser($user)
@@ -47,10 +48,18 @@ class DashboardController extends Controller
         $budgetQuery = BudgetWorkbook::query();
         $scope($budgetQuery);
 
+        if ($user->hasDepartmentRestrictedAccess()) {
+            $movementQuery->whereRaw('1 = 0');
+            $budgetQuery->whereRaw('1 = 0');
+        }
+
         $importQuery = LegacyStaffImportBatch::query()
             ->when(! $user->hasGlobalMdaAccess(), fn (Builder $query) => $query->whereHas(
                 'rows',
-                fn (Builder $rows) => $scope($rows)
+                function (Builder $rows) use ($scope, $user): void {
+                    $scope($rows);
+                    $user->scopeToAccessibleDepartments($rows, 'department_id');
+                }
             ));
 
         $data = [
@@ -272,7 +281,7 @@ class DashboardController extends Controller
                     ->orWhereNull('staff_salary_placements.salary_scale_id');
             });
 
-        $user->scopeToAccessibleMdas($query, 'staff.mda_id');
+        $this->scopeStaffEmploymentQuery($query, $user, 'staff_employments.department_id');
 
         return $query->distinct('staff.id')->count('staff.id');
     }
@@ -377,7 +386,7 @@ class DashboardController extends Controller
             ->selectRaw('staff_employments.cadre_id, allowance_types.code, allowance_types.name, COUNT(DISTINCT staff_allowance_assignments.staff_id) as total')
             ->groupBy('staff_employments.cadre_id', 'allowance_types.id', 'allowance_types.code', 'allowance_types.name');
 
-        $user->scopeToAccessibleMdas($allowances, 'staff.mda_id');
+        $this->scopeStaffEmploymentQuery($allowances, $user, 'staff_employments.department_id');
 
         $allowances = $allowances
             ->get()
@@ -442,7 +451,7 @@ class DashboardController extends Controller
                 })
                 ->distinct('staff.id');
 
-            $user->scopeToAccessibleMdas($total, 'staff.mda_id');
+            $this->scopeStaffEmploymentQuery($total, $user, 'staff_employments.department_id');
             $total = $total->count('staff.id');
 
             return ['label' => (string) $year, 'total' => $total];
@@ -456,7 +465,7 @@ class DashboardController extends Controller
             ->whereNull('staff.deleted_at')
             ->where('staff_employments.is_current', true);
 
-        $user->scopeToAccessibleMdas($query, 'staff.mda_id');
+        $this->scopeStaffEmploymentQuery($query, $user, 'staff_employments.department_id');
 
         return $query;
     }
@@ -469,7 +478,17 @@ class DashboardController extends Controller
             ->where('staff_salary_placements.is_current', true);
 
         $user->scopeToAccessibleMdas($query, 'staff.mda_id');
+        if ($user->hasDepartmentRestrictedAccess()) {
+            $query->whereHas('staff.currentEmployment', fn (Builder $employmentQuery) => $user->scopeToAccessibleDepartments($employmentQuery, 'department_id'));
+        }
 
         return $query;
+    }
+
+    protected function scopeStaffEmploymentQuery(Builder $query, $user, string $departmentColumn): Builder
+    {
+        $user->scopeToAccessibleMdas($query, 'staff.mda_id');
+
+        return $user->scopeToAccessibleDepartments($query, $departmentColumn);
     }
 }

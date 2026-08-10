@@ -19,6 +19,7 @@ const rows = reactive([]);
 watch(() => props.template?.id, resetRows, { immediate: true });
 
 const defaultMdaId = computed(() => props.mdas[0]?.id ?? '');
+const canSave = computed(() => rows.every((row) => Boolean(row.mda_id)));
 
 function resetRows() {
     rows.splice(0, rows.length, ...(props.template.assignments ?? []).map((assignment) => ({
@@ -50,6 +51,11 @@ function addRow() {
 
 function removeRow(index) {
     rows.splice(index, 1);
+}
+
+function resetRowScope(row) {
+    row.station_id = '';
+    row.department_id = '';
 }
 
 function stationsFor(mdaId) {
@@ -88,7 +94,8 @@ function save() {
             <section v-for="(row, index) in rows" :key="index" class="civic-reporting-assignment-row">
                 <label class="civic-field">
                     <span>MDA</span>
-                    <select v-model="row.mda_id" :disabled="!isGlobalUser">
+                    <select v-model="row.mda_id" :disabled="!isGlobalUser" required @change="resetRowScope(row)">
+                        <option value="" disabled>Select MDA</option>
                         <option v-for="mda in mdas" :key="mda.id" :value="mda.id">{{ mda.code }} - {{ mda.name }}</option>
                     </select>
                 </label>
@@ -134,7 +141,7 @@ function save() {
 
         <div class="civic-dialog-actions civic-reporting-panel-actions">
             <button class="civic-button" type="button" @click="addRow">Add Assignment</button>
-            <button class="civic-button civic-button-primary" type="button" :disabled="busy || !rows.length" @click="save">Save Assignments</button>
+            <button class="civic-button civic-button-primary" type="button" :disabled="busy || !canSave" @click="save">Save Assignments</button>
         </div>
     </article>
 </template>

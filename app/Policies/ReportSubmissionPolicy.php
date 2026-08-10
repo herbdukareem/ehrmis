@@ -14,7 +14,9 @@ class ReportSubmissionPolicy
 
     public function view(User $user, ReportSubmission $submission): bool
     {
-        return $user->can('view-service-reports') && $user->canAccessMda((int) $submission->mda_id);
+        return $user->can('view-service-reports')
+            && $user->canAccessMda((int) $submission->mda_id)
+            && ($user->hasStationScope() || $user->canAccessDepartment($submission->department_id));
     }
 
     public function create(User $user): bool
@@ -26,26 +28,27 @@ class ReportSubmissionPolicy
     {
         return $user->can('create-service-reports')
             && $user->canAccessMda((int) $submission->mda_id)
+            && ($user->hasStationScope() || $user->canAccessDepartment($submission->department_id))
             && $submission->canEditValues();
     }
 
     public function submit(User $user, ReportSubmission $submission): bool
     {
-        return $user->can('submit-service-reports') && $user->canAccessMda((int) $submission->mda_id);
+        return $user->can('submit-service-reports') && $user->canAccessMda((int) $submission->mda_id) && ($user->hasStationScope() || $user->canAccessDepartment($submission->department_id));
     }
 
     public function review(User $user, ReportSubmission $submission): bool
     {
-        return $user->can('review-service-reports') && $user->canAccessMda((int) $submission->mda_id);
+        return $user->can('review-service-reports') && $user->canAccessMda((int) $submission->mda_id) && ($user->hasStationScope() || $user->canAccessDepartment($submission->department_id));
     }
 
     public function approve(User $user, ReportSubmission $submission): bool
     {
-        return $user->can('approve-service-reports') && $user->canAccessMda((int) $submission->mda_id);
+        return $user->can('approve-service-reports') && $user->canAccessMda((int) $submission->mda_id) && ($user->hasStationScope() || $user->canAccessDepartment($submission->department_id));
     }
 
     public function lock(User $user, ReportSubmission $submission): bool
     {
-        return $user->can('lock-service-reports') && $user->canAccessMda((int) $submission->mda_id);
+        return $user->can('lock-service-reports') && $user->canAccessMda((int) $submission->mda_id) && ($user->hasStationScope() || $user->canAccessDepartment($submission->department_id));
     }
 }

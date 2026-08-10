@@ -14,6 +14,7 @@ class DepartmentController extends Controller
         $this->authorize('viewAny', Department::class);
 
         $departments = Department::query()
+            ->tap(fn ($query) => $request->user()->scopeToAccessibleDepartments($query, 'id'))
             ->when($request->integer('mda_id'), fn ($query) => $query->where('mda_id', $request->integer('mda_id')))
             ->orderBy('name')
             ->get(['id', 'mda_id', 'code', 'name', 'description', 'status']);

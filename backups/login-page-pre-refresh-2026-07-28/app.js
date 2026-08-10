@@ -19,16 +19,9 @@ export const appState = reactive({
     },
 });
 
-export function setBranding(branding) {
-    appState.branding = {
-        ...appState.branding,
-        ...branding,
-    };
-}
-
 export async function loadPublicContext() {
     const response = await axios.get('/api/public-context', { headers: { Accept: 'application/json' } });
-    setBranding(response.data.data);
+    appState.branding = response.data.data;
     return appState.branding;
 }
 

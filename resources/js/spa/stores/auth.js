@@ -1,5 +1,6 @@
 import { reactive } from 'vue';
 import { api } from '../lib/api';
+import { loadPublicContext, setBranding } from './app';
 
 export const auth = reactive({
     user: null,
@@ -24,6 +25,7 @@ export async function loadSession() {
     try {
         const response = await api.get('/me');
         auth.user = response.data.data;
+        setBranding(response.data.data.branding ?? {});
     } catch (error) {
         if (error.response?.status !== 401) {
             throw error;
@@ -46,6 +48,7 @@ export async function signIn(credentials) {
 export async function signOut() {
     await api.post('/logout');
     auth.user = null;
+    await loadPublicContext().catch(() => null);
 }
 
 export function can(permission) {

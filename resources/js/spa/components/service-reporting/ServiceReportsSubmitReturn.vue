@@ -4,9 +4,6 @@ import {
     dimensionTotal,
     formatNumber,
     primaryDimension,
-    sectionHasDimensions,
-    sectionPrimaryDimension,
-    titleCase,
     valueKey,
 } from '../../lib/serviceReporting';
 
@@ -17,6 +14,7 @@ const props = defineProps({
     selectedTemplate: { type: Object, default: null },
     templates: { type: Array, default: () => [] },
     isGlobalUser: { type: Boolean, default: false },
+    assignedStation: { type: Object, default: null },
     mdas: { type: Array, default: () => [] },
     stations: { type: Array, default: () => [] },
     busy: { type: Boolean, default: false },
@@ -29,9 +27,6 @@ function showFieldErrors(name) {
     return props.formErrors[name] ?? [];
 }
 
-function sectionColspan(section) {
-    return sectionHasDimensions(section) ? ((sectionPrimaryDimension(section)?.dimension_values?.length ?? 0) + 1) : 1;
-}
 </script>
 
 <template>
@@ -41,7 +36,7 @@ function sectionColspan(section) {
                 <div>
                     <div class="civic-eyebrow">Monthly return</div>
                     <h2>{{ selectedDraftSubmission ? 'Continue monthly return' : 'Submit monthly return' }}</h2>
-                    <p class="civic-section-note">Select the reporting context, then enter values by section. Totals are calculated where a template uses dimensions.</p>
+                    <p class="civic-section-note">Select the reporting context, then enter values by section. Totals are calculated from each indicator’s configured dimensions.</p>
                 </div>
                 <StatusPill v-if="selectedDraftSubmission" :value="selectedDraftSubmission.status" />
             </div>
@@ -66,7 +61,7 @@ function sectionColspan(section) {
 
                 <label v-if="isGlobalUser" class="civic-field">
                     <span>Step 3: MDA</span>
-                    <select v-model="draftForm.mda_id" :disabled="Boolean(selectedDraftSubmission) || !draftCanEdit">
+                    <select v-model="draftForm.mda_id" :disabled="Boolean(selectedDraftSubmission) || !draftCanEdit || Boolean(assignedStation)">
                         <option v-for="mda in mdas" :key="mda.id" :value="mda.id">{{ mda.code }} - {{ mda.name }}</option>
                     </select>
                     <small v-for="message in showFieldErrors('mda_id')" :key="message" class="civic-field-error">{{ message }}</small>
@@ -74,13 +69,17 @@ function sectionColspan(section) {
 
                 <label class="civic-field">
                     <span>Step 4: Station / Facility</span>
-                    <select v-model="draftForm.station_id" :disabled="Boolean(selectedDraftSubmission) || !draftCanEdit">
+                    <select v-model="draftForm.station_id" :disabled="Boolean(selectedDraftSubmission) || !draftCanEdit || Boolean(assignedStation)">
                         <option value="">MDA-level</option>
                         <option v-for="station in stations" :key="station.id" :value="station.id">{{ station.name }}</option>
                     </select>
                     <small v-for="message in showFieldErrors('station_id')" :key="message" class="civic-field-error">{{ message }}</small>
                 </label>
             </div>
+
+            <p v-if="assignedStation" class="civic-section-note">
+                Reporting is locked to {{ assignedStation.code ? `${assignedStation.code} - ` : '' }}{{ assignedStation.name }} for this account.
+            </p>
         </article>
 
         <div v-if="!selectedTemplate" class="civic-reporting-empty">
@@ -104,13 +103,8 @@ function sectionColspan(section) {
                         <thead>
                             <tr>
                                 <th>Indicator</th>
-                                <template v-if="sectionHasDimensions(section)">
-                                    <th v-for="dimensionValue in sectionPrimaryDimension(section)?.dimension_values ?? []" :key="dimensionValue">
-                                        {{ titleCase(dimensionValue) }}
-                                    </th>
-                                    <th>Total</th>
-                                </template>
-                                <th v-else>Value</th>
+                                <th>Values</th>
+                                <th>Total</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -122,16 +116,22 @@ function sectionColspan(section) {
                                 </td>
 
                                 <template v-if="primaryDimension(indicator)">
-                                    <td v-for="dimensionValue in primaryDimension(indicator).dimension_values" :key="dimensionValue">
-                                        <input v-model="draftForm.values[valueKey(indicator, primaryDimension(indicator).dimension_key, dimensionValue)]" class="civic-reporting-value-input" type="number" min="0" :disabled="!draftCanEdit">
+                                    <td>
+                                        <div class="civic-reporting-dimension-inputs">
+                                            <label v-for="dimensionValue in primaryDimension(indicator).dimension_values" :key="dimensionValue" class="civic-field">
+                                                <span>{{ dimensionValue }}</span>
+                                                <input v-model="draftForm.values[valueKey(indicator, primaryDimension(indicator).dimension_key, dimensionValue)]" class="civic-reporting-value-input" type="number" min="0" :disabled="!draftCanEdit">
+                                            </label>
+                                        </div>
                                     </td>
                                     <td><strong>{{ formatNumber(dimensionTotal(indicator, draftForm.values)) }}</strong></td>
                                 </template>
 
                                 <template v-else>
-                                    <td :colspan="sectionColspan(section)">
+                                    <td>
                                         <input v-model="draftForm.values[valueKey(indicator)]" class="civic-reporting-value-input civic-reporting-value-input-wide" :type="indicator.value_type === 'text' ? 'text' : 'number'" min="0" :disabled="!draftCanEdit">
                                     </td>
+                                    <td>—</td>
                                 </template>
                             </tr>
                         </tbody>

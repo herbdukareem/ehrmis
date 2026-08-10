@@ -29,6 +29,12 @@ class StaffPostingRequestController extends Controller
                 ->whereIn('from_mda_id', $accessible)
                 ->orWhereIn('to_mda_id', $accessible));
         }
+        if ($request->user()->hasDepartmentRestrictedAccess()) {
+            $accessibleDepartments = $request->user()->accessibleDepartmentIds()->all();
+            $query->where(fn ($postingQuery) => $postingQuery
+                ->whereIn('from_department_id', $accessibleDepartments)
+                ->orWhereIn('to_department_id', $accessibleDepartments));
+        }
 
         return response()->json([
             'data' => $query->limit(200)->get()->map(fn (StaffPostingRequest $posting): array => $this->payload($posting, false))->values(),
@@ -57,7 +63,13 @@ class StaffPostingRequestController extends Controller
             ->values();
         $staffMembers = Staff::query()->whereIn('id', $staffIds)->get();
         abort_unless($staffMembers->count() === $staffIds->count(), 404);
-        abort_unless($staffMembers->every(fn (Staff $staff) => $request->user()->canAccessMda((int) $staff->mda_id)), 403);
+        abort_unless($staffMembers->every(fn (Staff $staff) => $request->user()->canAccessStaff($staff)), 403);
+
+        if ($request->user()->hasDepartmentRestrictedAccess()
+            && (int) $validated['to_mda_id'] === (int) $request->user()->primaryAccessibleMdaId()
+            && ! $request->user()->canAccessDepartment(! empty($validated['to_department_id']) ? (int) $validated['to_department_id'] : null)) {
+            abort(403);
+        }
 
         try {
             $posting = $service->create($validated, $request->user());
@@ -182,9 +194,7 @@ class StaffPostingRequestController extends Controller
     protected function options(Request $request): array
     {
         $staffQuery = Staff::query()->with(['currentEmployment.department', 'currentEmployment.station'])->orderBy('full_name');
-        if (! $request->user()->hasGlobalMdaAccess()) {
-            $request->user()->scopeToAccessibleMdas($staffQuery, 'mda_id');
-        }
+        $request->user()->scopeToAccessibleStaff($staffQuery);
 
         $departmentQuery = Department::query()->orderBy('name');
         $stationQuery = Station::query()->orderBy('name');
@@ -192,6 +202,7 @@ class StaffPostingRequestController extends Controller
             $departmentQuery->forMdas($request->user()->accessibleMdaIds()->all());
             $stationQuery->forMdas($request->user()->accessibleMdaIds()->all());
         }
+        $request->user()->scopeToAccessibleDepartments($departmentQuery, 'id');
 
         return [
             'mdas' => Mda::query()->visibleToUser($request->user())->orderBy('name')->get(['id', 'code', 'name']),

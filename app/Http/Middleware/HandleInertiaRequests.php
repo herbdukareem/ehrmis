@@ -29,7 +29,7 @@ class HandleInertiaRequests extends Middleware
      */
     public function share(Request $request): array
     {
-        $user = $request->user();
+        $user = $request->user()?->loadMissing('mda', 'station');
 
         return [
             ...parent::share($request),
@@ -39,6 +39,7 @@ class HandleInertiaRequests extends Middleware
                     'roles' => $user->getRoleNames()->values(),
                     'permissions' => $user->getAllPermissions()->pluck('name')->values(),
                     'assigned_mda' => $user->mda?->only(['id', 'code', 'name', 'status']),
+                    'assigned_station' => $user->station?->only(['id', 'mda_id', 'code', 'name', 'status']),
                     'has_global_access' => $user->hasGlobalMdaAccess(),
                 ] : null,
             ],

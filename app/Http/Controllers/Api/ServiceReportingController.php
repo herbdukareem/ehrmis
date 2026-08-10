@@ -44,9 +44,12 @@ class ServiceReportingController extends Controller
     {
         abort_unless($request->user()->can('view-service-reports'), 403);
 
+        $user = $request->user()->loadMissing('station');
         $visibleMdaIds = $this->visibleMdaIds($request);
-        $submissionQuery = ReportSubmission::query()
-            ->whereIn('mda_id', $visibleMdaIds)
+        $submissionQuery = $this->scopeSubmissionQueryToUser(
+            ReportSubmission::query(),
+            $user,
+        )
             ->with(['template', 'period', 'mda', 'station', 'submitter', 'creator'])
             ->latest();
 
@@ -58,16 +61,24 @@ class ServiceReportingController extends Controller
                 'approved' => (clone $submissionQuery)->where('status', 'approved')->count(),
                 'locked' => (clone $submissionQuery)->where('status', 'locked')->count(),
             ],
-            'templates' => $this->assignments->availableTemplatesFor($request->user())->map(fn (ReportTemplate $template): array => $this->templatePayload($template, false))->values(),
+            'templates' => $this->assignments->availableTemplatesFor($user)->map(fn (ReportTemplate $template): array => $this->templatePayload($template, false))->values(),
             'pending_submissions' => $submissionQuery->whereIn('status', ['submitted', 'under_review', 'returned'])->limit(10)->get()->map(fn (ReportSubmission $submission): array => $this->submissionPayload($submission))->values(),
-            'compliance' => $this->analytics->compliance($request->all(), $request->user()),
-            'mdas' => Mda::query()->visibleToUser($request->user())->orderBy('name')->get(['id', 'code', 'name']),
+            'compliance' => $this->analytics->compliance($request->all(), $user),
+            'mdas' => Mda::query()
+                ->when(empty($visibleMdaIds), fn ($query) => $query->whereRaw('1 = 0'))
+                ->when(! empty($visibleMdaIds), fn ($query) => $query->whereIn('id', $visibleMdaIds))
+                ->orderBy('name')
+                ->get(['id', 'code', 'name']),
             'stations' => Station::query()
-                ->when(! $request->user()->hasGlobalMdaAccess(), fn ($query) => $query->whereIn('mda_id', $request->user()->accessibleMdaIds()->all()))
+                ->when($user->hasStationScope(), fn ($query) => $query->whereKey($user->station_id))
+                ->when(! $user->hasStationScope() && ! empty($visibleMdaIds), fn ($query) => $query->whereIn('mda_id', $visibleMdaIds))
+                ->when(! $user->hasStationScope() && empty($visibleMdaIds), fn ($query) => $query->whereRaw('1 = 0'))
                 ->orderBy('name')
                 ->get(['id', 'mda_id', 'code', 'name']),
             'departments' => Department::query()
-                ->when(! $request->user()->hasGlobalMdaAccess(), fn ($query) => $query->whereIn('mda_id', $request->user()->accessibleMdaIds()->all()))
+                ->when(! empty($visibleMdaIds), fn ($query) => $query->whereIn('mda_id', $visibleMdaIds))
+                ->when(empty($visibleMdaIds), fn ($query) => $query->whereRaw('1 = 0'))
+                ->tap(fn ($query) => $user->scopeToAccessibleDepartments($query, 'id'))
                 ->orderBy('name')
                 ->get(['id', 'mda_id', 'code', 'name']),
         ]]);
@@ -76,14 +87,15 @@ class ServiceReportingController extends Controller
     public function templates(Request $request): JsonResponse
     {
         abort_unless($request->user()->can('view-service-reports'), 403);
+        $user = $request->user()->loadMissing('station');
         $mdaId = $request->integer('mda_id') ?: null;
 
         if ($mdaId) {
-            abort_unless($request->user()->canAccessMda($mdaId), 403);
+            abort_unless($user->canAccessMda($mdaId), 403);
         }
 
-        if ($request->user()->can('manage-report-templates') || $request->user()->can('assign-report-templates')) {
-            $visibleMdaIds = $request->user()->accessibleMdaIds()->all();
+        if ($user->can('manage-report-templates') || $user->can('assign-report-templates')) {
+            $visibleMdaIds = $this->visibleMdaIds($request);
 
             $templates = ReportTemplate::query()
                 ->with(['ownerMda', 'sections.indicators.dimensions', 'assignments.mda', 'assignments.station'])
@@ -94,7 +106,8 @@ class ServiceReportingController extends Controller
                             ->orWhereHas('assignments', fn ($assignmentQuery) => $assignmentQuery->where('mda_id', $mdaId));
                     });
                 })
-                ->when(! $request->user()->hasGlobalMdaAccess(), function ($query) use ($visibleMdaIds): void {
+                ->when(empty($visibleMdaIds), fn ($query) => $query->whereRaw('1 = 0'))
+                ->when(! empty($visibleMdaIds), function ($query) use ($visibleMdaIds): void {
                     $query->where(function ($templateQuery) use ($visibleMdaIds): void {
                         $templateQuery
                             ->whereIn('owner_mda_id', $visibleMdaIds)
@@ -111,7 +124,7 @@ class ServiceReportingController extends Controller
 
         return response()->json([
             'data' => $this->assignments
-                ->availableTemplatesFor($request->user(), $mdaId)
+                ->availableTemplatesFor($user, $mdaId)
                 ->map(fn (ReportTemplate $template): array => $this->templatePayload($template))
                 ->values(),
         ]);
@@ -126,12 +139,20 @@ class ServiceReportingController extends Controller
 
     public function showTemplate(Request $request, ReportTemplate $template): JsonResponse
     {
-        abort_unless($request->user()->can('view-service-reports') && (
-            $this->assignments->userCanSeeTemplate($request->user(), $template)
+        $user = $request->user()->loadMissing('station');
+
+        abort_unless($user->can('view-service-reports') && (
+            $this->assignments->userCanSeeTemplate($user, $template)
             || $this->userCanManageTemplate($request, $template)
         ), 403);
 
-        return response()->json(['data' => $this->templatePayload($template->load(['sections.indicators.dimensions', 'assignments.mda', 'assignments.station', 'ownerMda']))]);
+        $template->load(['sections.indicators.dimensions', 'assignments.mda', 'assignments.station', 'ownerMda']);
+
+        if (! $this->userCanManageTemplate($request, $template)) {
+            $template->setRelation('assignments', $this->assignments->visibleAssignmentsFor($user, $template));
+        }
+
+        return response()->json(['data' => $this->templatePayload($template)]);
     }
 
     public function updateTemplate(UpdateReportTemplateRequest $request, ReportTemplate $template): JsonResponse
@@ -215,9 +236,18 @@ class ServiceReportingController extends Controller
 
     public function assignments(Request $request, ReportTemplate $template): JsonResponse
     {
-        abort_unless($request->user()->can('view-service-reports') && $this->assignments->userCanSeeTemplate($request->user(), $template), 403);
+        $user = $request->user()->loadMissing('station');
 
-        return response()->json(['data' => $template->assignments()->with(['mda', 'station', 'department'])->get()->map(fn ($assignment): array => $this->assignmentPayload($assignment))->values()]);
+        abort_unless($user->can('view-service-reports') && (
+            $this->assignments->userCanSeeTemplate($user, $template)
+            || $this->userCanManageTemplate($request, $template)
+        ), 403);
+
+        $assignments = $this->userCanManageTemplate($request, $template)
+            ? $template->assignments()->with(['mda', 'station', 'department'])->get()
+            : $this->assignments->visibleAssignmentsFor($user, $template);
+
+        return response()->json(['data' => $assignments->map(fn ($assignment): array => $this->assignmentPayload($assignment))->values()]);
     }
 
     public function syncAssignments(SyncTemplateAssignmentsRequest $request, ReportTemplate $template): JsonResponse
@@ -230,10 +260,13 @@ class ServiceReportingController extends Controller
     public function submissions(Request $request): JsonResponse
     {
         abort_unless($request->user()->can('view-service-reports'), 403);
+        $user = $request->user()->loadMissing('station');
 
-        $query = ReportSubmission::query()
+        $query = $this->scopeSubmissionQueryToUser(
+            ReportSubmission::query(),
+            $user,
+        )
             ->with(['template', 'period', 'mda', 'station', 'submitter', 'creator', 'reviewer', 'approver', 'locker'])
-            ->when(! $request->user()->hasGlobalMdaAccess(), fn ($builder) => $builder->whereIn('mda_id', $request->user()->accessibleMdaIds()->all()))
             ->when($request->integer('template_id'), fn ($builder, $templateId) => $builder->where('report_template_id', $templateId))
             ->when($request->integer('mda_id'), fn ($builder, $mdaId) => $builder->where('mda_id', $mdaId))
             ->when($request->integer('station_id'), fn ($builder, $stationId) => $builder->where('station_id', $stationId))
@@ -255,7 +288,7 @@ class ServiceReportingController extends Controller
 
     public function showSubmission(Request $request, ReportSubmission $submission): JsonResponse
     {
-        abort_unless($this->canViewMda($request, (int) $submission->mda_id), 403);
+        abort_unless($this->canViewSubmission($request, $submission), 403);
 
         return response()->json(['data' => $this->submissionPayload($submission->load(['template.sections.indicators.dimensions', 'period', 'mda', 'station', 'values', 'reviews.actor']), true)]);
     }
@@ -303,19 +336,19 @@ class ServiceReportingController extends Controller
     {
         abort_unless($request->user()->can('view-service-reports'), 403);
         $template = ReportTemplate::query()->where('code', $request->query('template_code'))->with('sections.indicators')->firstOrFail();
-        abort_unless($this->assignments->userCanSeeTemplate($request->user(), $template), 403);
+        abort_unless($this->assignments->userCanSeeTemplate($request->user()->loadMissing('station'), $template), 403);
 
         return response()->json(['data' => $template->sections->flatMap->indicators->map(fn ($indicator): array => $this->indicatorResponse($indicator))->values()]);
     }
 
     public function trends(AnalyticsRequest $request): JsonResponse
     {
-        return response()->json(['data' => $this->analytics->trend($request->validated(), $request->user())]);
+        return response()->json(['data' => $this->analytics->trend($request->validated(), $request->user()->loadMissing('station'))]);
     }
 
     public function exportSubmission(Request $request, ReportSubmission $submission): BinaryFileResponse
     {
-        abort_unless($request->user()->can('export-service-reports') && $this->canViewMda($request, (int) $submission->mda_id), 403);
+        abort_unless($request->user()->can('export-service-reports') && $this->canViewSubmission($request, $submission), 403);
 
         return $this->exports->submission($submission, $request->user());
     }
@@ -324,24 +357,66 @@ class ServiceReportingController extends Controller
     {
         abort_unless($request->user()->can('export-service-reports'), 403);
 
-        return $this->exports->analytics($this->analytics->trend($request->validated(), $request->user()), $request->user());
+        return $this->exports->analytics($this->analytics->trend($request->validated(), $request->user()->loadMissing('station')), $request->user());
     }
 
     public function compliance(Request $request): JsonResponse
     {
         abort_unless($request->user()->can('view-service-reports'), 403);
 
-        return response()->json(['data' => $this->analytics->compliance($request->all(), $request->user())]);
+        return response()->json(['data' => $this->analytics->compliance($request->all(), $request->user()->loadMissing('station'))]);
     }
 
     protected function visibleMdaIds(Request $request): array
     {
-        return Mda::query()->visibleToUser($request->user())->pluck('id')->all();
+        $user = $request->user()->loadMissing('station');
+
+        if ($user->hasStationScope()) {
+            return $user->station ? [(int) $user->station->mda_id] : [];
+        }
+
+        return Mda::query()->visibleToUser($user)->pluck('id')->all();
     }
 
     protected function canViewMda(Request $request, int $mdaId): bool
     {
         return $this->moduleAccess->userCan($request->user(), 'service_reporting', 'view-service-reports', $mdaId);
+    }
+
+    protected function canViewSubmission(Request $request, ReportSubmission $submission): bool
+    {
+        $user = $request->user()->loadMissing('station');
+
+        if (! $this->moduleAccess->userCan($user, 'service_reporting', 'view-service-reports', (int) $submission->mda_id)) {
+            return false;
+        }
+
+        if (! $user->hasStationScope() && ! $user->canAccessDepartment($submission->department_id)) {
+            return false;
+        }
+
+        return ! $user->hasStationScope() || $user->canAccessStation($submission->station_id);
+    }
+
+    protected function scopeSubmissionQueryToUser(Builder $query, $user): Builder
+    {
+        $user->loadMissing('station');
+
+        if ($user->hasStationScope()) {
+            if (! $user->station) {
+                return $query->whereRaw('1 = 0');
+            }
+
+            $query
+                ->where('mda_id', $user->station->mda_id)
+                ->where('station_id', $user->station_id);
+        } elseif (! $user->hasGlobalMdaAccess()) {
+            $query->whereIn('mda_id', $user->accessibleMdaIds()->all());
+        }
+
+        return $user->hasStationScope()
+            ? $query
+            : $user->scopeToAccessibleDepartments($query, 'department_id');
     }
 
     protected function userCanManageTemplate(Request $request, ReportTemplate $template): bool

@@ -4,6 +4,7 @@ namespace App\Models;
 
 use App\Domain\Organization\Models\Mda;
 use App\Domain\Staff\Models\Staff;
+use App\Domain\Organization\Models\Station;
 use App\Enums\RecordStatus;
 use App\Enums\UserType;
 use Illuminate\Database\Eloquent\Builder;
@@ -27,6 +28,7 @@ class User extends Authenticatable
      */
     protected $fillable = [
         'mda_id',
+        'station_id',
         'name',
         'email',
         'email_verified_at',
@@ -66,6 +68,11 @@ class User extends Authenticatable
     public function mda(): BelongsTo
     {
         return $this->belongsTo(Mda::class);
+    }
+
+    public function station(): BelongsTo
+    {
+        return $this->belongsTo(Station::class);
     }
 
     public function hasGlobalMdaAccess(): bool
@@ -141,6 +148,11 @@ class User extends Authenticatable
         return ! $this->hasGlobalMdaAccess() && $this->accessibleDepartmentIds()->isNotEmpty();
     }
 
+    public function hasStationScope(): bool
+    {
+        return $this->station_id !== null;
+    }
+
     public function canAccessMda(?int $mdaId): bool
     {
         if ($mdaId === null) {
@@ -177,6 +189,15 @@ class User extends Authenticatable
         $staff->loadMissing('currentEmployment');
 
         return $this->canAccessDepartment($staff->currentEmployment?->department_id);
+    }
+
+    public function canAccessStation(?int $stationId): bool
+    {
+        if (! $this->hasStationScope()) {
+            return true;
+        }
+
+        return $stationId !== null && (int) $this->station_id === (int) $stationId;
     }
 
     public function scopeToAccessibleMdas(Builder $query, string $column = 'mda_id'): Builder
@@ -230,6 +251,15 @@ class User extends Authenticatable
         return $query->whereHas('currentEmployment', function (Builder $employmentQuery) use ($accessibleDepartmentIds): void {
             $employmentQuery->whereIn('department_id', $accessibleDepartmentIds->all());
         });
+    }
+
+    public function scopeToAccessibleStations(Builder $query, string $column = 'station_id'): Builder
+    {
+        if (! $this->hasStationScope()) {
+            return $query;
+        }
+
+        return $query->where($column, $this->station_id);
     }
 
     public function scopeVisibleTo(Builder $query, self $user): Builder

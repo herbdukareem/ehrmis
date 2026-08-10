@@ -24,17 +24,17 @@ class StaffPostingRequestPolicy
 
     public function submit(User $user, StaffPostingRequest $request): bool
     {
-        return $user->can('create-postings') && $user->canAccessMda($request->from_mda_id);
+        return $user->can('create-postings') && $this->canAccessOrigin($user, $request);
     }
 
     public function approveOrigin(User $user, StaffPostingRequest $request): bool
     {
-        return $user->can('approve-own-mda-postings') && $user->canAccessMda($request->from_mda_id);
+        return $user->can('approve-own-mda-postings') && $this->canAccessOrigin($user, $request);
     }
 
     public function approveReceiving(User $user, StaffPostingRequest $request): bool
     {
-        return $user->can('approve-receiving-mda-postings') && $user->canAccessMda($request->to_mda_id);
+        return $user->can('approve-receiving-mda-postings') && $this->canAccessDestination($user, $request);
     }
 
     public function approveFinal(User $user, StaffPostingRequest $request): bool
@@ -75,6 +75,24 @@ class StaffPostingRequestPolicy
 
     protected function canAccessEitherMda(User $user, StaffPostingRequest $request): bool
     {
-        return $user->canAccessMda($request->from_mda_id) || $user->canAccessMda($request->to_mda_id);
+        if (! ($user->canAccessMda($request->from_mda_id) || $user->canAccessMda($request->to_mda_id))) {
+            return false;
+        }
+
+        return ! $user->hasDepartmentRestrictedAccess()
+            || $user->canAccessDepartment($request->from_department_id)
+            || $user->canAccessDepartment($request->to_department_id);
+    }
+
+    protected function canAccessOrigin(User $user, StaffPostingRequest $request): bool
+    {
+        return $user->canAccessMda($request->from_mda_id)
+            && (! $user->hasDepartmentRestrictedAccess() || $user->canAccessDepartment($request->from_department_id));
+    }
+
+    protected function canAccessDestination(User $user, StaffPostingRequest $request): bool
+    {
+        return $user->canAccessMda($request->to_mda_id)
+            && (! $user->hasDepartmentRestrictedAccess() || $user->canAccessDepartment($request->to_department_id));
     }
 }
