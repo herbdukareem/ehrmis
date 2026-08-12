@@ -380,7 +380,7 @@ class ReportSubmissionService
     protected function assertSubmissionAccess(ReportSubmission $submission, User $actor, string $permission): void
     {
         $this->assertUserCan($actor, $permission, (int) $submission->mda_id);
-        if (! $actor->hasStationScope()) {
+        if (! $actor->hasStationScope() && $submission->department_id !== null) {
             abort_unless($actor->canAccessDepartment($submission->department_id), 403, 'You do not have access to this reporting department.');
         }
 

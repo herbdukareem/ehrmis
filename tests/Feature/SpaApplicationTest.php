@@ -20,6 +20,34 @@ class SpaApplicationTest extends TestCase
         $this->get('/staff/42')
             ->assertOk()
             ->assertSee('id="app"', false);
+
+        $this->get('/workplans')
+            ->assertOk()
+            ->assertSee('id="app"', false);
+
+        $this->get('/state-performance/executive')
+            ->assertOk()
+            ->assertSee('id="app"', false);
+
+        $routerSource = file_get_contents(resource_path('js/spa/router.js'));
+
+        $this->assertNotFalse($routerSource);
+        $this->assertLessThan(
+            strpos($routerSource, "{ path: '/:pathMatch(.*)*', redirect: '/dashboard' }"),
+            strpos($routerSource, "{ path: '/workplans'"),
+        );
+
+        $workplanIndexSource = file_get_contents(resource_path('js/spa/views/WorkplanIndexView.vue'));
+
+        $this->assertNotFalse($workplanIndexSource);
+        $this->assertStringContainsString('response.data?.data', $workplanIndexSource);
+        $this->assertStringNotContainsString('data.id}/edit', $workplanIndexSource);
+
+        $workplanEditorSource = file_get_contents(resource_path('js/spa/views/WorkplanEditorView.vue'));
+
+        $this->assertNotFalse($workplanEditorSource);
+        $this->assertStringContainsString("{ id: 'structure'", $workplanEditorSource);
+        $this->assertStringContainsString('<AppTabs v-model="tab" :tabs="tabs" />', $workplanEditorSource);
     }
 
     public function test_api_requires_session_authentication(): void

@@ -15,8 +15,7 @@ class QualificationCeilingServiceTest extends TestCase
 
     public function test_it_returns_the_expected_max_level_for_a_qualification_and_scale(): void
     {
-        $salaryScale = SalaryScale::query()->create([
-            'code' => 'GL',
+        $salaryScale = SalaryScale::query()->firstOrCreate(['code' => 'GL'], [
             'name' => 'GRADE LEVEL',
             'min_level' => 1,
             'max_level' => 17,
@@ -32,9 +31,10 @@ class QualificationCeilingServiceTest extends TestCase
             'status' => 'active',
         ]);
 
-        QualificationScaleCeiling::query()->create([
+        QualificationScaleCeiling::query()->updateOrCreate([
             'qualification_type_id' => $qualificationType->id,
             'salary_scale_id' => $salaryScale->id,
+        ], [
             'max_level' => 17,
             'status' => 'active',
         ]);

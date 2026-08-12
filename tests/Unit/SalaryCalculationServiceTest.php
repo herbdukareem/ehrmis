@@ -16,8 +16,7 @@ class SalaryCalculationServiceTest extends TestCase
 
     public function test_it_calculates_gross_from_dynamic_allowances_and_compares_legacy_gross(): void
     {
-        $salaryScale = SalaryScale::query()->create([
-            'code' => 'GL',
+        $salaryScale = SalaryScale::query()->firstOrCreate(['code' => 'GL'], [
             'name' => 'GRADE LEVEL',
             'min_level' => 1,
             'max_level' => 17,
@@ -76,8 +75,7 @@ class SalaryCalculationServiceTest extends TestCase
 
     public function test_it_uses_only_selected_allowance_codes_and_treats_legacy_gross_as_reference(): void
     {
-        $salaryScale = SalaryScale::query()->create([
-            'code' => 'GL',
+        $salaryScale = SalaryScale::query()->firstOrCreate(['code' => 'GL'], [
             'name' => 'GRADE LEVEL',
             'min_level' => 1,
             'max_level' => 17,

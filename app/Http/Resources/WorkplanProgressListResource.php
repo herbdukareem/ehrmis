@@ -1,0 +1,3 @@
+<?php
+namespace App\Http\Resources; use Illuminate\Http\Request; use Illuminate\Http\Resources\Json\JsonResource;
+class WorkplanProgressListResource extends JsonResource { public function toArray(Request $r):array{return ['id'=>$this->id,'period'=>$this->period?->value,'status'=>$this->status?->value,'workplan_id'=>$this->workplan_id,'activity'=>['id'=>$this->activity?->id,'code'=>$this->activity?->activity_code,'title'=>$this->activity?->title,'department'=>$this->activity?->department?->only(['id','name']),'responsible_staff'=>$this->activity?->responsibleStaff?->only(['id','full_name'])],'reported_expenditure'=>$this->reported_expenditure,'updated_at'=>$this->updated_at?->toISOString()];} }

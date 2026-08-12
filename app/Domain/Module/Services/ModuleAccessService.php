@@ -260,7 +260,7 @@ class ModuleAccessService
             return;
         }
 
-        $defaultModules = ['staff_registry', 'legacy_import', 'movement_budget', 'dashboards_analytics', 'settings', 'access_management'];
+        $defaultModules = ['staff_registry', 'legacy_import', 'movement_budget', 'workplan_performance', 'dashboards_analytics', 'settings', 'access_management'];
         $name = strtoupper((string) $mda->name);
         $code = strtoupper((string) $mda->code);
 

@@ -73,6 +73,18 @@ class ModuleSeeder extends Seeder
                 'approve-budgets',
             ],
         ],
+        'workplan_performance' => [
+            'name' => 'Workplan & Performance',
+            'description' => 'Annual workplan preparation, performance targets, and delivery tracking.',
+            'category' => 'Planning',
+            'icon' => 'clipboard-check',
+            'permissions' => [
+                'view-workplans', 'create-workplans', 'update-workplans', 'submit-workplans',
+                'review-workplans', 'approve-workplans', 'amend-workplans',
+                'update-workplan-progress', 'verify-workplan-progress',
+                'view-workplan-performance', 'export-workplans',
+            ],
+        ],
         'service_reporting' => [
             'name' => 'MDA Service Reporting & Returns',
             'description' => 'MDA service returns, review, approval, locking, export, and template assignment.',
@@ -243,7 +255,7 @@ class ModuleSeeder extends Seeder
 
     protected function enableDefaultsForExistingMdas(): void
     {
-        $defaultModules = ['staff_registry', 'legacy_import', 'movement_budget', 'dashboards_analytics', 'settings', 'access_management'];
+        $defaultModules = ['staff_registry', 'legacy_import', 'movement_budget', 'workplan_performance', 'dashboards_analytics', 'settings', 'access_management'];
         $hmbModules = [...$defaultModules, 'service_reporting'];
 
         Mda::query()->each(function (Mda $mda) use ($defaultModules, $hmbModules): void {

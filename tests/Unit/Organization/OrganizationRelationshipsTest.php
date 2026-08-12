@@ -23,8 +23,7 @@ class OrganizationRelationshipsTest extends TestCase
         $department = Department::factory()->create(['mda_id' => $mda->id]);
         $station = Station::factory()->create(['mda_id' => $mda->id]);
         $location = Location::factory()->create();
-        $salaryScale = SalaryScale::query()->create([
-            'code' => 'GL',
+        $salaryScale = SalaryScale::query()->firstOrCreate(['code' => 'GL'], [
             'name' => 'GRADE LEVEL',
             'min_level' => 1,
             'max_level' => 17,

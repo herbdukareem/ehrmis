@@ -47,6 +47,19 @@ const navBlueprint = [
             { label: 'Access control', to: '/access-management', module: 'access_management', permissionAny: ['manage-users', 'manage-roles'] },
         ],
     },
+    {
+        id: 'performance-management',
+        label: 'Performance management',
+        items: [
+             { label: 'Annual workplans', to: '/workplans', module: 'workplan_performance', permissionAny: ['view-workplans'] },
+             { label: 'Progress reporting', to: '/workplan-progress', module: 'workplan_performance', permissionAny: ['update-workplan-progress', 'verify-workplan-progress'] },
+             { label: 'Performance views', to: '/workplan-performance', module: 'workplan_performance', permissionAny: ['view-workplan-performance'] },
+             { label: 'State performance overview', to: '/state-performance', module: 'workplan_performance', permissionAny: ['view-workplan-performance'], requiresGlobalAccess: true },
+             { label: 'State performance ranking', to: '/state-performance/rankings', module: 'workplan_performance', permissionAny: ['view-workplan-performance'], requiresGlobalAccess: true },
+             { label: 'State performance trends', to: '/state-performance/trends', module: 'workplan_performance', permissionAny: ['view-workplan-performance'], requiresGlobalAccess: true },
+             { label: 'Executive performance', to: '/state-performance/executive', module: 'workplan_performance', permissionAny: ['view-workplan-performance'], requiresGlobalAccess: true },
+        ],
+    },
 ];
 
 const navSections = computed(() => {
@@ -55,9 +68,9 @@ const navSections = computed(() => {
     return navBlueprint
         .map((section) => {
             const items = section.items
-                .filter((item) => item.module
+                .filter((item) => (!item.requiresGlobalAccess || auth.user?.has_global_access) && (item.module
                     ? hasAnyAccess(item.module, item.permissionAny)
-                    : hasAnyPermission(item.permissionAny))
+                    : hasAnyPermission(item.permissionAny)))
                 .map((item) => ({
                     ...item,
                     mark: String(mark++).padStart(2, '0'),

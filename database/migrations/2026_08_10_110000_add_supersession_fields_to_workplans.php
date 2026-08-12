@@ -1,0 +1,3 @@
+<?php
+use Illuminate\Database\Migrations\Migration; use Illuminate\Database\Schema\Blueprint; use Illuminate\Support\Facades\Schema;
+return new class extends Migration { public function up():void { Schema::table('workplans',function(Blueprint $t):void{$t->timestamp('superseded_at')->nullable()->after('closed_at');$t->foreignId('superseded_by_workplan_id')->nullable()->after('superseded_at')->constrained('workplans')->nullOnDelete();}); } public function down():void {Schema::table('workplans',function(Blueprint $t):void{$t->dropConstrainedForeignId('superseded_by_workplan_id');$t->dropColumn('superseded_at');});}};

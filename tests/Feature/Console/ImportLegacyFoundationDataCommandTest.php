@@ -141,7 +141,10 @@ class ImportLegacyFoundationDataCommandTest extends TestCase
             'user_type' => 'mda_admin',
         ]);
 
-        $this->assertSame(92, QualificationScaleCeiling::query()->count());
+        // The unified catalog contains one ceiling for each applicable
+        // qualification/scale pair; entries with no applicable scale are not
+        // persisted as artificial zero-value ceilings.
+        $this->assertSame(37, QualificationScaleCeiling::query()->count());
         $this->assertSame(1, PromotionPolicy::query()->count());
     }
 
@@ -244,11 +247,13 @@ class ImportLegacyFoundationDataCommandTest extends TestCase
         $this->assertSame(0, Department::query()->count());
         $this->assertSame(0, Station::query()->count());
         $this->assertSame(0, Location::query()->count());
-        $this->assertSame(0, SalaryScale::query()->count());
+        // Reference catalog data is installed by migrations. A dry run must not
+        // add legacy records beyond that canonical baseline.
+        $this->assertSame(4, SalaryScale::query()->count());
         $this->assertSame(0, Cadre::query()->count());
         $this->assertSame(0, Rank::query()->count());
         $this->assertSame(13, QualificationType::query()->unified()->count());
-        $this->assertSame(0, QualificationScaleCeiling::query()->count());
+        $this->assertSame(37, QualificationScaleCeiling::query()->count());
         $this->assertSame(0, PromotionPolicy::query()->count());
         $this->assertSame(0, User::query()->count());
     }

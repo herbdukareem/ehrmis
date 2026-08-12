@@ -1,0 +1,3 @@
+<?php
+namespace App\Policies; use App\Domain\Workplan\Models\WorkplanEvidence; use App\Models\User;
+class WorkplanEvidencePolicy { public function view(User $u,WorkplanEvidence $e):bool{return $e->report&&$u->can('view-workplans')&&$u->canAccessMda($e->mda_id)&&($e->report->activity->department_id===null||$u->canAccessDepartment($e->report->activity->department_id));} public function delete(User $u,WorkplanEvidence $e):bool{return $e->report&&$u->can('update-workplan-progress')&&$u->canAccessMda($e->mda_id)&&($e->report->activity->department_id===null||$u->canAccessDepartment($e->report->activity->department_id));} }

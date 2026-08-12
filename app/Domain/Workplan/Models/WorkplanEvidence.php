@@ -1,0 +1,3 @@
+<?php
+namespace App\Domain\Workplan\Models; use App\Models\Concerns\HasMdaScope; use App\Models\User; use Illuminate\Database\Eloquent\Model; use Illuminate\Database\Eloquent\Relations\BelongsTo;
+class WorkplanEvidence extends Model { use HasMdaScope; protected $table='workplan_evidence'; protected $fillable=['mda_id','workplan_id','workplan_activity_id','workplan_progress_report_id','title','evidence_type','file_path','file_mime_type','file_size','external_url','notes','uploaded_by']; public function report():BelongsTo{return $this->belongsTo(WorkplanProgressReport::class,'workplan_progress_report_id');} public function uploadedBy():BelongsTo{return $this->belongsTo(User::class,'uploaded_by');} }

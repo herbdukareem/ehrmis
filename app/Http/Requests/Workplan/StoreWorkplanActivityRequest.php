@@ -1,0 +1,4 @@
+<?php
+namespace App\Http\Requests\Workplan;
+use Illuminate\Foundation\Http\FormRequest;
+class StoreWorkplanActivityRequest extends FormRequest { public function authorize(): bool { return true; } public function rules(): array { return ['department_id'=>['nullable','integer','exists:departments,id'],'responsible_staff_id'=>['nullable','integer','exists:staff,id'],'activity_code'=>['required','string','max:100'],'title'=>['required','string','max:255'],'description'=>['nullable','string'],'expected_output'=>['nullable','string'],'start_date'=>['required','date'],'end_date'=>['required','date'],'planned_cost'=>['nullable','numeric','min:0'],'funding_source'=>['nullable','string','max:255'],'status'=>['nullable','string','max:30'],'performance_weight'=>['nullable','numeric','gt:0'],'remarks'=>['nullable','string'],'sort_order'=>['nullable','integer','min:0']]; } }

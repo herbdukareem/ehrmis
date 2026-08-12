@@ -36,11 +36,14 @@ class ApprovalWorkflowService
                 'subject_id' => $subject->getKey(),
             ]);
 
-            if ($workflow->exists && ! in_array($workflow->status, ['draft', 'rejected'], true)) {
+            if ($workflow->exists && ! in_array($workflow->status, ['draft', 'rejected', 'returned'], true)) {
                 throw new InvalidArgumentException('This workflow cannot be submitted in its current state.');
             }
 
             $before = $workflow->exists ? $workflow->load('steps')->toArray() : [];
+            $previousMetadata = $workflow->metadata ?? [];
+            $previousStatus = $workflow->status;
+            $previousSteps = $workflow->exists ? $workflow->steps->map(fn (ApprovalStep $step): array => $step->toArray())->all() : [];
 
             $normalizedSteps = collect($steps)
                 ->values()
@@ -63,11 +66,25 @@ class ApprovalWorkflowService
                 'rejected_at' => null,
                 'rejection_comment' => null,
                 'current_step_no' => $normalizedSteps->first()['step_no'],
-                'metadata' => $metadata,
+                'metadata' => $previousMetadata,
             ]);
             $workflow->save();
 
-            $workflow->steps()->delete();
+            $workflowMetadata = $previousMetadata;
+            if ($previousSteps !== []) {
+                $workflowMetadata['history'] = [
+                    ...($workflowMetadata['history'] ?? []),
+                    [
+                        'status' => $previousStatus,
+                        'submitted_at' => data_get($before, 'submitted_at'),
+                        'steps' => $previousSteps,
+                        'recorded_at' => now()->toISOString(),
+                    ],
+                ];
+                $workflow->steps()->delete();
+            }
+            $workflow->metadata = [...$workflowMetadata, ...$metadata];
+            $workflow->save();
 
             foreach ($normalizedSteps as $step) {
                 $workflow->steps()->create([
@@ -179,6 +196,18 @@ class ApprovalWorkflowService
                 ],
             );
 
+            return $workflow->fresh('steps');
+        });
+    }
+
+    public function returnForCorrection(ApprovalWorkflow $workflow, User $actor, string $comment): ApprovalWorkflow
+    {
+        if (! in_array($workflow->status, ['submitted', 'under_review'], true)) throw new InvalidArgumentException('Only submitted workflows can be returned.');
+        return DB::transaction(function () use ($workflow, $actor, $comment): ApprovalWorkflow {
+            $workflow = $workflow->fresh('steps'); $before = $workflow->toArray(); $step = $this->resolvePendingStep($workflow, $actor);
+            $step->forceFill(['status'=>'returned','comment'=>$comment,'acted_at'=>now(),'acted_by'=>$actor->id])->save();
+            $workflow->forceFill(['status'=>'returned','current_step_no'=>$step->step_no,'rejection_comment'=>$comment])->save();
+            $this->auditLogService->log('approval_workflow.returned',$workflow,$before,$workflow->fresh('steps')->toArray(),['step_no'=>$step->step_no,'acted_by'=>$actor->id]);
             return $workflow->fresh('steps');
         });
     }

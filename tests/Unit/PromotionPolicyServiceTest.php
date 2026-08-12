@@ -15,8 +15,7 @@ class PromotionPolicyServiceTest extends TestCase
 
     public function test_it_returns_required_years_and_calculates_promotion_dates(): void
     {
-        $salaryScale = SalaryScale::query()->create([
-            'code' => 'GL',
+        $salaryScale = SalaryScale::query()->firstOrCreate(['code' => 'GL'], [
             'name' => 'GRADE LEVEL',
             'min_level' => 1,
             'max_level' => 17,

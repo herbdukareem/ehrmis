@@ -24,6 +24,19 @@ const routes = [
     { path: '/posting-requests/:id', name: 'postings.show', component: () => import('./views/PostingShowView.vue') },
     { path: '/budget-workbooks', name: 'budgets.index', component: () => import('./views/BudgetIndexView.vue'), meta: { module: 'movement_budget', permissionAny: ['view-budgets', 'create-budgets', 'approve-budgets'] } },
     { path: '/budget-workbooks/:id', name: 'budgets.show', component: () => import('./views/BudgetShowView.vue') },
+    { path: '/workplans', name: 'workplans.index', component: () => import('./views/WorkplanIndexView.vue'), meta: { module: 'workplan_performance', permissionAny: ['view-workplans'] } },
+    { path: '/workplans/:id/edit', name: 'workplans.edit', component: () => import('./views/WorkplanEditorView.vue'), meta: { module: 'workplan_performance', permissionAny: ['update-workplans'] } },
+     { path: '/workplans/:id', name: 'workplans.show', component: () => import('./views/WorkplanShowView.vue'), meta: { module: 'workplan_performance', permissionAny: ['view-workplans'] } },
+     { path: '/workplan-progress', name: 'workplan-progress.index', component: () => import('./views/WorkplanProgressView.vue'), meta: { module: 'workplan_performance', permissionAny: ['update-workplan-progress', 'verify-workplan-progress'] } },
+     { path: '/workplan-progress/:id', name: 'workplan-progress.show', component: () => import('./views/WorkplanProgressView.vue'), meta: { module: 'workplan_performance', permissionAny: ['update-workplan-progress', 'verify-workplan-progress'] } },
+     { path: '/workplan-performance', name: 'workplan-performance.index', component: () => import('./views/WorkplanPerformanceView.vue'), meta: { module: 'workplan_performance', permissionAny: ['view-workplan-performance'] } },
+     { path: '/state-performance', name: 'state-performance.index', component: () => import('./views/StateWorkplanPerformanceView.vue'), meta: { module: 'workplan_performance', permissionAny: ['view-workplan-performance'], requiresGlobalAccess: true } },
+     { path: '/state-performance/rankings', name: 'state-performance.rankings', component: () => import('./views/StateWorkplanRankingView.vue'), meta: { module: 'workplan_performance', permissionAny: ['view-workplan-performance'], requiresGlobalAccess: true } },
+     { path: '/state-performance/trends', name: 'state-performance.trends', component: () => import('./views/StateWorkplanTrendsView.vue'), meta: { module: 'workplan_performance', permissionAny: ['view-workplan-performance'], requiresGlobalAccess: true } },
+     { path: '/state-performance/executive', name: 'state-performance.executive', component: () => import('./views/StateExecutivePerformanceView.vue'), meta: { module: 'workplan_performance', permissionAny: ['view-workplan-performance'], requiresGlobalAccess: true } },
+     { path: '/state-workplan-performance', redirect: (to) => ({ path: '/state-performance', query: to.query }) },
+     { path: '/state-workplan-rankings', redirect: (to) => ({ path: '/state-performance/rankings', query: to.query }) },
+     { path: '/state-workplan-trends', redirect: (to) => ({ path: '/state-performance/trends', query: to.query }) },
     { path: '/service-reports', name: 'service-reports', component: () => import('./views/ServiceReportsView.vue'), meta: { module: 'service_reporting', permissionAny: ['view-service-reports'] } },
     { path: '/service-reports/templates', name: 'service-reports.templates', component: () => import('./views/ServiceReportsView.vue'), meta: { module: 'service_reporting', permissionAny: ['view-service-reports'] } },
     { path: '/service-reports/templates/:id', name: 'service-reports.templates.show', component: () => import('./views/ServiceReportsView.vue'), meta: { module: 'service_reporting', permissionAny: ['view-service-reports'] } },
@@ -64,6 +77,13 @@ router.beforeEach(async (to) => {
         }
     }
 
+    if (to.meta.requiresGlobalAccess && !auth.user?.has_global_access) {
+        const fallback = defaultAuthenticatedPath();
+        if (fallback !== to.path) {
+            return fallback;
+        }
+    }
+
     clearPageError();
     document.title = `${to.meta.title ?? routeTitle(to.name)} | ${appState.branding.acronym}`;
 });
@@ -89,6 +109,14 @@ function routeTitle(name) {
         'postings.show': 'Posting Request',
         'budgets.index': 'Budget Workbooks',
         'budgets.show': 'Budget Workbook',
+        'workplans.index': 'Annual Workplans',
+        'workplans.show': 'Annual Workplan',
+        'workplans.edit': 'Edit Workplan',
+        'workplan-performance.index': 'Performance Views',
+        'state-performance.index': 'State Performance Overview',
+        'state-performance.rankings': 'State Performance Ranking',
+        'state-performance.trends': 'State Performance Trends',
+        'state-performance.executive': 'Executive Performance',
         'service-reports': 'Service Reports',
         'service-reports.templates': 'Service Report Templates',
         'service-reports.templates.show': 'Report Template',

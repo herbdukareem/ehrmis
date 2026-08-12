@@ -140,4 +140,41 @@ class ApprovalWorkflowServiceTest extends TestCase
         $this->assertSame('approved', $approvedWorkflow->steps->first()->status);
         $this->assertSame($approver->id, $approvedWorkflow->steps->first()->acted_by);
     }
+
+    public function test_current_step_can_be_returned_for_correction(): void
+    {
+        $this->seed(RolesAndPermissionsSeeder::class);
+        $service = app(ApprovalWorkflowService::class); $submitter = User::factory()->create(); $reviewer = $this->approver();
+        $workflow = $service->submit($this->batch(), 'generic_return_test', $submitter, [['reviewer_user_id'=>$reviewer->id], ['reviewer_user_id'=>$reviewer->id]]);
+        $returned = $service->returnForCorrection($workflow, $reviewer, 'Correct the supporting evidence.'); $step = $returned->steps->first();
+        $this->assertSame('returned', $returned->status); $this->assertSame('returned', $step->status);
+        $this->assertSame('Correct the supporting evidence.', $step->comment); $this->assertSame($reviewer->id, $step->acted_by); $this->assertNotNull($step->acted_at);
+    }
+
+    public function test_returned_second_step_is_preserved_when_workflow_is_resubmitted(): void
+    {
+        $this->seed(RolesAndPermissionsSeeder::class);
+        $service = app(ApprovalWorkflowService::class); $submitter = User::factory()->create(); $reviewer = $this->approver(); $batch = $this->batch();
+        $workflow = $service->submit($batch, 'generic_return_test', $submitter, [['reviewer_user_id'=>$reviewer->id], ['reviewer_user_id'=>$reviewer->id]]);
+        $service->approveStep($workflow, $reviewer, 'Planning review accepted.');
+        $returned = $service->returnForCorrection($workflow->fresh('steps'), $reviewer, 'Clarify the final target.');
+        $resubmitted = $service->submit($batch, 'generic_return_test', $submitter, [['reviewer_user_id'=>$reviewer->id], ['reviewer_user_id'=>$reviewer->id]]);
+        $history = $resubmitted->metadata['history'][0];
+        $this->assertSame('returned', $history['status']); $this->assertSame('approved', $history['steps'][0]['status']); $this->assertSame('returned', $history['steps'][1]['status']);
+        $this->assertSame('Clarify the final target.', $history['steps'][1]['comment']); $this->assertCount(2, $resubmitted->steps); $this->assertSame('pending', $resubmitted->steps->first()->status);
+        $this->assertSame('returned', $returned->status);
+    }
+
+    public function test_rejection_remains_distinct_from_return(): void
+    {
+        $this->seed(RolesAndPermissionsSeeder::class);
+        $service = app(ApprovalWorkflowService::class); $submitter = User::factory()->create(); $reviewer = $this->approver();
+        $workflow = $service->submit($this->batch(), 'generic_return_test', $submitter, [['reviewer_user_id'=>$reviewer->id]]);
+        $rejected = $service->reject($workflow, $reviewer, 'Rejected after review.');
+        $this->assertSame('rejected', $rejected->status); $this->assertSame('rejected', $rejected->steps->first()->status); $this->assertSame('Rejected after review.', $rejected->rejection_comment);
+        $this->assertArrayNotHasKey('history', $rejected->metadata ?? []);
+    }
+
+    private function batch(): LegacyStaffImportBatch { return LegacyStaffImportBatch::query()->create(['source_database'=>'test','source_table'=>'test','status'=>'completed']); }
+    private function approver(): User { return User::factory()->create(); }
 }

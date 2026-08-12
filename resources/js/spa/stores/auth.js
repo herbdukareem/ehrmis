@@ -90,6 +90,7 @@ export function defaultAuthenticatedPath() {
         { path: '/promotion-cycles', permissions: ['view-promotions'] },
         { path: '/posting-requests', permissions: ['view-postings'] },
         { path: '/budget-workbooks', module: 'movement_budget', permissions: ['view-budgets', 'create-budgets', 'approve-budgets'] },
+        { path: '/workplans', module: 'workplan_performance', permissions: ['view-workplans'] },
         { path: '/service-reports', module: 'service_reporting', permissions: ['view-service-reports'] },
         { path: '/reports', module: 'dashboards_analytics', permissions: ['view-reports', 'export-reports'] },
         { path: '/settings', module: 'settings', permissions: ['manage-platform-settings', 'manage-mda-settings'] },

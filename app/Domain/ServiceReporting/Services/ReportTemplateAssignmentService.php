@@ -128,7 +128,13 @@ class ReportTemplateAssignmentService
                 ->whereNotIn('id', $ids)
                 ->update(['status' => 'inactive']);
 
-            return $template->assignments()->with(['mda', 'station', 'department'])->get();
+            // The sync response represents the assignments the caller just saved.
+            // Older assignments are retained as inactive for audit/history, but must
+            // not be presented as the current assignment set.
+            return $template->assignments()
+                ->whereIn('id', $ids)
+                ->with(['mda', 'station', 'department'])
+                ->get();
         });
     }
 

@@ -33,9 +33,7 @@ class BudgetGenerationServiceTest extends TestCase
             'status' => 'active',
         ]);
 
-        $scale = SalaryScale::query()->create([
-            'mda_id' => $mda->id,
-            'code' => 'GL',
+        $scale = SalaryScale::query()->firstOrCreate(['code' => 'GL'], [
             'name' => 'GRADE LEVEL',
             'min_level' => 1,
             'max_level' => 17,
@@ -87,9 +85,7 @@ class BudgetGenerationServiceTest extends TestCase
             'status' => 'active',
         ]);
 
-        $scale = SalaryScale::query()->create([
-            'mda_id' => $mda->id,
-            'code' => 'GL',
+        $scale = SalaryScale::query()->firstOrCreate(['code' => 'GL'], [
             'name' => 'GRADE LEVEL',
             'min_level' => 1,
             'max_level' => 17,
