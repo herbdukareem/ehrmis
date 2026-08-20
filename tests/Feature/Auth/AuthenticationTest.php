@@ -27,6 +27,16 @@ class AuthenticationTest extends TestCase
         $response->assertStatus(200);
     }
 
+    public function test_public_context_exposes_a_csrf_token_for_spa_bootstrap(): void
+    {
+        $response = $this->withHeaders($this->spaHeaders())
+            ->getJson('/api/public-context');
+
+        $response->assertOk();
+        $this->assertIsString($response->json('data.csrf_token'));
+        $this->assertNotSame('', $response->json('data.csrf_token'));
+    }
+
     public function test_users_can_authenticate_using_the_login_screen(): void
     {
         $user = User::factory()->create();
@@ -64,5 +74,18 @@ class AuthenticationTest extends TestCase
 
         $this->assertGuest();
         $response->assertOk()->assertJsonPath('message', 'Signed out successfully.');
+    }
+
+    public function test_authenticated_context_exposes_a_csrf_token_for_spa_requests(): void
+    {
+        $user = User::factory()->create();
+
+        $response = $this->withHeaders($this->spaHeaders())
+            ->actingAs($user)
+            ->getJson('/api/me');
+
+        $response->assertOk();
+        $this->assertIsString($response->json('data.csrf_token'));
+        $this->assertNotSame('', $response->json('data.csrf_token'));
     }
 }

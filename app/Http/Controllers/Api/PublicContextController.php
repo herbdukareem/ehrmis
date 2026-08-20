@@ -10,6 +10,11 @@ class PublicContextController extends Controller
 {
     public function show(DomainContext $context): JsonResponse
     {
-        return response()->json(['data' => $context->publicProfile()]);
+        return response()->json([
+            'data' => [
+                ...$context->publicProfile(),
+                'csrf_token' => csrf_token(),
+            ],
+        ]);
     }
 }

@@ -1,31 +1,19 @@
 import { reactive } from 'vue';
 import { api } from '../lib/api';
-import { loadPublicContext, setBranding } from './app';
+import { loadPublicContext, setBranding, setCsrfToken, syncCsrfTokenFromCookie } from './app';
 
 export const auth = reactive({
     user: null,
     ready: false,
 });
 
-let csrfBootstrap = null;
-
-async function ensureCsrfCookie() {
-    if (!csrfBootstrap) {
-        csrfBootstrap = api.get('/csrf-cookie', { baseURL: '/sanctum' })
-            .catch((error) => {
-                csrfBootstrap = null;
-                throw error;
-            });
-    }
-
-    return csrfBootstrap;
-}
-
 export async function loadSession() {
     try {
         const response = await api.get('/me');
-        auth.user = response.data.data;
-        setBranding(response.data.data.branding ?? {});
+        const { csrf_token: csrfToken, ...user } = response.data?.data ?? {};
+        auth.user = user;
+        setCsrfToken(csrfToken ?? syncCsrfTokenFromCookie());
+        setBranding(user.branding ?? {});
     } catch (error) {
         if (error.response?.status !== 401) {
             throw error;
@@ -40,7 +28,7 @@ export async function loadSession() {
 }
 
 export async function signIn(credentials) {
-    await ensureCsrfCookie();
+    syncCsrfTokenFromCookie();
     await api.post('/login', credentials);
     return loadSession();
 }
@@ -48,7 +36,7 @@ export async function signIn(credentials) {
 export async function signOut() {
     await api.post('/logout');
     auth.user = null;
-    await loadPublicContext().catch(() => null);
+    await loadPublicContext().catch(() => syncCsrfTokenFromCookie());
 }
 
 export function can(permission) {
