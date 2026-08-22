@@ -21,6 +21,8 @@ export const appState = reactive({
     },
 });
 
+let csrfCookieRequest = null;
+
 export function setBranding(branding) {
     appState.branding = {
         ...appState.branding,
@@ -43,23 +45,30 @@ export function setCsrfToken(token) {
     return appState.csrfToken;
 }
 
-export function syncCsrfTokenFromCookie() {
-    const cookie = document.cookie
-        .split('; ')
-        .find((entry) => entry.startsWith('XSRF-TOKEN='));
-
-    if (!cookie) {
-        return appState.csrfToken;
+export function ensureCsrfCookie(force = false) {
+    if (force) {
+        csrfCookieRequest = null;
     }
 
-    return setCsrfToken(decodeURIComponent(cookie.slice('XSRF-TOKEN='.length)));
+    if (!csrfCookieRequest) {
+        csrfCookieRequest = axios.get('/sanctum/csrf-cookie', {
+            headers: {
+                Accept: 'application/json',
+                'X-Requested-With': 'XMLHttpRequest',
+            },
+        }).finally(() => {
+            csrfCookieRequest = null;
+        });
+    }
+
+    return csrfCookieRequest;
 }
 
 export async function loadPublicContext() {
     const response = await axios.get('/api/public-context', { headers: { Accept: 'application/json' } });
     const { csrf_token: csrfToken, ...branding } = response.data?.data ?? {};
     setBranding(branding);
-    setCsrfToken(csrfToken ?? syncCsrfTokenFromCookie());
+    setCsrfToken(csrfToken);
     return appState.branding;
 }
 

@@ -1,6 +1,6 @@
 import { reactive } from 'vue';
 import { api } from '../lib/api';
-import { loadPublicContext, setBranding, setCsrfToken, syncCsrfTokenFromCookie } from './app';
+import { ensureCsrfCookie, loadPublicContext, setBranding, setCsrfToken } from './app';
 
 export const auth = reactive({
     user: null,
@@ -12,7 +12,7 @@ export async function loadSession() {
         const response = await api.get('/me');
         const { csrf_token: csrfToken, ...user } = response.data?.data ?? {};
         auth.user = user;
-        setCsrfToken(csrfToken ?? syncCsrfTokenFromCookie());
+        setCsrfToken(csrfToken);
         setBranding(user.branding ?? {});
     } catch (error) {
         if (error.response?.status !== 401) {
@@ -28,7 +28,7 @@ export async function loadSession() {
 }
 
 export async function signIn(credentials) {
-    syncCsrfTokenFromCookie();
+    await ensureCsrfCookie(true);
     await api.post('/login', credentials);
     return loadSession();
 }
@@ -36,7 +36,7 @@ export async function signIn(credentials) {
 export async function signOut() {
     await api.post('/logout');
     auth.user = null;
-    await loadPublicContext().catch(() => syncCsrfTokenFromCookie());
+    await loadPublicContext().catch(() => null);
 }
 
 export function can(permission) {

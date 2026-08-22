@@ -1,6 +1,6 @@
 import axios from 'axios';
 import { appState, setPageError } from '../stores/app';
-import { applyCsrfToken, syncCsrfCookieToken } from './csrf';
+import { isReadOnlyRequest, refreshCsrfCookie } from './csrf';
 
 export const api = axios.create({
     baseURL: '/api',
@@ -13,18 +13,23 @@ export const api = axios.create({
 
 api.interceptors.request.use((config) => {
     appState.pendingRequests += 1;
-    return applyCsrfToken(config);
+    return config;
 });
 
 api.interceptors.response.use(
     (response) => {
         appState.pendingRequests = Math.max(0, appState.pendingRequests - 1);
-        syncCsrfCookieToken();
         return response;
     },
-    (error) => {
+    async (error) => {
         appState.pendingRequests = Math.max(0, appState.pendingRequests - 1);
-        syncCsrfCookieToken();
+
+        if (error?.response?.status === 419 && !isReadOnlyRequest(error?.config) && !error?.config?._retriedWithFreshCsrf) {
+            error.config._retriedWithFreshCsrf = true;
+            await refreshCsrfCookie(true);
+            return api.request(error.config);
+        }
+
         if (error?.response?.status === 403 && error?.config?.method?.toLowerCase() === 'get') {
             setPageError(apiMessage(error, 'This action is unauthorized.'));
         }
