@@ -2,12 +2,14 @@ import { reactive } from 'vue';
 import axios from 'axios';
 
 const appShowMode = document.querySelector('meta[name="app-show-mode"]')?.content?.trim().toUpperCase() ?? '';
+const initialCsrfToken = document.querySelector('meta[name="csrf-token"]')?.content?.trim() ?? '';
 
 export const appState = reactive({
     pendingRequests: 0,
     pageError: '',
     toastSeed: 0,
     toasts: [],
+    csrfToken: initialCsrfToken,
     showMode: appShowMode,
     branding: {
         scope: 'platform',
@@ -19,6 +21,8 @@ export const appState = reactive({
     },
 });
 
+let csrfCookieRequest = null;
+
 export function setBranding(branding) {
     appState.branding = {
         ...appState.branding,
@@ -26,9 +30,45 @@ export function setBranding(branding) {
     };
 }
 
+export function setCsrfToken(token) {
+    if (typeof token !== 'string' || token.trim() === '') {
+        return appState.csrfToken;
+    }
+
+    appState.csrfToken = token;
+
+    const csrfMeta = document.querySelector('meta[name="csrf-token"]');
+    if (csrfMeta) {
+        csrfMeta.setAttribute('content', token);
+    }
+
+    return appState.csrfToken;
+}
+
+export function ensureCsrfCookie(force = false) {
+    if (force) {
+        csrfCookieRequest = null;
+    }
+
+    if (!csrfCookieRequest) {
+        csrfCookieRequest = axios.get('/sanctum/csrf-cookie', {
+            headers: {
+                Accept: 'application/json',
+                'X-Requested-With': 'XMLHttpRequest',
+            },
+        }).finally(() => {
+            csrfCookieRequest = null;
+        });
+    }
+
+    return csrfCookieRequest;
+}
+
 export async function loadPublicContext() {
     const response = await axios.get('/api/public-context', { headers: { Accept: 'application/json' } });
-    setBranding(response.data.data);
+    const { csrf_token: csrfToken, ...branding } = response.data?.data ?? {};
+    setBranding(branding);
+    setCsrfToken(csrfToken);
     return appState.branding;
 }
 
