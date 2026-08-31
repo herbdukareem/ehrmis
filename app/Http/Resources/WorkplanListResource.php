@@ -7,5 +7,22 @@ use Illuminate\Http\Resources\Json\JsonResource;
 
 class WorkplanListResource extends JsonResource
 {
-    public function toArray(Request $request): array { return ['id' => $this->id, 'mda' => $this->mda?->only(['id','code','name']), 'year' => $this->year, 'revision_no' => $this->revision_no, 'title' => $this->title, 'status' => $this->status?->value, 'updated_at' => $this->updated_at?->toISOString(), 'can' => ['view' => $request->user()?->can('view', $this->resource) ?? false, 'update' => $request->user()?->can('update', $this->resource) ?? false]]; }
+    public function toArray(Request $request): array
+    {
+        return [
+            'id' => $this->id,
+            'mda' => $this->mda?->only(['id', 'code', 'name']),
+            'year' => $this->year,
+            'revision_no' => $this->revision_no,
+            'title' => $this->title,
+            'document_classification' => $this->document_classification,
+            'prepared_by_label' => $this->prepared_by_label,
+            'status' => $this->status?->value,
+            'updated_at' => $this->updated_at?->toISOString(),
+            'can' => [
+                'view' => $request->user()?->can('view', $this->resource) ?? false,
+                'update' => $request->user()?->can('update', $this->resource) ?? false,
+            ],
+        ];
+    }
 }

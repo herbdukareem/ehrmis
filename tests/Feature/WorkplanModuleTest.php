@@ -64,8 +64,38 @@ class WorkplanModuleTest extends TestCase
     public function test_draft_metadata_duplicate_revision_and_non_draft_guard(): void
     {
         [$mda, $user] = $this->mdaAdmin('HMB');
-        $id = $this->actingAs($user)->postJson('/api/workplans',['mda_id'=>$mda->id,'year'=>2027,'title'=>'Plan'])->assertCreated()->json('data.id');
-        $this->actingAs($user)->putJson("/api/workplans/{$id}",['title'=>'Updated'])->assertOk()->assertJsonPath('data.title','Updated');
+        $id = $this->actingAs($user)->postJson('/api/workplans', [
+            'mda_id' => $mda->id,
+            'year' => 2027,
+            'title' => 'Plan',
+            'document_classification' => 'Restricted draft',
+            'description' => 'Initial planning brief.',
+            'overall_goal' => 'Improve statewide service readiness.',
+            'strategic_directions' => ['Strengthen service quality', 'Improve commodity reliability'],
+            'planning_assumptions' => ['Funding remains available', 'Quarterly reporting remains on schedule'],
+            'prepared_by_label' => 'Department of Planning',
+        ])->assertCreated()->json('data.id');
+        $this->assertDatabaseHas('workplans', ['id' => $id, 'document_classification' => 'Restricted draft', 'prepared_by_label' => 'Department of Planning']);
+        $created = Workplan::query()->findOrFail($id);
+        $this->assertSame(['Strengthen service quality', 'Improve commodity reliability'], $created->strategic_directions);
+        $this->assertSame(['Funding remains available', 'Quarterly reporting remains on schedule'], $created->planning_assumptions);
+
+        $this->actingAs($user)->putJson("/api/workplans/{$id}", [
+            'title' => 'Updated',
+            'document_classification' => 'Approved planning draft',
+            'overall_goal' => 'Updated statewide service readiness goal.',
+            'strategic_directions' => ['Improve primary care', 'Improve surveillance'],
+            'planning_assumptions' => ['Approvals remain on schedule'],
+            'prepared_by_label' => 'Planning, Research and Statistics',
+        ])->assertOk()
+            ->assertJsonPath('data.title', 'Updated')
+            ->assertJsonPath('data.document_classification', 'Approved planning draft')
+            ->assertJsonPath('data.overall_goal', 'Updated statewide service readiness goal.')
+            ->assertJsonPath('data.prepared_by_label', 'Planning, Research and Statistics');
+
+        $updated = Workplan::query()->findOrFail($id);
+        $this->assertSame(['Improve primary care', 'Improve surveillance'], $updated->strategic_directions);
+        $this->assertSame(['Approvals remain on schedule'], $updated->planning_assumptions);
         $this->actingAs($user)->postJson('/api/workplans',['mda_id'=>$mda->id,'year'=>2027,'title'=>'Duplicate'])->assertUnprocessable();
         Workplan::query()->findOrFail($id)->update(['status'=>'active']);
         $this->actingAs($user)->putJson("/api/workplans/{$id}",['title'=>'Blocked'])->assertForbidden();
@@ -78,13 +108,14 @@ class WorkplanModuleTest extends TestCase
         $this->actingAs($user)->postJson("/api/workplans/{$plan->id}/objectives",['code'=>'BAD','title'=>'Bad','department_id'=>$otherDepartment->id])->assertUnprocessable();
         $objective = $this->actingAs($user)->postJson("/api/workplans/{$plan->id}/objectives",['code'=>'OBJ','title'=>'Objective'])->assertCreated()->json('data.id');
         $this->actingAs($user)->postJson("/api/workplans/{$plan->id}/objectives",['code'=>'OBJ','title'=>'Duplicate'])->assertUnprocessable();
-        $this->actingAs($user)->putJson("/api/workplan-objectives/{$objective}",['title'=>'Changed'])->assertOk();
+        $this->actingAs($user)->putJson("/api/workplan-objectives/{$objective}",['title'=>'Changed','lead_scope'=>'Directorate-wide','planned_cost'=>1500000])->assertOk();
+        $this->assertDatabaseHas('workplan_objectives', ['id' => $objective, 'lead_scope' => 'Directorate-wide']);
         $bad = ['activity_code'=>'BAD','title'=>'Bad','department_id'=>$department->id,'start_date'=>'2027-12-31','end_date'=>'2027-01-01','planned_cost'=>-1];
         $this->actingAs($user)->postJson("/api/workplan-objectives/{$objective}/activities",$bad)->assertUnprocessable();
         $activity = $this->actingAs($user)->postJson("/api/workplan-objectives/{$objective}/activities",['activity_code'=>'ACT','title'=>'Activity','department_id'=>$department->id,'start_date'=>'2027-01-01','end_date'=>'2027-12-31','planned_cost'=>0])->assertCreated()->json('data.id');
         $this->actingAs($user)->postJson("/api/workplan-objectives/{$objective}/activities",['activity_code'=>'ACT','title'=>'Duplicate','start_date'=>'2027-01-01','end_date'=>'2027-12-31'])->assertUnprocessable();
         $indicator = $this->actingAs($user)->postJson("/api/workplan-activities/{$activity}/indicators",['code'=>'KPI','indicator'=>'KPI','target_mode'=>'milestone','direction'=>'increase','weight'=>1])->assertUnprocessable();
-        $indicator = $this->actingAs($user)->postJson("/api/workplan-activities/{$activity}/indicators",['code'=>'KPI','indicator'=>'KPI','target_mode'=>'absolute','direction'=>'increase','weight'=>1])->assertCreated()->json('data.id');
+        $indicator = $this->actingAs($user)->postJson("/api/workplan-activities/{$activity}/indicators",['code'=>'KPI','indicator'=>'KPI','description'=>'Indicator description','target_mode'=>'absolute','direction'=>'increase','weight'=>1])->assertCreated()->json('data.id');
         $this->actingAs($user)->postJson("/api/workplan-activities/{$activity}/indicators",['code'=>'KPI','indicator'=>'Duplicate','target_mode'=>'absolute','direction'=>'increase','weight'=>1])->assertUnprocessable();
         $this->actingAs($user)->putJson("/api/workplan-indicators/{$indicator}",['weight'=>0])->assertUnprocessable();
         foreach (['workplan.objective.created','workplan.objective.updated','workplan.activity.created','workplan.indicator.created'] as $event) $this->assertDatabaseHas('audit_logs',['event_code'=>$event]);
@@ -93,15 +124,47 @@ class WorkplanModuleTest extends TestCase
     public function test_staff_support_target_sync_and_detail_resource_are_complete(): void
     {
         [$mda,$user] = $this->mdaAdmin('HMB'); $department=Department::factory()->create(['mda_id'=>$mda->id]); $lead=$this->staff($mda,$department,'LEAD'); $supportA=$this->staff($mda,$department,'SUP-A'); $supportB=$this->staff($mda,$department,'SUP-B');
-        $plan=Workplan::query()->create(['mda_id'=>$mda->id,'year'=>2027,'revision_no'=>1,'title'=>'Plan','status'=>'draft']); $objective=$plan->objectives()->create(['mda_id'=>$mda->id,'code'=>'OBJ','title'=>'Objective']);
+        $plan=Workplan::query()->create([
+            'mda_id'=>$mda->id,
+            'year'=>2027,
+            'revision_no'=>1,
+            'title'=>'Plan',
+            'document_classification'=>'Sample internal draft',
+            'description'=>'Detailed annual plan.',
+            'overall_goal'=>'Improve statewide service quality.',
+            'strategic_directions'=>['Service delivery improvement','Better reporting discipline'],
+            'planning_assumptions'=>['Funding released on time','Staff remain deployed'],
+            'prepared_by_label'=>'Planning, Research and Statistics Unit',
+            'status'=>'draft',
+        ]);
+        $objective=$plan->objectives()->create([
+            'mda_id'=>$mda->id,
+            'code'=>'OBJ',
+            'title'=>'Objective',
+            'lead_scope'=>'MDA-wide / PRS',
+            'description'=>'Objective description',
+            'planned_cost'=>250000,
+        ]);
         $activity=$this->actingAs($user)->postJson("/api/workplan-objectives/{$objective->id}/activities",['activity_code'=>'ACT','title'=>'Activity','department_id'=>$department->id,'responsible_staff_id'=>$lead->id,'start_date'=>'2027-01-01','end_date'=>'2027-12-31'])->assertCreated()->json('data.id');
         $this->actingAs($user)->putJson("/api/workplan-activities/{$activity}/supporting-staff",['staff_ids'=>[$supportA->id,$supportB->id]])->assertOk();
         $this->actingAs($user)->putJson("/api/workplan-activities/{$activity}/supporting-staff",['staff_ids'=>[$lead->id]])->assertUnprocessable();
         $this->actingAs($user)->putJson("/api/workplan-activities/{$activity}/supporting-staff",['staff_ids'=>[$supportA->id]])->assertOk(); $this->assertDatabaseCount('workplan_activity_assignments',1);
-        $indicator=$this->actingAs($user)->postJson("/api/workplan-activities/{$activity}/indicators",['code'=>'KPI','indicator'=>'Items','target_mode'=>'absolute','direction'=>'increase','weight'=>1])->assertCreated()->json('data.id');
+        $indicator=$this->actingAs($user)->postJson("/api/workplan-activities/{$activity}/indicators",['code'=>'KPI','indicator'=>'Items','description'=>'Indicator description','target_mode'=>'absolute','direction'=>'increase','weight'=>1])->assertCreated()->json('data.id');
         $this->actingAs($user)->putJson("/api/workplan-indicators/{$indicator}/targets",['targets'=>[['period'=>'q1','target_value'=>25],['period'=>'q2','target_value'=>50],['period'=>'q3','target_value'=>75],['period'=>'q4','target_value'=>100],['period'=>'annual','target_value'=>100]]])->assertOk();
         $this->actingAs($user)->putJson("/api/workplan-indicators/{$indicator}/targets",['targets'=>[['period'=>'q1','target_value'=>50],['period'=>'q2','target_value'=>25]]])->assertUnprocessable();
-        $this->actingAs($user)->getJson("/api/workplans/{$plan->id}")->assertOk()->assertJsonPath('data.objectives.0.activities.0.responsible_staff.id',$lead->id)->assertJsonPath('data.objectives.0.activities.0.supporting_staff.0.id',$supportA->id)->assertJsonCount(5,'data.objectives.0.activities.0.indicators.0.targets');
+        $this->actingAs($user)->getJson("/api/workplans/{$plan->id}")
+            ->assertOk()
+            ->assertJsonPath('data.document_classification','Sample internal draft')
+            ->assertJsonPath('data.overall_goal','Improve statewide service quality.')
+            ->assertJsonPath('data.prepared_by_label','Planning, Research and Statistics Unit')
+            ->assertJsonPath('data.strategic_directions.0','Service delivery improvement')
+            ->assertJsonPath('data.planning_assumptions.0','Funding released on time')
+            ->assertJsonPath('data.objectives.0.lead_scope','MDA-wide / PRS')
+            ->assertJsonPath('data.objectives.0.planned_cost','250000.00')
+            ->assertJsonPath('data.objectives.0.activities.0.responsible_staff.id',$lead->id)
+            ->assertJsonPath('data.objectives.0.activities.0.supporting_staff.0.id',$supportA->id)
+            ->assertJsonPath('data.objectives.0.activities.0.indicators.0.description','Indicator description')
+            ->assertJsonCount(5,'data.objectives.0.activities.0.indicators.0.targets');
         foreach (['workplan.assignment.synced','workplan.indicator_targets.synced'] as $event) $this->assertDatabaseHas('audit_logs',['event_code'=>$event]);
     }
 

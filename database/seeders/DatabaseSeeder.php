@@ -24,6 +24,7 @@ class DatabaseSeeder extends Seeder
             SuperAdminSeeder::class,
             PlatformAndMdaSettingsSeeder::class,
             MdaUserSeeder::class,
+            MohSampleAnnualWorkplan2026Seeder::class,
         ]);
     }
 }

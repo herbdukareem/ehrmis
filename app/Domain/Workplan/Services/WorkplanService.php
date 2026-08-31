@@ -24,7 +24,20 @@ class WorkplanService
         $this->assertMdaAccess($actor, (int) $data['mda_id']);
         if (Workplan::query()->where('mda_id', $data['mda_id'])->where('year', $data['year'])->where('revision_no', 1)->exists()) $this->fail('year', 'A revision 1 workplan already exists for this MDA and year.');
         return DB::transaction(function () use ($data, $actor): Workplan {
-            $workplan = Workplan::query()->create(['mda_id' => $data['mda_id'], 'year' => $data['year'], 'revision_no' => 1, 'title' => $data['title'], 'description' => $data['description'] ?? null, 'status' => WorkplanStatus::DRAFT, 'prepared_by' => $actor->id]);
+            $workplan = Workplan::query()->create([
+                'mda_id' => $data['mda_id'],
+                'year' => $data['year'],
+                'revision_no' => 1,
+                'title' => $data['title'],
+                'document_classification' => $data['document_classification'] ?? null,
+                'description' => $data['description'] ?? null,
+                'overall_goal' => $data['overall_goal'] ?? null,
+                'strategic_directions' => $data['strategic_directions'] ?? null,
+                'planning_assumptions' => $data['planning_assumptions'] ?? null,
+                'status' => WorkplanStatus::DRAFT,
+                'prepared_by' => $actor->id,
+                'prepared_by_label' => $data['prepared_by_label'] ?? null,
+            ]);
             $this->log('workplan.created', $workplan, [], $workplan->toArray(), ['source' => 'workplan']);
             return $workplan;
         });
@@ -34,7 +47,15 @@ class WorkplanService
     {
         $this->ensureEditable($workplan);
         $before = $workplan->toArray();
-        $workplan->fill(collect($data)->only(['title', 'description'])->all())->save();
+        $workplan->fill(collect($data)->only([
+            'title',
+            'document_classification',
+            'description',
+            'overall_goal',
+            'strategic_directions',
+            'planning_assumptions',
+            'prepared_by_label',
+        ])->all())->save();
         $this->log('workplan.updated', $workplan, $before, $workplan->fresh()->toArray(), ['source' => 'workplan']);
         return $workplan->fresh();
     }
@@ -44,7 +65,7 @@ class WorkplanService
         $this->ensureEditable($workplan); $this->assertDepartment($data['department_id'] ?? null, $workplan->mda_id);
         if ($workplan->objectives()->where('code', $data['code'])->exists()) $this->fail('code', 'Objective code must be unique within the workplan.');
         return DB::transaction(function () use ($workplan, $data): WorkplanObjective {
-            $objective = $workplan->objectives()->create([...collect($data)->only(['department_id','code','title','description','priority','performance_weight','sort_order'])->all(), 'mda_id' => $workplan->mda_id]);
+            $objective = $workplan->objectives()->create([...collect($data)->only(['department_id','code','title','lead_scope','description','priority','performance_weight','planned_cost','sort_order'])->all(), 'mda_id' => $workplan->mda_id]);
             $this->log('workplan.objective.created', $objective, [], $objective->toArray(), $this->context($workplan, ['objective_id' => $objective->id, 'source' => 'workplan_authoring']));
             return $objective;
         });
@@ -53,7 +74,7 @@ class WorkplanService
     public function updateObjective(WorkplanObjective $objective, array $data): WorkplanObjective
     {
         $workplan = $objective->workplan; $this->ensureEditable($workplan); $this->assertDepartment($data['department_id'] ?? $objective->department_id, $workplan->mda_id);
-        $before = $objective->toArray(); $objective->fill(collect($data)->only(['department_id','code','title','description','priority','performance_weight','sort_order'])->all())->save();
+        $before = $objective->toArray(); $objective->fill(collect($data)->only(['department_id','code','title','lead_scope','description','priority','performance_weight','planned_cost','sort_order'])->all())->save();
         $this->log('workplan.objective.updated', $objective, $before, $objective->fresh()->toArray(), $this->context($workplan, ['objective_id' => $objective->id, 'source' => 'workplan_authoring'])); return $objective->fresh();
     }
 
@@ -99,14 +120,14 @@ class WorkplanService
     {
         $workplan = $activity->objective->workplan; $this->ensureEditable($workplan); $this->validateIndicator($data);
         if ($activity->indicators()->where('code', $data['code'])->exists()) $this->fail('code', 'Indicator code must be unique within the activity.');
-        $indicator = $activity->indicators()->create([...collect($data)->only(['code','indicator','unit','baseline_value','annual_target_value','target_mode','direction','weight','sort_order','is_required'])->all(), 'mda_id' => $workplan->mda_id]);
+        $indicator = $activity->indicators()->create([...collect($data)->only(['code','indicator','description','unit','baseline_value','annual_target_value','target_mode','direction','weight','sort_order','is_required'])->all(), 'mda_id' => $workplan->mda_id]);
         $this->log('workplan.indicator.created', $indicator, [], $indicator->toArray(), $this->context($workplan, ['activity_id' => $activity->id, 'indicator_id' => $indicator->id, 'source' => 'workplan_authoring'])); return $indicator;
     }
 
     public function updateIndicator(WorkplanIndicator $indicator, array $data): WorkplanIndicator
     {
         $workplan = $indicator->activity->objective->workplan; $this->ensureEditable($workplan); $this->validateIndicator([...$indicator->only(['target_mode','direction','weight','baseline_value','annual_target_value']), ...$data]);
-        $before = $indicator->toArray(); $indicator->fill(collect($data)->only(['code','indicator','unit','baseline_value','annual_target_value','target_mode','direction','weight','sort_order','is_required'])->all())->save(); $this->log('workplan.indicator.updated', $indicator, $before, $indicator->fresh()->toArray(), $this->context($workplan, ['activity_id' => $indicator->workplan_activity_id, 'indicator_id' => $indicator->id, 'source' => 'workplan_authoring'])); return $indicator->fresh();
+        $before = $indicator->toArray(); $indicator->fill(collect($data)->only(['code','indicator','description','unit','baseline_value','annual_target_value','target_mode','direction','weight','sort_order','is_required'])->all())->save(); $this->log('workplan.indicator.updated', $indicator, $before, $indicator->fresh()->toArray(), $this->context($workplan, ['activity_id' => $indicator->workplan_activity_id, 'indicator_id' => $indicator->id, 'source' => 'workplan_authoring'])); return $indicator->fresh();
     }
 
     public function deleteIndicator(WorkplanIndicator $indicator): void

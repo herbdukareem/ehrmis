@@ -16,11 +16,39 @@ class Workplan extends Model
 {
     use HasMdaScope;
 
-    protected $fillable = ['mda_id', 'year', 'revision_no', 'supersedes_workplan_id', 'title', 'description', 'status', 'prepared_by', 'amendment_reason', 'summary'];
+    protected $fillable = [
+        'mda_id',
+        'year',
+        'revision_no',
+        'supersedes_workplan_id',
+        'title',
+        'document_classification',
+        'description',
+        'overall_goal',
+        'strategic_directions',
+        'planning_assumptions',
+        'status',
+        'prepared_by',
+        'prepared_by_label',
+        'amendment_reason',
+        'summary',
+    ];
 
     protected function casts(): array
     {
-        return ['year' => 'integer', 'revision_no' => 'integer', 'status' => WorkplanStatus::class, 'summary' => 'array', 'submitted_at' => 'datetime', 'approved_at' => 'datetime', 'activated_at' => 'datetime', 'closed_at' => 'datetime', 'superseded_at'=>'datetime'];
+        return [
+            'year' => 'integer',
+            'revision_no' => 'integer',
+            'status' => WorkplanStatus::class,
+            'strategic_directions' => 'array',
+            'planning_assumptions' => 'array',
+            'summary' => 'array',
+            'submitted_at' => 'datetime',
+            'approved_at' => 'datetime',
+            'activated_at' => 'datetime',
+            'closed_at' => 'datetime',
+            'superseded_at' => 'datetime',
+        ];
     }
 
     public function mda(): BelongsTo { return $this->belongsTo(Mda::class); }
