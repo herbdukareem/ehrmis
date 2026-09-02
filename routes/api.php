@@ -120,6 +120,8 @@ Route::middleware('auth')->group(function (): void {
     Route::get('/dashboard', [DashboardController::class, 'show'])
         ->middleware('ensure.module:dashboards_analytics')
         ->name('api.dashboard');
+    Route::get('/facility-dashboard', [DashboardController::class, 'facility'])
+        ->name('api.facility-dashboard');
     Route::get('/executive-dashboard', ExecutiveDashboardController::class)
         ->middleware('ensure.module:dashboards_analytics')
         ->name('api.executive-dashboard');

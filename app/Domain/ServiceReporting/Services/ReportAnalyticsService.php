@@ -15,11 +15,37 @@ class ReportAnalyticsService
     {
         $user->loadMissing('station');
         $template = ReportTemplate::query()->where('code', $filters['template_code'])->firstOrFail();
-        $indicator = ReportTemplateIndicator::query()
-            ->where('code', $filters['indicator_code'])
+        $indicatorCodes = collect($filters['indicator_codes'] ?? [$filters['indicator_code']])
+            ->filter()
+            ->unique()
+            ->values();
+        $indicators = ReportTemplateIndicator::query()
+            ->whereIn('code', $indicatorCodes)
             ->whereHas('section', fn ($query) => $query->where('report_template_id', $template->id))
-            ->firstOrFail();
+            ->get()
+            ->keyBy('code');
 
+        abort_unless($indicators->count() === $indicatorCodes->count(), 404);
+
+        $analytics = $indicatorCodes
+            ->map(fn (string $code): array => $this->trendForIndicator($filters, $user, $template, $indicators->get($code)))
+            ->values();
+
+        if ($analytics->count() === 1) {
+            return $analytics->first();
+        }
+
+        return [
+            'indicators' => $analytics,
+            'period_range' => [
+                'from' => $filters['from'] ?? null,
+                'to' => $filters['to'] ?? null,
+            ],
+        ];
+    }
+
+    protected function trendForIndicator(array $filters, User $user, ReportTemplate $template, ReportTemplateIndicator $indicator): array
+    {
         $rows = $this->valueQuery($filters, $user, $template, $indicator)
             ->selectRaw('reporting_periods.period_year, reporting_periods.period_month, report_submissions.station_id, stations.name as station_name, SUM(COALESCE(value_integer, value_decimal, computed_value_decimal, 0)) as aggregate_value')
             ->groupBy('reporting_periods.period_year', 'reporting_periods.period_month', 'report_submissions.station_id', 'stations.name')

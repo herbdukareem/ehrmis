@@ -4,6 +4,7 @@ import StatusPill from '../StatusPill.vue';
 import { formatDateTime, formatNumber } from '../../lib/serviceReporting';
 
 defineProps({
+    workspaceTitle: { type: String, required: true },
     statCards: { type: Array, required: true },
     quickActions: { type: Array, required: true },
     pendingSubmissions: { type: Array, default: () => [] },
@@ -25,7 +26,7 @@ const pendingColumns = [
         <div class="civic-reporting-intro">
             <div>
                 <div class="civic-eyebrow">Workspace</div>
-                <h2>MDA Service Reporting and Returns</h2>
+                <h2>{{ workspaceTitle }}</h2>
                 <p>Manage monthly service reports, facility returns, approvals, and reporting analytics.</p>
             </div>
         </div>

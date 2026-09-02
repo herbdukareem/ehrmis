@@ -35,7 +35,7 @@ function showFieldErrors(name) {
             <div class="civic-workspace-header">
                 <div>
                     <div class="civic-eyebrow">Monthly return</div>
-                    <h2>{{ selectedDraftSubmission ? 'Continue monthly return' : 'Submit monthly return' }}</h2>
+                    <h2>{{ selectedDraftSubmission ? 'Continue Report' : 'Create New Report' }}</h2>
                     <p class="civic-section-note">Select the reporting context, then enter values by section. Totals are calculated from each indicator’s configured dimensions.</p>
                 </div>
                 <StatusPill v-if="selectedDraftSubmission" :value="selectedDraftSubmission.status" />

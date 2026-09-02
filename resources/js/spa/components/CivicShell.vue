@@ -13,7 +13,8 @@ const navBlueprint = [
         id: 'operations',
         label: 'Operations',
         items: [
-            { label: 'Overview', to: '/dashboard', module: 'dashboards_analytics', permissionAny: ['view-reports'] },
+            { label: 'Overview', to: '/dashboard', module: 'dashboards_analytics', permissionAny: ['view-reports'], hideForFacilityUsers: true },
+            { label: 'Facility dashboard', to: '/facility-dashboard', facilityOnly: true },
             { label: 'Executive dashboard', to: '/executive-dashboard', module: 'dashboards_analytics', permissionAny: ['view-reports'] },
             { label: 'Staff registry', to: '/staff', module: 'staff_registry', permissionAny: ['view-staff'] },
             { label: 'Data imports', to: '/legacy-staff-imports', module: 'legacy_import', permissionAny: ['view-staff-imports', 'import-staff', 'review-staff-imports', 'resolve-staff-import-issues', 'approve-staff-imports', 'publish-staff-imports', 'publish-own-mda-staff-imports'] },
@@ -68,7 +69,7 @@ const navSections = computed(() => {
     return navBlueprint
         .map((section) => {
             const items = section.items
-                .filter((item) => (!item.requiresGlobalAccess || auth.user?.has_global_access) && (item.module
+                .filter((item) => (!item.facilityOnly || auth.user?.assigned_station) && (!item.hideForFacilityUsers || !auth.user?.assigned_station) && (!item.requiresGlobalAccess || auth.user?.has_global_access) && (item.module
                     ? hasAnyAccess(item.module, item.permissionAny)
                     : hasAnyPermission(item.permissionAny)))
                 .map((item) => ({

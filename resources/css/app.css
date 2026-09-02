@@ -1556,6 +1556,32 @@ details.civic-detail > :not(summary) {
 .civic-reporting-empty { display: grid; gap: 6px; padding: 42px 24px; color: var(--civic-muted); text-align: center; background: var(--civic-surface); border: 1px dashed var(--civic-line); }
 .civic-reporting-panel .civic-reporting-empty { border-width: 0; border-top: 1px solid var(--civic-line); }
 .civic-reporting-empty strong { color: var(--civic-ink); font-size: 15px; }
+.civic-reporting-chart-grid { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(320px, .8fr); gap: 18px; }
+.civic-reporting-chart-panel { padding: 22px 24px 24px; }
+.civic-reporting-chart-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 18px; padding-bottom: 16px; border-bottom: 1px solid var(--civic-line); }
+.civic-reporting-chart-heading span { display: block; color: var(--civic-blue); font-size: 10px; font-weight: 800; letter-spacing: .1em; text-transform: uppercase; }
+.civic-reporting-chart-heading h2 { margin: 5px 0 0; font-size: 22px; }
+.civic-reporting-chart-heading small { max-width: 180px; color: var(--civic-muted); font-size: 10px; line-height: 1.45; text-align: right; }
+.civic-reporting-chart-panel .civic-vertical-bar-chart { min-height: 280px; }
+.civic-reporting-chart-panel .civic-vertical-bar-column { grid-template-rows: 22px 175px auto; }
+.civic-reporting-chart-panel .civic-bar-chart { padding-top: 25px; }
+.civic-reporting-analytics-title { padding: 4px 2px 0; }
+.civic-reporting-analytics-title span { color: var(--civic-blue); font-size: 10px; font-weight: 800; letter-spacing: .1em; text-transform: uppercase; }
+.civic-reporting-analytics-title h2 { margin: 5px 0 0; font-size: 27px; }
+.civic-reporting-indicator-select { min-height: 128px; padding: 7px; }
+.civic-reporting-indicator-select option { padding: 7px 9px; }
+.civic-facility-banner { display: flex; align-items: center; justify-content: space-between; gap: 20px; padding: 20px 24px; background: linear-gradient(112deg, var(--civic-blue), #0f766e); color: #fff; }
+.civic-facility-banner > div { display: grid; gap: 4px; }
+.civic-facility-banner span { color: rgb(255 255 255 / .72); font-size: 10px; font-weight: 800; letter-spacing: .1em; text-transform: uppercase; }
+.civic-facility-banner strong { font-family: "Source Serif 4", serif; font-size: 20px; }
+.civic-facility-banner .civic-text-action { color: #fff; font-weight: 800; }
+.civic-facility-dashboard-grid { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(300px, .75fr); gap: 18px; }
+.civic-facility-dashboard-panel { padding: 24px 28px; }
+.civic-facility-reporting-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+.civic-facility-reporting-grid article { display: grid; gap: 5px; padding: 17px; background: #f4f5f0; border: 1px solid var(--civic-line); }
+.civic-facility-reporting-grid span { color: var(--civic-muted); font-size: 10px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; }
+.civic-facility-reporting-grid strong { color: var(--civic-blue); font-family: "Source Serif 4", serif; font-size: 30px; line-height: 1; }
+.civic-facility-reporting-grid small { color: var(--civic-muted); font-size: 10px; }
 .civic-table-actions,
 .civic-reporting-detail-actions,
 .civic-filter-actions,
@@ -1624,6 +1650,9 @@ details.civic-detail > :not(summary) {
     .civic-inline-builder-form,
     .civic-reporting-dimension-row,
     .civic-reporting-assignment-row { grid-template-columns: 1fr 1fr; }
+    .civic-reporting-chart-grid { grid-template-columns: 1fr; }
+    .civic-facility-dashboard-grid { grid-template-columns: 1fr; }
+    .civic-facility-reporting-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 
 @media (max-width: 760px) {
@@ -1636,6 +1665,8 @@ details.civic-detail > :not(summary) {
     .civic-reporting-dimension-row,
     .civic-reporting-assignment-row { grid-template-columns: 1fr; }
     .civic-reporting-intro { align-items: stretch; flex-direction: column; }
+    .civic-facility-banner { align-items: stretch; flex-direction: column; }
+    .civic-facility-reporting-grid { grid-template-columns: 1fr; }
     .civic-reporting-entry-table { table-layout: auto; }
 }
 .civic-setup-space { display: grid; gap: 18px; }

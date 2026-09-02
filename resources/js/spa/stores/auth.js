@@ -70,6 +70,10 @@ export function hasAnyAccess(moduleCode, permissions = []) {
 }
 
 export function defaultAuthenticatedPath() {
+    if (auth.user?.assigned_station) {
+        return '/facility-dashboard';
+    }
+
     const fallbackRoutes = [
         { path: '/dashboard', module: 'dashboards_analytics', permissions: ['view-reports'] },
         { path: '/staff', module: 'staff_registry', permissions: ['view-staff'] },

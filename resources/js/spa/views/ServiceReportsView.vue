@@ -55,6 +55,7 @@ const submissionFilters = reactive({
 const analyticsForm = reactive({
     template_code: 'HMB_MONTHLY_STATISTICS',
     indicator_code: '',
+    indicator_codes: [],
     from: `${currentYear - 2}-01`,
     to: `${currentYear - 1}-12`,
     mda_id: '',
@@ -77,8 +78,8 @@ const activeTab = computed(() => (currentView.value === 'submission-detail' ? 's
 const navItems = computed(() => [
     { id: 'dashboard', label: 'Dashboard', to: '/service-reports' },
     { id: 'templates', label: 'Templates', to: '/service-reports/templates', count: templates.value.length },
-    { id: 'submissions', label: 'Submissions', to: '/service-reports/submissions', count: dashboard.value?.pending_submissions?.length ?? undefined },
-    { id: 'submit', label: 'Submit Return', to: '/service-reports/submit' },
+    { id: 'submissions', label: 'Submissions', to: '/service-reports/submissions', count: submissionCount.value },
+    { id: 'submit', label: 'Create New Report', to: '/service-reports/submit' },
     { id: 'analytics', label: 'Analytics', to: '/service-reports/analytics' },
 ]);
 
@@ -110,12 +111,20 @@ const assignedStation = computed(() => auth.user?.assigned_station ?? null);
 const assignedStationId = computed(() => Number(assignedStation.value?.id ?? 0) || null);
 const assignedStationMdaId = computed(() => Number(assignedStation.value?.mda_id ?? 0) || null);
 const hasAssignedStationScope = computed(() => Boolean(assignedStationId.value));
+const workspaceTitle = computed(() => (hasAssignedStationScope.value ? 'Facility Reporting' : 'MDA Data Reporting'));
 
 const mdas = computed(() => dashboard.value?.mdas ?? []);
 const allStations = computed(() => dashboard.value?.stations ?? []);
 const departments = computed(() => dashboard.value?.departments ?? []);
 const pendingSubmissions = computed(() => dashboard.value?.pending_submissions ?? []);
 const dashboardSummary = computed(() => dashboard.value?.summary ?? {});
+const submissionCount = computed(() => (
+    Number(dashboardSummary.value.draft ?? 0)
+    + Number(dashboardSummary.value.submitted ?? 0)
+    + Number(dashboardSummary.value.returned ?? 0)
+    + Number(dashboardSummary.value.approved ?? 0)
+    + Number(dashboardSummary.value.locked ?? 0)
+));
 
 const complianceTotals = computed(() => {
     const rows = dashboard.value?.compliance ?? [];
@@ -136,7 +145,7 @@ const statCards = computed(() => [
 ]);
 
 const quickActions = computed(() => [
-    { label: 'Submit Monthly Return', description: 'Start or continue a facility return for an open reporting period.', to: '/service-reports/submit', visible: can('create-service-reports') },
+    { label: 'Create New Report', description: 'Start or continue a report for an open reporting period.', to: '/service-reports/submit', visible: can('create-service-reports') },
     { label: 'View Submissions', description: 'Track drafts, returned reports, approvals, and locked records.', to: '/service-reports/submissions', visible: true },
     { label: 'Manage Templates', description: 'Review report structure, sections, indicators, and facility assignments.', to: '/service-reports/templates', visible: canManageTemplates.value },
     { label: 'View Analytics', description: 'Aggregate approved and locked service statistics for leadership review.', to: '/service-reports/analytics', visible: true },
@@ -221,9 +230,10 @@ async function loadIndicators() {
 
     indicators.value = (await api.get('/service-reports/analytics/indicators', { params: { template_code: analyticsForm.template_code } })).data.data;
 
-    if (!indicators.value.some((indicator) => indicator.code === analyticsForm.indicator_code)) {
-        analyticsForm.indicator_code = indicators.value[0]?.code ?? '';
-    }
+    const availableCodes = new Set(indicators.value.map((indicator) => indicator.code));
+    analyticsForm.indicator_codes = analyticsForm.indicator_codes.filter((code) => availableCodes.has(code));
+    if (!analyticsForm.indicator_codes.length && indicators.value[0]) analyticsForm.indicator_codes = [indicators.value[0].code];
+    analyticsForm.indicator_code = analyticsForm.indicator_codes[0] ?? '';
 }
 
 async function loadDraftSubmission(id) {
@@ -265,7 +275,7 @@ async function load() {
         }
         if (currentView.value === 'analytics') {
             await loadIndicators();
-            if (analyticsForm.indicator_code) await runAnalytics(false);
+            if (analyticsForm.indicator_codes.length) await runAnalytics(false);
         }
     } catch (requestError) {
         error.value = apiMessage(requestError, 'Service reporting is unavailable.');
@@ -394,7 +404,7 @@ async function activateTemplate(template, active) {
 }
 
 async function runAnalytics(showBusy = true) {
-    if (!analyticsForm.template_code || !analyticsForm.indicator_code) return;
+    if (!analyticsForm.template_code || !analyticsForm.indicator_codes.length) return;
 
     if (showBusy) busy.value = true;
 
@@ -428,10 +438,10 @@ onMounted(load);
 <template>
     <PageHeading
         eyebrow="Service reporting"
-        title="MDA Service Reporting and Returns"
+        :title="workspaceTitle"
         description="Manage monthly service reports, facility returns, approvals, and reporting analytics."
     >
-        <RouterLink v-if="can('create-service-reports')" class="civic-button civic-button-primary" to="/service-reports/submit">Submit return</RouterLink>
+        <RouterLink v-if="can('create-service-reports')" class="civic-button civic-button-primary" to="/service-reports/submit">Create New Report</RouterLink>
     </PageHeading>
 
     <LoadingBlock v-if="loading" />
@@ -444,6 +454,7 @@ onMounted(load);
 
             <ServiceReportsDashboard
                 v-if="currentView === 'dashboard'"
+                :workspace-title="workspaceTitle"
                 :stat-cards="statCards"
                 :quick-actions="quickActions"
                 :pending-submissions="pendingSubmissions"

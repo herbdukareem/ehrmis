@@ -9,6 +9,7 @@ use App\Domain\Organization\Models\Mda;
 use App\Domain\Posting\Models\StaffPostingRequest;
 use App\Domain\Promotion\Models\PromotionApplication;
 use App\Domain\Promotion\Models\PromotionSitting;
+use App\Domain\ServiceReporting\Models\ReportSubmission;
 use App\Domain\Staff\Models\Staff;
 use App\Domain\Staff\Models\StaffAllowanceAssignment;
 use App\Domain\Staff\Models\StaffEmployment;
@@ -31,6 +32,7 @@ class DashboardController extends Controller
     public function show(Request $request): JsonResponse
     {
         $user = $request->user();
+        abort_if($user->hasStationScope(), 403);
         $scope = fn (Builder $query, string $column = 'mda_id'): Builder => $user->scopeToAccessibleMdas($query, $column);
 
         $staffQuery = Staff::query();
@@ -111,6 +113,52 @@ class DashboardController extends Controller
         return response()->json(['data' => $data]);
     }
 
+    public function facility(Request $request): JsonResponse
+    {
+        $user = $request->user()->loadMissing('station.mda');
+        abort_unless($user->hasStationScope() && $user->station, 403);
+
+        $today = CarbonImmutable::today();
+        $staff = $this->facilityEmploymentQuery((int) $user->station_id);
+        $active = (clone $staff)
+            ->where('staff.status', 'active')
+            ->where('staff_employments.employment_status', '!=', 'retired')
+            ->where(fn (Builder $query) => $query->whereNull('staff_employments.expected_retirement_date')->orWhereDate('staff_employments.expected_retirement_date', '>', $today->toDateString()));
+
+        $data = [
+            'facility' => [
+                ...$user->station->only(['id', 'mda_id', 'code', 'name', 'status']),
+                'mda' => $user->station->mda?->only(['id', 'code', 'name']),
+            ],
+            'counts' => [
+                'staff' => (clone $staff)->count(),
+                'active_staff' => $active->count(),
+                'retired_staff' => (clone $staff)->where(fn (Builder $query) => $query->where('staff.status', 'retired')->orWhere('staff_employments.employment_status', 'retired')->orWhereDate('staff_employments.expected_retirement_date', '<=', $today->toDateString()))->count(),
+            ],
+            'retirement_windows' => [
+                'this_month' => $this->facilityRetirementCount((int) $user->station_id, $today->startOfMonth(), $today->endOfMonth()),
+                'next_month' => $this->facilityRetirementCount((int) $user->station_id, $today->addMonthNoOverflow()->startOfMonth(), $today->addMonthNoOverflow()->endOfMonth()),
+                'this_year' => $this->facilityRetirementCount((int) $user->station_id, $today->startOfYear(), $today->endOfYear()),
+            ],
+            'distributions' => [
+                'departments' => (clone $staff)->leftJoin('departments', 'departments.id', '=', 'staff_employments.department_id')->selectRaw("COALESCE(departments.name, 'Unassigned') as label, COUNT(*) as total")->groupBy('departments.id', 'departments.name')->orderByDesc('total')->get()->map(fn ($row): array => ['label' => $row->label, 'total' => (int) $row->total])->all(),
+                'cadres' => (clone $staff)->leftJoin('cadres', 'cadres.id', '=', 'staff_employments.cadre_id')->selectRaw("COALESCE(cadres.name, 'Unassigned') as label, COUNT(*) as total")->groupBy('cadres.id', 'cadres.name')->orderByDesc('total')->get()->map(fn ($row): array => ['label' => $row->label, 'total' => (int) $row->total])->all(),
+                'gender' => (clone $staff)->selectRaw("COALESCE(staff.sex, 'Not recorded') as label, COUNT(*) as total")->groupBy('staff.sex')->orderByDesc('total')->get()->map(fn ($row): array => ['label' => ucfirst($row->label), 'total' => (int) $row->total])->all(),
+            ],
+        ];
+
+        if ($user->can('view-service-reports')) {
+            $data['reporting'] = ReportSubmission::query()
+                ->where('station_id', $user->station_id)
+                ->selectRaw("status, COUNT(*) as total")
+                ->groupBy('status')
+                ->pluck('total', 'status')
+                ->all();
+        }
+
+        return response()->json(['data' => $data]);
+    }
+
     protected function scopeMode($user, int $visibleMdaCount): string
     {
         if ($user->hasGlobalMdaAccess()) {
@@ -118,6 +166,24 @@ class DashboardController extends Controller
         }
 
         return $visibleMdaCount > 1 ? 'multi_mda' : 'mda';
+    }
+
+    protected function facilityEmploymentQuery(int $stationId): Builder
+    {
+        return StaffEmployment::query()
+            ->join('staff', 'staff.id', '=', 'staff_employments.staff_id')
+            ->whereNull('staff.deleted_at')
+            ->where('staff_employments.is_current', true)
+            ->where('staff_employments.station_id', $stationId);
+    }
+
+    protected function facilityRetirementCount(int $stationId, CarbonImmutable $from, CarbonImmutable $to): int
+    {
+        return $this->facilityEmploymentQuery($stationId)
+            ->where('staff.status', '!=', 'retired')
+            ->where('staff_employments.employment_status', '!=', 'retired')
+            ->whereBetween('staff_employments.expected_retirement_date', [$from->toDateString(), $to->toDateString()])
+            ->count();
     }
 
     protected function mdaOverview($user, $visibleMdas, CarbonImmutable $today): array

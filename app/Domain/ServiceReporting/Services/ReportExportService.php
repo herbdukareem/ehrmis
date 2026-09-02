@@ -63,32 +63,38 @@ class ReportExportService
 
     public function analytics(array $analytics, User $actor): BinaryFileResponse
     {
-        $rows = [
-            ['Indicator', $analytics['indicator']['label'] ?? null],
-            ['From', $analytics['period_range']['from'] ?? null],
-            ['To', $analytics['period_range']['to'] ?? null],
-            ['Grand Total', $analytics['totals']['grand_total'] ?? 0],
-            [],
-            ['Monthly Trend'],
-            ['Period', 'Value'],
-        ];
+        $rows = [];
 
-        foreach ($analytics['series'] ?? [] as $row) {
-            $rows[] = [$row['period'], $row['value']];
-        }
+        foreach ($analytics['indicators'] ?? [$analytics] as $indicatorAnalytics) {
+            $rows = [...$rows,
+                ['Indicator', $indicatorAnalytics['indicator']['label'] ?? null],
+                ['From', $indicatorAnalytics['period_range']['from'] ?? $analytics['period_range']['from'] ?? null],
+                ['To', $indicatorAnalytics['period_range']['to'] ?? $analytics['period_range']['to'] ?? null],
+                ['Grand Total', $indicatorAnalytics['totals']['grand_total'] ?? 0],
+                [],
+                ['Monthly Trend'],
+                ['Period', 'Value'],
+            ];
 
-        $rows[] = [];
-        $rows[] = ['Yearly Summary'];
-        $rows[] = ['Year', 'Value'];
-        foreach ($analytics['by_year'] ?? [] as $row) {
-            $rows[] = [$row['year'], $row['value']];
-        }
+            foreach ($indicatorAnalytics['series'] ?? [] as $row) {
+                $rows[] = [$row['period'], $row['value']];
+            }
 
-        $rows[] = [];
-        $rows[] = ['Facility Comparison'];
-        $rows[] = ['Station', 'Value'];
-        foreach ($analytics['facility_comparison'] ?? [] as $row) {
-            $rows[] = [$row['station_name'], $row['value']];
+            $rows[] = [];
+            $rows[] = ['Yearly Summary'];
+            $rows[] = ['Year', 'Value'];
+            foreach ($indicatorAnalytics['by_year'] ?? [] as $row) {
+                $rows[] = [$row['year'], $row['value']];
+            }
+
+            $rows[] = [];
+            $rows[] = ['Facility Comparison'];
+            $rows[] = ['Station', 'Value'];
+            foreach ($indicatorAnalytics['facility_comparison'] ?? [] as $row) {
+                $rows[] = [$row['station_name'], $row['value']];
+            }
+
+            $rows[] = [];
         }
 
         $this->auditLogService->logExport('service_reporting.analytics', [

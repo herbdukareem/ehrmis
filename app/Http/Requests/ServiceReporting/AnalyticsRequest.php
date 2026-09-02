@@ -15,7 +15,9 @@ class AnalyticsRequest extends FormRequest
     {
         return [
             'template_code' => ['required', 'string', 'exists:report_templates,code'],
-            'indicator_code' => ['required', 'string'],
+            'indicator_code' => ['nullable', 'string', 'required_without:indicator_codes'],
+            'indicator_codes' => ['nullable', 'array', 'min:1', 'max:6', 'required_without:indicator_code'],
+            'indicator_codes.*' => ['required', 'string', 'distinct'],
             'from' => ['nullable', 'date_format:Y-m'],
             'to' => ['nullable', 'date_format:Y-m'],
             'mda_id' => ['nullable', 'integer', 'exists:mdas,id'],

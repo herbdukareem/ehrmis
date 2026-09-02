@@ -4,6 +4,7 @@ namespace Tests\Feature;
 
 use App\Domain\Organization\Models\Department;
 use App\Domain\Organization\Models\Mda;
+use App\Domain\Organization\Models\Station;
 use App\Domain\Staff\Models\AllowanceType;
 use App\Domain\Staff\Models\Cadre;
 use App\Domain\Staff\Models\SalaryScale;
@@ -21,6 +22,35 @@ use Tests\TestCase;
 class DashboardIntelligenceTest extends TestCase
 {
     use RefreshDatabase;
+
+    public function test_facility_dashboard_returns_only_the_assigned_facility_workforce(): void
+    {
+        CarbonImmutable::setTestNow('2026-06-13');
+        $mda = Mda::query()->create(['code' => 'HMB', 'name' => 'Hospital Management Board', 'status' => 'active']);
+        $station = Station::query()->create(['mda_id' => $mda->id, 'code' => 'GHM', 'name' => 'General Hospital Minna', 'status' => 'active']);
+        $otherStation = Station::query()->create(['mda_id' => $mda->id, 'code' => 'GHS', 'name' => 'General Hospital Suleja', 'status' => 'active']);
+        $department = Department::query()->create(['mda_id' => $mda->id, 'code' => 'CLIN', 'name' => 'Clinical Services', 'status' => 'active']);
+        $scale = SalaryScale::query()->create(['mda_id' => $mda->id, 'code' => 'GL', 'name' => 'Grade Level', 'min_level' => 1, 'max_level' => 17, 'min_step' => 1, 'max_step' => 15, 'status' => 'active']);
+        $cadre = Cadre::query()->create(['department_id' => $department->id, 'salary_scale_id' => $scale->id, 'name' => 'Medical Officer', 'status' => 'active']);
+
+        foreach ([[$station, 'GHM-001', 'female'], [$otherStation, 'GHS-001', 'male']] as [$staffStation, $number, $sex]) {
+            $staff = Staff::withoutGlobalScopes()->create(['mda_id' => $mda->id, 'staff_number' => $number, 'surname' => 'Facility', 'first_name' => 'Staff', 'full_name' => $number, 'sex' => $sex, 'status' => 'active']);
+            StaffEmployment::query()->create(['staff_id' => $staff->id, 'mda_id' => $mda->id, 'station_id' => $staffStation->id, 'department_id' => $department->id, 'cadre_id' => $cadre->id, 'expected_retirement_date' => '2026-06-28', 'employment_status' => 'active', 'is_current' => true]);
+        }
+
+        $user = User::factory()->mdaUser($mda)->create(['station_id' => $station->id]);
+
+        $this->actingAs($user)
+            ->getJson('/api/facility-dashboard')
+            ->assertOk()
+            ->assertJsonPath('data.facility.id', $station->id)
+            ->assertJsonPath('data.counts.staff', 1)
+            ->assertJsonPath('data.counts.active_staff', 1)
+            ->assertJsonPath('data.distributions.gender.0.label', 'Female');
+
+        $this->actingAs($user)->getJson('/api/dashboard')->assertForbidden();
+        CarbonImmutable::setTestNow();
+    }
 
     public function test_dashboard_returns_mda_scoped_workforce_intelligence(): void
     {

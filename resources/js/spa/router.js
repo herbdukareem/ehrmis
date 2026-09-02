@@ -8,7 +8,8 @@ const routes = [
     { path: '/forgot-password', name: 'password.request', component: () => import('./views/PasswordAccessView.vue'), props: { mode: 'forgot' }, meta: { guest: true } },
     { path: '/reset-password/:token', name: 'password.reset', component: () => import('./views/PasswordAccessView.vue'), props: { mode: 'reset' }, meta: { guest: true } },
     { path: '/', redirect: '/dashboard' },
-    { path: '/dashboard', name: 'dashboard', component: () => import('./views/DashboardView.vue'), meta: { module: 'dashboards_analytics', permissionAny: ['view-reports'] } },
+    { path: '/dashboard', name: 'dashboard', component: () => import('./views/DashboardView.vue'), meta: { module: 'dashboards_analytics', permissionAny: ['view-reports'], redirectFacilityDashboard: true } },
+    { path: '/facility-dashboard', name: 'facility-dashboard', component: () => import('./views/FacilityDashboardView.vue') },
     { path: '/executive-dashboard', name: 'executive-dashboard', component: () => import('./views/ExecutiveDashboardView.vue'), meta: { module: 'dashboards_analytics', permissionAny: ['view-reports'] } },
     { path: '/staff', name: 'staff.index', component: () => import('./views/StaffIndexView.vue'), meta: { module: 'staff_registry', permissionAny: ['view-staff'] } },
     { path: '/staff/:id', name: 'staff.show', component: () => import('./views/StaffShowView.vue') },
@@ -70,6 +71,10 @@ router.beforeEach(async (to) => {
         return { name: 'login', query: { redirect: to.fullPath } };
     }
 
+    if (to.meta.redirectFacilityDashboard && auth.user?.assigned_station) {
+        return { name: 'facility-dashboard' };
+    }
+
     if (to.meta.module && !hasAnyAccess(to.meta.module, to.meta.permissionAny ?? [])) {
         const fallback = defaultAuthenticatedPath();
         if (fallback !== to.path) {
@@ -94,6 +99,7 @@ function routeTitle(name) {
         'password.request': 'Reset Password',
         'password.reset': 'Choose New Password',
         dashboard: 'Executive Overview',
+        'facility-dashboard': 'Facility Dashboard',
         'executive-dashboard': 'Executive Intelligence',
         'staff.index': 'Staff Registry',
         'staff.show': 'Staff Record',

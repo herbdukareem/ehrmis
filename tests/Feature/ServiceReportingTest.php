@@ -197,6 +197,31 @@ class ServiceReportingTest extends TestCase
             ->assertJsonPath('data.by_year.1.value', 140);
     }
 
+    public function test_analytics_can_return_multiple_indicators_without_combining_their_totals(): void
+    {
+        [$hmb] = $this->seedFixtures();
+        $user = $this->makeMdaAdmin($hmb);
+        $template = ReportTemplate::query()->where('code', 'HMB_MONTHLY_STATISTICS')->firstOrFail();
+        $station = Station::query()->where('mda_id', $hmb->id)->firstOrFail();
+
+        $this->createApprovedSubmission($user, $template, $hmb, $station, '2026-01', 18);
+
+        $this->actingAs($user)
+            ->getJson(route('api.service-reports.analytics.trends', [
+                'template_code' => 'HMB_MONTHLY_STATISTICS',
+                'indicator_codes' => ['new_outpatient_attendance', 'hiv_positive'],
+                'from' => '2026-01',
+                'to' => '2026-01',
+                'mda_id' => $hmb->id,
+                'status' => 'approved,locked',
+            ]))
+            ->assertOk()
+            ->assertJsonPath('data.indicators.0.indicator.code', 'new_outpatient_attendance')
+            ->assertJsonPath('data.indicators.0.totals.grand_total', 12)
+            ->assertJsonPath('data.indicators.1.indicator.code', 'hiv_positive')
+            ->assertJsonPath('data.indicators.1.totals.grand_total', 18);
+    }
+
     public function test_station_scoped_user_is_limited_to_assigned_station_for_reporting(): void
     {
         [$hmb] = $this->seedFixtures();
