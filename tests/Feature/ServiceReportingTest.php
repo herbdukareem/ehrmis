@@ -222,6 +222,31 @@ class ServiceReportingTest extends TestCase
             ->assertJsonPath('data.indicators.1.totals.grand_total', 18);
     }
 
+    public function test_template_table_analytics_returns_all_template_sections_for_selected_months(): void
+    {
+        [$hmb] = $this->seedFixtures();
+        $user = $this->makeMdaAdmin($hmb);
+        $template = ReportTemplate::query()->where('code', 'HMB_MONTHLY_STATISTICS')->firstOrFail();
+        $station = Station::query()->where('mda_id', $hmb->id)->firstOrFail();
+
+        $this->createApprovedSubmission($user, $template, $hmb, $station, '2026-01', 18);
+
+        $this->actingAs($user)
+            ->getJson(route('api.service-reports.analytics.template-table', [
+                'template_code' => 'HMB_MONTHLY_STATISTICS',
+                'report_style' => 'template_table',
+                'from' => '2026-01',
+                'to' => '2026-02',
+                'mda_id' => $hmb->id,
+                'status' => 'approved,locked',
+            ]))
+            ->assertOk()
+            ->assertJsonPath('data.template.code', 'HMB_MONTHLY_STATISTICS')
+            ->assertJsonPath('data.periods.0.key', '2026-01')
+            ->assertJsonPath('data.periods.1.key', '2026-02')
+            ->assertJsonPath('data.sections.0.title', 'Facility Identification');
+    }
+
     public function test_station_scoped_user_is_limited_to_assigned_station_for_reporting(): void
     {
         [$hmb] = $this->seedFixtures();

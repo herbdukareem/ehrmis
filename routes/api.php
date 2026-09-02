@@ -113,9 +113,11 @@ Route::middleware('auth')->group(function (): void {
         Route::get('/submissions/{submission}/export', [ServiceReportingController::class, 'exportSubmission'])->name('api.service-reports.submissions.export');
         Route::get('/analytics/indicators', [ServiceReportingController::class, 'indicators'])->name('api.service-reports.analytics.indicators');
         Route::get('/analytics/trends', [ServiceReportingController::class, 'trends'])->name('api.service-reports.analytics.trends');
+        Route::get('/analytics/template-table', [ServiceReportingController::class, 'templateTable'])->name('api.service-reports.analytics.template-table');
         Route::get('/analytics/facility-comparison', [ServiceReportingController::class, 'trends'])->name('api.service-reports.analytics.facility-comparison');
         Route::get('/analytics/compliance', [ServiceReportingController::class, 'compliance'])->name('api.service-reports.analytics.compliance');
         Route::get('/analytics/export', [ServiceReportingController::class, 'exportAnalytics'])->name('api.service-reports.analytics.export');
+        Route::get('/analytics/template-table/export', [ServiceReportingController::class, 'exportTemplateTable'])->name('api.service-reports.analytics.template-table.export');
     });
     Route::get('/dashboard', [DashboardController::class, 'show'])
         ->middleware('ensure.module:dashboards_analytics')

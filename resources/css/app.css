@@ -1570,6 +1570,18 @@ details.civic-detail > :not(summary) {
 .civic-reporting-analytics-title h2 { margin: 5px 0 0; font-size: 27px; }
 .civic-reporting-indicator-select { min-height: 128px; padding: 7px; }
 .civic-reporting-indicator-select option { padding: 7px 9px; }
+.civic-reporting-style-toggle { display: inline-flex; align-self: end; border: 1px solid var(--civic-line); }
+.civic-reporting-style-toggle button { padding: 10px 13px; color: var(--civic-muted); background: #f7f5f0; border: 0; border-right: 1px solid var(--civic-line); font-size: 10px; font-weight: 800; letter-spacing: .05em; text-transform: uppercase; cursor: pointer; }
+.civic-reporting-style-toggle button:last-child { border-right: 0; }
+.civic-reporting-style-toggle button.active { color: #fff; background: var(--civic-blue); }
+.civic-reporting-table-scroll { overflow-x: auto; }
+.civic-template-report-table { min-width: max-content; }
+.civic-template-report-table th:first-child { min-width: 230px; }
+.civic-template-report-table th:nth-child(2) { min-width: 170px; }
+.civic-template-report-table th:not(:first-child):not(:nth-child(2)), .civic-template-report-table td:not(:first-child):not(:nth-child(2)) { min-width: 112px; text-align: right; }
+.civic-template-report-table td { vertical-align: top; }
+.civic-template-report-table td strong, .civic-template-report-table td small { display: block; }
+.civic-template-report-table td small { margin-top: 3px; color: var(--civic-muted); font-size: 10px; }
 .civic-facility-banner { display: flex; align-items: center; justify-content: space-between; gap: 20px; padding: 20px 24px; background: linear-gradient(112deg, var(--civic-blue), #0f766e); color: #fff; }
 .civic-facility-banner > div { display: grid; gap: 4px; }
 .civic-facility-banner span { color: rgb(255 255 255 / .72); font-size: 10px; font-weight: 800; letter-spacing: .1em; text-transform: uppercase; }

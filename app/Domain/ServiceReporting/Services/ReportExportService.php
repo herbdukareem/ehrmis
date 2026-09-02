@@ -104,4 +104,38 @@ class ReportExportService
 
         return Excel::download(new ArrayReportExport($rows), 'service-report-analytics.xlsx');
     }
+
+    public function templateTable(array $report, User $actor): BinaryFileResponse
+    {
+        $rows = [
+            ['Template report', $report['template']['name'] ?? null],
+            [],
+        ];
+
+        foreach ($report['sections'] ?? [] as $section) {
+            $rows[] = [$section['title']];
+            $rows[] = ['Indicator', 'Dimension / Detail', ...collect($report['periods'] ?? [])->pluck('label')->all()];
+
+            foreach ($section['indicators'] ?? [] as $indicator) {
+                foreach ($indicator['rows'] ?? [] as $row) {
+                    $rows[] = [
+                        $indicator['label'] ?? null,
+                        $row['dimension_label'] ?? 'Total value',
+                        ...collect($report['periods'] ?? [])->map(fn (array $period) => $row['values'][$period['key']] ?? null)->all(),
+                    ];
+                }
+            }
+
+            $rows[] = [];
+        }
+
+        $this->auditLogService->logExport('service_reporting.template_table', [
+            'source' => 'service_reporting',
+            'template_id' => $report['template']['id'] ?? null,
+            'template_code' => $report['template']['code'] ?? null,
+            'actor_user_id' => $actor->id,
+        ]);
+
+        return Excel::download(new ArrayReportExport($rows), 'service-report-template-table.xlsx');
+    }
 }

@@ -6,6 +6,7 @@ use App\Domain\ServiceReporting\Models\ReportSubmissionValue;
 use App\Domain\ServiceReporting\Models\ReportTemplate;
 use App\Domain\ServiceReporting\Models\ReportTemplateIndicator;
 use App\Models\User;
+use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Collection;
 
@@ -144,14 +145,92 @@ class ReportAnalyticsService
         ])->values()->all();
     }
 
+    public function templateTable(array $filters, User $user): array
+    {
+        $user->loadMissing('station');
+        $template = ReportTemplate::query()
+            ->where('code', $filters['template_code'])
+            ->with('sections.indicators.dimensions')
+            ->firstOrFail();
+
+        $values = $this->templateValueQuery($filters, $user, $template)
+            ->select([
+                'report_submission_values.report_template_indicator_id',
+                'report_submission_values.dimension_key',
+                'report_submission_values.dimension_value',
+                'report_submission_values.value_integer',
+                'report_submission_values.value_decimal',
+                'report_submission_values.computed_value_decimal',
+                'report_submission_values.value_text',
+                'report_submission_values.value_boolean',
+                'reporting_periods.period_year',
+                'reporting_periods.period_month',
+            ])
+            ->orderBy('reporting_periods.period_year')
+            ->orderBy('reporting_periods.period_month')
+            ->get();
+
+        $periods = $this->tablePeriods($filters, $values);
+        $periodKeys = collect($periods)->pluck('key')->all();
+        $valuesByRow = $values->groupBy(fn ($value): string => implode('|', [
+            $value->report_template_indicator_id,
+            $value->dimension_key ?? '',
+            $value->dimension_value ?? '',
+        ]));
+
+        return [
+            'template' => $template->only(['id', 'code', 'name']),
+            'periods' => $periods,
+            'sections' => $template->sections->map(function ($section) use ($periodKeys, $valuesByRow): array {
+                return [
+                    'id' => $section->id,
+                    'title' => $section->title,
+                    'description' => $section->description,
+                    'indicators' => $section->indicators->map(function (ReportTemplateIndicator $indicator) use ($periodKeys, $valuesByRow): array {
+                        $dimensionRows = $indicator->dimensions->flatMap(fn ($dimension) => collect($dimension->dimension_values)->map(fn ($value): array => [
+                            'dimension_key' => $dimension->dimension_key,
+                            'dimension_label' => "{$dimension->dimension_label}: {$value}",
+                            'dimension_value' => $value,
+                        ]));
+                        $dimensionRows = $dimensionRows->isNotEmpty() ? $dimensionRows : collect([[
+                            'dimension_key' => null,
+                            'dimension_label' => null,
+                            'dimension_value' => null,
+                        ]]);
+
+                        return [
+                            'id' => $indicator->id,
+                            'label' => $indicator->label,
+                            'unit' => $indicator->unit,
+                            'rows' => $dimensionRows->map(function (array $row) use ($indicator, $periodKeys, $valuesByRow): array {
+                                $key = implode('|', [$indicator->id, $row['dimension_key'] ?? '', $row['dimension_value'] ?? '']);
+                                $byPeriod = $valuesByRow->get($key, collect())->groupBy(fn ($value): string => sprintf('%04d-%02d', $value->period_year, $value->period_month));
+
+                                return [
+                                    ...$row,
+                                    'values' => collect($periodKeys)->mapWithKeys(fn (string $period): array => [$period => $this->tableValue($byPeriod->get($period, collect()), $indicator->value_type)])->all(),
+                                ];
+                            })->values(),
+                        ];
+                    })->values(),
+                ];
+            })->values(),
+        ];
+    }
+
     protected function valueQuery(array $filters, User $user, ReportTemplate $template, ReportTemplateIndicator $indicator): Builder
+    {
+        return $this->templateValueQuery($filters, $user, $template)
+            ->where('report_submission_values.report_template_indicator_id', $indicator->id);
+    }
+
+    protected function templateValueQuery(array $filters, User $user, ReportTemplate $template): Builder
     {
         return ReportSubmissionValue::query()
             ->join('report_submissions', 'report_submission_values.report_submission_id', '=', 'report_submissions.id')
             ->join('reporting_periods', 'report_submissions.reporting_period_id', '=', 'reporting_periods.id')
             ->leftJoin('stations', 'report_submissions.station_id', '=', 'stations.id')
             ->where('report_submissions.report_template_id', $template->id)
-            ->where('report_submission_values.report_template_indicator_id', $indicator->id)
             ->when($user->hasStationScope(), function ($query) use ($user): void {
                 if (! $user->station) {
                     $query->whereRaw('1 = 0');
@@ -193,6 +272,45 @@ class ReportAnalyticsService
                         });
                 });
             });
+    }
+
+    protected function tablePeriods(array $filters, Collection $values): array
+    {
+        if (! empty($filters['from']) && ! empty($filters['to'])) {
+            $cursor = CarbonImmutable::createFromFormat('Y-m', $filters['from'])->startOfMonth();
+            $end = CarbonImmutable::createFromFormat('Y-m', $filters['to'])->startOfMonth();
+            $periods = [];
+
+            while ($cursor->lessThanOrEqualTo($end)) {
+                $periods[] = ['key' => $cursor->format('Y-m'), 'label' => $cursor->format('M Y')];
+                $cursor = $cursor->addMonth();
+            }
+
+            return $periods;
+        }
+
+        return $values->map(fn ($value): array => [
+            'key' => sprintf('%04d-%02d', $value->period_year, $value->period_month),
+            'label' => CarbonImmutable::create($value->period_year, $value->period_month, 1)->format('M Y'),
+        ])->unique('key')->values()->all();
+    }
+
+    protected function tableValue(Collection $values, string $valueType): string|int|float|null
+    {
+        if ($values->isEmpty()) {
+            return null;
+        }
+
+        if (in_array($valueType, ['integer', 'decimal', 'percentage'], true)) {
+            return (float) $values->sum(fn ($value): float => (float) ($value->value_integer ?? $value->value_decimal ?? $value->computed_value_decimal ?? 0));
+        }
+
+        if ($valueType === 'boolean') {
+            $states = $values->pluck('value_boolean')->filter(fn ($value) => $value !== null)->unique();
+            return $states->count() === 1 ? ($states->first() ? 'Yes' : 'No') : 'Mixed';
+        }
+
+        return $values->pluck('value_text')->filter(fn ($value) => $value !== null && $value !== '')->unique()->implode(' · ') ?: null;
     }
 
     protected function scopeSubmissionStatus($query, array $statuses, array $filters, User $user)

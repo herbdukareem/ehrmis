@@ -54,6 +54,7 @@ const submissionFilters = reactive({
 
 const analyticsForm = reactive({
     template_code: 'HMB_MONTHLY_STATISTICS',
+    report_style: 'trend',
     indicator_code: '',
     indicator_codes: [],
     from: `${currentYear - 2}-01`,
@@ -404,16 +405,50 @@ async function activateTemplate(template, active) {
 }
 
 async function runAnalytics(showBusy = true) {
-    if (!analyticsForm.template_code || !analyticsForm.indicator_codes.length) return;
+    if (!analyticsForm.template_code || (analyticsForm.report_style === 'trend' && !analyticsForm.indicator_codes.length)) return;
 
     if (showBusy) busy.value = true;
+    if (showBusy) analytics.value = null;
 
     try {
-        analytics.value = (await api.get('/service-reports/analytics/trends', { params: analyticsForm })).data.data;
+        const endpoint = analyticsForm.report_style === 'template_table'
+            ? '/service-reports/analytics/template-table'
+            : '/service-reports/analytics/trends';
+        analytics.value = (await api.get(endpoint, { params: analyticsForm })).data.data;
     } catch (requestError) {
         pushToast(apiMessage(requestError), 'error', 4200);
     } finally {
         if (showBusy) busy.value = false;
+    }
+}
+
+function runSelectedReportStyle() {
+    void runAnalytics();
+}
+
+async function downloadAnalyticsReport() {
+    if (!analytics.value || !canExport.value) return;
+
+    busy.value = true;
+
+    try {
+        const endpoint = analyticsForm.report_style === 'template_table'
+            ? '/service-reports/analytics/template-table/export'
+            : '/service-reports/analytics/export';
+        const response = await api.get(endpoint, { params: analyticsForm, responseType: 'blob' });
+        const downloadUrl = URL.createObjectURL(response.data);
+        const link = document.createElement('a');
+        const filename = response.headers['content-disposition']?.match(/filename="?([^";]+)"?/i)?.[1]
+            ?? 'service-report.xlsx';
+
+        link.href = downloadUrl;
+        link.download = filename;
+        link.click();
+        URL.revokeObjectURL(downloadUrl);
+    } catch (requestError) {
+        pushToast(apiMessage(requestError, 'The report download could not be completed.'), 'error', 4200);
+    } finally {
+        busy.value = false;
     }
 }
 
@@ -537,7 +572,10 @@ onMounted(load);
                 :mdas="mdas"
                 :stations="analyticsStations"
                 :busy="busy"
+                :can-export="canExport"
                 @run-analytics="runAnalytics"
+                @change-report-style="runSelectedReportStyle"
+                @download-report="downloadAnalyticsReport"
             />
         </template>
     </section>

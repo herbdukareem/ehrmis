@@ -14,11 +14,20 @@ const props = defineProps({
     mdas: { type: Array, default: () => [] },
     stations: { type: Array, default: () => [] },
     busy: { type: Boolean, default: false },
+    canExport: { type: Boolean, default: false },
 });
 
-defineEmits(['run-analytics']);
+const emit = defineEmits(['run-analytics', 'change-report-style', 'download-report']);
 
 const analyticsSets = computed(() => props.analytics?.indicators ?? (props.analytics ? [props.analytics] : []));
+const formatTableValue = (value) => value === null || value === undefined || value === '' ? '—' : typeof value === 'number' ? formatNumber(value) : value;
+
+function changeReportStyle(style) {
+    if (props.analyticsForm.report_style === style) return;
+
+    props.analyticsForm.report_style = style;
+    emit('change-report-style');
+}
 
 const analyticsColumns = {
     yearly: [
@@ -40,13 +49,17 @@ const analyticsColumns = {
     <section class="civic-reporting-stack">
         <article class="civic-workspace civic-reporting-panel">
             <form class="civic-filter-line civic-reporting-filters" @submit.prevent="$emit('run-analytics')">
+                <div class="civic-reporting-style-toggle" role="group" aria-label="Analytics report style">
+                    <button type="button" :class="{ active: analyticsForm.report_style === 'trend' }" @click="changeReportStyle('trend')">Charts & trends</button>
+                    <button type="button" :class="{ active: analyticsForm.report_style === 'template_table' }" @click="changeReportStyle('template_table')">Template table</button>
+                </div>
                 <label class="civic-field">
                     <span>Template</span>
                     <select v-model="analyticsForm.template_code">
                         <option v-for="template in templates" :key="template.code" :value="template.code">{{ template.name }}</option>
                     </select>
                 </label>
-                <label class="civic-field">
+                <label v-if="analyticsForm.report_style === 'trend'" class="civic-field">
                     <span>Indicators (up to 6)</span>
                     <select v-model="analyticsForm.indicator_codes" class="civic-reporting-indicator-select" multiple size="5">
                         <option v-for="indicator in indicators" :key="indicator.code" :value="indicator.code">{{ indicator.label }}</option>
@@ -85,11 +98,50 @@ const analyticsColumns = {
                 </label>
                 <div class="civic-filter-actions">
                     <button class="civic-button civic-button-primary" :disabled="busy">Run analytics</button>
+                    <button v-if="analytics && canExport" class="civic-button" type="button" :disabled="busy" @click="emit('download-report')">Download report</button>
                 </div>
             </form>
         </article>
 
-        <template v-if="analytics">
+        <div v-if="busy" class="civic-reporting-empty">
+            <strong>Updating {{ analyticsForm.report_style === 'template_table' ? 'template table' : 'charts and trends' }}.</strong>
+            <span>Applying the current filters to the selected report style.</span>
+        </div>
+
+        <template v-else-if="analytics && analyticsForm.report_style === 'template_table'">
+            <div class="civic-reporting-analytics-title">
+                <span>Template report</span>
+                <h2>{{ analytics.template.name }}</h2>
+            </div>
+
+            <div v-if="!analytics.periods.length" class="civic-reporting-empty">
+                <strong>No reporting months are available for the selected filters.</strong>
+                <span>Select a date range that includes one or more months.</span>
+            </div>
+
+            <article v-for="section in analytics.sections" :key="section.id" class="civic-workspace civic-reporting-panel">
+                <div class="civic-workspace-header">
+                    <div><div class="civic-eyebrow">Template section</div><h2>{{ section.title }}</h2></div>
+                    <small v-if="section.description">{{ section.description }}</small>
+                </div>
+                <div class="civic-reporting-table-scroll">
+                    <table class="civic-table civic-template-report-table">
+                        <thead><tr><th>Indicator</th><th>Dimension / detail</th><th v-for="period in analytics.periods" :key="period.key">{{ period.label }}</th></tr></thead>
+                        <tbody>
+                            <template v-for="indicator in section.indicators" :key="indicator.id">
+                                <tr v-for="(row, rowIndex) in indicator.rows" :key="`${indicator.id}-${row.dimension_key ?? 'value'}-${row.dimension_value ?? 'value'}`">
+                                    <td v-if="rowIndex === 0" :rowspan="indicator.rows.length"><strong>{{ indicator.label }}</strong><small v-if="indicator.unit">{{ indicator.unit }}</small></td>
+                                    <td>{{ row.dimension_label ?? 'Total value' }}</td>
+                                    <td v-for="period in analytics.periods" :key="period.key">{{ formatTableValue(row.values[period.key]) }}</td>
+                                </tr>
+                            </template>
+                        </tbody>
+                    </table>
+                </div>
+            </article>
+        </template>
+
+        <template v-else-if="analytics">
             <section v-for="indicatorAnalytics in analyticsSets" :key="indicatorAnalytics.indicator.code" class="civic-reporting-stack">
                 <div class="civic-reporting-analytics-title">
                     <span>Indicator analysis</span>
@@ -132,5 +184,10 @@ const analyticsColumns = {
                 </template>
             </section>
         </template>
+
+        <div v-else class="civic-reporting-empty">
+            <strong>{{ analyticsForm.report_style === 'template_table' ? 'Template table is ready.' : 'Charts and trends are ready.' }}</strong>
+            <span>Adjust the filters if needed, then select Run analytics.</span>
+        </div>
     </section>
 </template>

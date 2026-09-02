@@ -15,8 +15,9 @@ class AnalyticsRequest extends FormRequest
     {
         return [
             'template_code' => ['required', 'string', 'exists:report_templates,code'],
-            'indicator_code' => ['nullable', 'string', 'required_without:indicator_codes'],
-            'indicator_codes' => ['nullable', 'array', 'min:1', 'max:6', 'required_without:indicator_code'],
+            'report_style' => ['nullable', 'in:trend,template_table'],
+            'indicator_code' => ['nullable', 'string'],
+            'indicator_codes' => ['nullable', 'array', 'min:1', 'max:6'],
             'indicator_codes.*' => ['required', 'string', 'distinct'],
             'from' => ['nullable', 'date_format:Y-m'],
             'to' => ['nullable', 'date_format:Y-m'],
@@ -24,5 +25,18 @@ class AnalyticsRequest extends FormRequest
             'station_id' => ['nullable', 'integer', 'exists:stations,id'],
             'status' => ['nullable'],
         ];
+    }
+
+    public function withValidator($validator): void
+    {
+        $validator->after(function ($validator): void {
+            if ($this->input('report_style', 'trend') === 'template_table') {
+                return;
+            }
+
+            if (blank($this->input('indicator_code')) && empty($this->input('indicator_codes'))) {
+                $validator->errors()->add('indicator_codes', 'Select at least one indicator for charts and trends.');
+            }
+        });
     }
 }

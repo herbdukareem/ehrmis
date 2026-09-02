@@ -346,6 +346,11 @@ class ServiceReportingController extends Controller
         return response()->json(['data' => $this->analytics->trend($request->validated(), $request->user()->loadMissing('station'))]);
     }
 
+    public function templateTable(AnalyticsRequest $request): JsonResponse
+    {
+        return response()->json(['data' => $this->analytics->templateTable($request->validated(), $request->user()->loadMissing('station'))]);
+    }
+
     public function exportSubmission(Request $request, ReportSubmission $submission): BinaryFileResponse
     {
         abort_unless($request->user()->can('export-service-reports') && $this->canViewSubmission($request, $submission), 403);
@@ -358,6 +363,13 @@ class ServiceReportingController extends Controller
         abort_unless($request->user()->can('export-service-reports'), 403);
 
         return $this->exports->analytics($this->analytics->trend($request->validated(), $request->user()->loadMissing('station')), $request->user());
+    }
+
+    public function exportTemplateTable(AnalyticsRequest $request): BinaryFileResponse
+    {
+        abort_unless($request->user()->can('export-service-reports'), 403);
+
+        return $this->exports->templateTable($this->analytics->templateTable($request->validated(), $request->user()->loadMissing('station')), $request->user());
     }
 
     public function compliance(Request $request): JsonResponse
