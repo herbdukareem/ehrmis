@@ -21,12 +21,30 @@ const emit = defineEmits(['run-analytics', 'change-report-style', 'download-repo
 
 const analyticsSets = computed(() => props.analytics?.indicators ?? (props.analytics ? [props.analytics] : []));
 const formatTableValue = (value) => value === null || value === undefined || value === '' ? '—' : typeof value === 'number' ? formatNumber(value) : value;
+const selectedIndicators = computed(() => props.indicators.filter((indicator) => props.analyticsForm.indicator_codes.includes(indicator.code)));
+const indicatorSelectionLabel = computed(() => {
+    if (!selectedIndicators.value.length) return 'Select indicators';
+    if (selectedIndicators.value.length === 1) return selectedIndicators.value[0].label;
+
+    return `${selectedIndicators.value.length} indicators selected`;
+});
 
 function changeReportStyle(style) {
     if (props.analyticsForm.report_style === style) return;
 
     props.analyticsForm.report_style = style;
     emit('change-report-style');
+}
+
+function toggleIndicator(code) {
+    const selected = props.analyticsForm.indicator_codes;
+    const index = selected.indexOf(code);
+
+    if (index >= 0) {
+        selected.splice(index, 1);
+    } else if (selected.length < 6) {
+        selected.push(code);
+    }
 }
 
 const analyticsColumns = {
@@ -59,12 +77,18 @@ const analyticsColumns = {
                         <option v-for="template in templates" :key="template.code" :value="template.code">{{ template.name }}</option>
                     </select>
                 </label>
-                <label v-if="analyticsForm.report_style === 'trend'" class="civic-field">
+                <div v-if="analyticsForm.report_style === 'trend'" class="civic-field civic-reporting-indicator-picker">
                     <span>Indicators (up to 6)</span>
-                    <select v-model="analyticsForm.indicator_codes" class="civic-reporting-indicator-select" multiple size="5">
-                        <option v-for="indicator in indicators" :key="indicator.code" :value="indicator.code">{{ indicator.label }}</option>
-                    </select>
-                </label>
+                    <details>
+                        <summary><span>{{ indicatorSelectionLabel }}</span><small>{{ selectedIndicators.length }}/6 selected</small></summary>
+                        <div class="civic-reporting-indicator-options">
+                            <label v-for="indicator in indicators" :key="indicator.code" :class="{ disabled: !analyticsForm.indicator_codes.includes(indicator.code) && analyticsForm.indicator_codes.length >= 6 }">
+                                <input type="checkbox" :checked="analyticsForm.indicator_codes.includes(indicator.code)" :disabled="!analyticsForm.indicator_codes.includes(indicator.code) && analyticsForm.indicator_codes.length >= 6" @change="toggleIndicator(indicator.code)">
+                                <span>{{ indicator.label }}</span>
+                            </label>
+                        </div>
+                    </details>
+                </div>
                 <label class="civic-field">
                     <span>From Month/Year</span>
                     <input v-model="analyticsForm.from" type="month">
