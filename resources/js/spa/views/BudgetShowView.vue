@@ -20,6 +20,7 @@ const reports = [
     { key: 'recurrent-expenditure', label: 'Recurrent expenditure' },
     { key: 'staff-list', label: 'Staff list' },
     { key: 'qualification-distribution', label: 'Qualification distribution' },
+    { key: 'manpower-distribution', label: 'Manpower distribution' },
     { key: 'staff-strength', label: 'Staff strength' },
 ];
 const canPrintReports = computed(() => ['approved', 'locked'].includes(data.value?.status));

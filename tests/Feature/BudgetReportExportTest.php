@@ -273,18 +273,18 @@ class BudgetReportExportTest extends TestCase
         $this->actingAs($this->user);
         foreach (['draft', 'submitted', 'rejected'] as $status) {
             $this->workbook->update(['status' => $status]);
-            foreach (['recurrent-expenditure', 'staff-list', 'qualification-distribution'] as $report) {
+            foreach (['recurrent-expenditure', 'staff-list', 'qualification-distribution', 'manpower-distribution'] as $report) {
                 $this->get($this->url($report).'/export')->assertForbidden();
             }
         }
         $this->workbook->update(['status' => 'approved']);
         $other = $this->workbook(Mda::factory()->create());
-        foreach (['recurrent-expenditure', 'staff-list', 'qualification-distribution'] as $report) {
+        foreach (['recurrent-expenditure', 'staff-list', 'qualification-distribution', 'manpower-distribution'] as $report) {
             $this->get("/api/budget-workbooks/{$other->id}/reports/{$report}/export")->assertForbidden();
         }
         $this->get("/api/budget-workbooks/{$this->workbook->id}/reports/unknown/export")->assertNotFound();
         $this->user->revokePermissionTo('view-budgets');
-        foreach (['recurrent-expenditure', 'staff-list', 'qualification-distribution'] as $report) {
+        foreach (['recurrent-expenditure', 'staff-list', 'qualification-distribution', 'manpower-distribution'] as $report) {
             $this->get($this->url($report).'/export')->assertForbidden();
         }
     }
@@ -507,12 +507,67 @@ class BudgetReportExportTest extends TestCase
             ->assertSee($this->url('qualification-distribution').'/export', false);
     }
 
+    public function test_manpower_distribution_exports_staff_by_sex_level_and_professionalism(): void
+    {
+        $nursing = $this->department('Nursing');
+        $this->reportStaff($nursing, 'CH', staffAttributes: ['sex' => 'M'], lineAttributes: ['proposed_level' => 3])
+            ->currentEmployment->update(['staff_category' => 'Professional']);
+        $this->reportStaff($nursing, 'CH', staffAttributes: ['sex' => 'Female'], lineAttributes: ['proposed_level' => 3])
+            ->currentEmployment->update(['staff_category' => 'Professional']);
+        $this->reportStaff($nursing, 'CH', staffAttributes: ['sex' => 'F'], lineAttributes: ['proposed_level' => 4])
+            ->currentEmployment->update(['staff_category' => 'Administrative']);
+        $this->reportStaff($nursing, 'CH', staffAttributes: ['sex' => 'M'], lineAttributes: ['proposed_level' => 6])
+            ->currentEmployment->update(['staff_category' => 'Hospital Attendant']);
+        $this->reportStaff($nursing, 'CH', staffAttributes: ['sex' => 'F'], lineAttributes: ['proposed_level' => 7, 'retirement_status' => 'retiring'])
+            ->currentEmployment->update(['staff_category' => 'Clerical']);
+        $hidden = $this->workbook(Mda::factory()->create());
+        $this->reportStaff($nursing, 'CH', staffAttributes: ['sex' => 'F'], workbook: $hidden);
+
+        $book = $this->download('manpower-distribution');
+        try {
+            $this->assertSame(['Nursing'], $book->getSheetNames());
+            $sheet = $book->getActiveSheet();
+            $this->assertSame('2027 Manpower Distribution', $sheet->getCell('A3')->getValue());
+            $this->assertSame('NO. OF STAFF BY SEX', $sheet->getCell('A7')->getValue());
+            $this->assertSame('CH', $sheet->getCell('A8')->getValue());
+            $this->assertSame('NO. OF STAFF', $sheet->getCell('B8')->getValue());
+            $this->assertContains('B8:D8', $sheet->getMergeCells());
+            $this->assertEquals(['CH1', 0, 0, 0], $sheet->rangeToArray('A10:D10', null, true, false)[0]);
+            $this->assertEquals(['CH3', 1, 1, 2], $sheet->rangeToArray('A12:D12', null, true, false)[0]);
+            $this->assertEquals(['CH4', 0, 1, 1], $sheet->rangeToArray('A13:D13', null, true, false)[0]);
+            $this->assertEquals(['CH6', 1, 0, 1], $sheet->rangeToArray('A15:D15', null, true, false)[0]);
+            $this->assertSame('S/GRADE', $sheet->getCell('A25')->getValue());
+            $this->assertSame('G/TOTAL', $sheet->getCell('A26')->getValue());
+            $this->assertSame('=SUM(D10:D24)', $sheet->getCell('D26')->getValue());
+            $this->assertEquals(4, $sheet->getCell('D26')->getCalculatedValue());
+            $this->assertSame('STAFF STRENGTH BY PROFESSIONALISM', $sheet->getCell('A28')->getValue());
+            $this->assertEquals(['Professional/Technicians', 1, 1, 2], $sheet->rangeToArray('A31:D31', null, true, false)[0]);
+            $this->assertEquals(['Administrative/Managerial', 0, 1, 1], $sheet->rangeToArray('A32:D32', null, true, false)[0]);
+            $this->assertEquals(['Clerical', 0, 0, 0], $sheet->rangeToArray('A33:D33', null, true, false)[0]);
+            $this->assertEquals(['Others', 1, 0, 1], $sheet->rangeToArray('A34:D34', null, true, false)[0]);
+            $this->assertSame('=SUM(D31:D34)', $sheet->getCell('D35')->getValue());
+            $this->assertEquals(4, $sheet->getCell('D35')->getCalculatedValue());
+            $this->assertNull($sheet->getFreezePane());
+            $this->assertSame(PageSetup::ORIENTATION_LANDSCAPE, $sheet->getPageSetup()->getOrientation());
+        } finally {
+            $book->disconnectWorksheets();
+        }
+
+        $this->get($this->url('manpower-distribution'))->assertOk()
+            ->assertSee('Export to Excel')
+            ->assertSee('No. of Staff by Sex')
+            ->assertSee('Staff Strength by Professionalism')
+            ->assertSee('CH3')
+            ->assertSee('Professional/Technicians')
+            ->assertSee($this->url('manpower-distribution').'/export', false);
+    }
+
     public function test_supporting_reports_handle_department_tab_name_collisions_and_unassigned_staff(): void
     {
         $this->reportStaff($this->department('Clinical / Administration: North [1]'));
         $this->reportStaff($this->department('Clinical / Administration: North [2]'));
         $this->reportStaff(null);
-        foreach (['staff-list', 'qualification-distribution'] as $report) {
+        foreach (['staff-list', 'qualification-distribution', 'manpower-distribution'] as $report) {
             $book = $this->download($report);
             try {
                 $titles = $book->getSheetNames();
@@ -531,7 +586,7 @@ class BudgetReportExportTest extends TestCase
     public function test_locked_supporting_reports_with_no_rows_have_a_readable_empty_sheet(): void
     {
         $this->workbook->update(['status' => 'locked']);
-        foreach (['staff-list', 'qualification-distribution'] as $report) {
+        foreach (['staff-list', 'qualification-distribution', 'manpower-distribution'] as $report) {
             $book = $this->download($report);
             try {
                 $this->assertSame(['No records'], $book->getSheetNames());

@@ -207,6 +207,84 @@
                 </tbody>
             </table>
         @endforeach
+    @elseif ($report['type'] === 'manpower-distribution')
+        @foreach ($report['groups'] as $group)
+            <h2>Dept: {{ $group['department'] }}</h2>
+            @foreach ($group['sections'] as $section)
+                <table>
+                    <thead>
+                        <tr>
+                            <th colspan="4">No. of Staff by Sex</th>
+                        </tr>
+                        <tr>
+                            <th>{{ $section['scale_code'] }}</th>
+                            <th colspan="3">No. of Staff</th>
+                        </tr>
+                        <tr>
+                            <th></th>
+                            <th>Male</th>
+                            <th>Female</th>
+                            <th>Grand Total</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach ($section['rows'] as $row)
+                            <tr>
+                                <td>{{ $row['label'] }}</td>
+                                <td class="text-right">{{ number_format($row['male']) }}</td>
+                                <td class="text-right">{{ number_format($row['female']) }}</td>
+                                <td class="text-right">{{ number_format($row['total']) }}</td>
+                            </tr>
+                        @endforeach
+                        <tr>
+                            <td>S/GRADE</td>
+                            <td class="text-right">0</td>
+                            <td class="text-right">0</td>
+                            <td class="text-right">0</td>
+                        </tr>
+                        <tr class="total-row">
+                            <th>G/TOTAL</th>
+                            <td class="text-right">{{ number_format($section['totals']['male']) }}</td>
+                            <td class="text-right">{{ number_format($section['totals']['female']) }}</td>
+                            <td class="text-right">{{ number_format($section['totals']['total']) }}</td>
+                        </tr>
+                    </tbody>
+                </table>
+            @endforeach
+            <table>
+                <thead>
+                    <tr>
+                        <th colspan="4">Staff Strength by Professionalism</th>
+                    </tr>
+                    <tr>
+                        <th></th>
+                        <th colspan="3">No. of Staff</th>
+                    </tr>
+                    <tr>
+                        <th>Occupation</th>
+                        <th>Male</th>
+                        <th>Female</th>
+                        <th>Total</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach ($group['occupation_rows'] as $row)
+                        <tr>
+                            <td>{{ $row['occupation'] }}</td>
+                            <td class="text-right">{{ number_format($row['male']) }}</td>
+                            <td class="text-right">{{ number_format($row['female']) }}</td>
+                            <td class="text-right">{{ number_format($row['total']) }}</td>
+                        </tr>
+                    @endforeach
+                    <tr class="total-row">
+                        <th>Total</th>
+                        <td class="text-right">{{ number_format($group['occupation_totals']['male']) }}</td>
+                        <td class="text-right">{{ number_format($group['occupation_totals']['female']) }}</td>
+                        <td class="text-right">{{ number_format($group['occupation_totals']['total']) }}</td>
+                    </tr>
+                </tbody>
+            </table>
+        @endforeach
     @elseif ($report['type'] === 'staff-strength')
         <table>
             <thead>

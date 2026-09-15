@@ -13,12 +13,13 @@ class BudgetReportService
 {
     public function __construct(protected BudgetAllowanceSummaryService $allowanceSummaryService) {}
 
-    public const EXCEL_REPORTS = ['recurrent-expenditure', 'staff-list', 'qualification-distribution'];
+    public const EXCEL_REPORTS = ['recurrent-expenditure', 'staff-list', 'qualification-distribution', 'manpower-distribution'];
 
     public const REPORTS = [
         'recurrent-expenditure' => 'Recurrent expenditure',
         'staff-list' => 'Budget staff list',
         'qualification-distribution' => 'Qualification distribution',
+        'manpower-distribution' => 'Manpower distribution',
         'staff-strength' => 'Staff strength summary',
     ];
 
@@ -34,6 +35,7 @@ class BudgetReportService
             'recurrent-expenditure' => $this->recurrentExpenditure($workbook),
             'staff-list' => $this->staffList($workbook),
             'qualification-distribution' => $this->qualificationDistribution($workbook),
+            'manpower-distribution' => $this->manpowerDistribution($workbook),
             'staff-strength' => $this->staffStrength($workbook),
         };
     }
@@ -170,11 +172,11 @@ class BudgetReportService
             'notes' => $notes,
             'allowances_centralized' => $centralized,
             'grand_totals' => [
-                'approved_staff' => $groups->sum(fn (array $group): int|float => $group['totals']['approved_staff']),
-                'actual_staff' => $groups->sum(fn (array $group): int|float => $group['totals']['actual_staff']),
+                'approved_staff' => (int) $groups->sum(fn (array $group): int|float => $group['totals']['approved_staff']),
+                'actual_staff' => (int) $groups->sum(fn (array $group): int|float => $group['totals']['actual_staff']),
                 'approved_estimate' => $groups->sum(fn (array $group): int|float => $group['totals']['approved_estimate']),
                 'actual_expense' => $groups->sum(fn (array $group): int|float => $group['totals']['actual_expense']),
-                'required_staff' => $groups->sum(fn (array $group): int|float => $group['totals']['required_staff']),
+                'required_staff' => (int) $groups->sum(fn (array $group): int|float => $group['totals']['required_staff']),
                 'proposed_estimate' => $groups->sum(fn (array $group): int|float => $group['totals']['proposed_estimate']),
             ],
         ];
@@ -268,6 +270,81 @@ class BudgetReportService
         ];
     }
 
+    protected function manpowerDistribution(BudgetWorkbook $workbook): array
+    {
+        $lines = $this->movementLines($workbook)
+            ->filter(fn (MovementLine $line): bool => $line->countsAsRequiredStaff())
+            ->values();
+
+        $groups = $lines
+            ->groupBy(fn (MovementLine $line) => $line->currentEmployment?->department_id ?? 'unassigned')
+            ->map(function (Collection $departmentLines): array {
+                $first = $departmentLines->first();
+                $sections = $departmentLines
+                    ->groupBy(fn (MovementLine $line): string => (string) ($line->proposed_salary_scale_id ?? $line->current_salary_scale_id ?? 'unassigned'))
+                    ->map(function (Collection $scaleLines): array {
+                        $first = $scaleLines->first();
+                        $salaryScale = $first->proposedSalaryScale ?? $first->currentSalaryScale;
+                        $scaleCode = $salaryScale?->code ?? 'N/A';
+                        $rowsByLevel = $scaleLines->groupBy(fn (MovementLine $line): int => (int) ($line->proposed_level ?? $line->current_level ?? 0));
+                        $observedLevels = $rowsByLevel->keys()->filter()->map(fn ($level): int => (int) $level);
+                        $minLevel = (int) ($salaryScale?->min_level ?? $observedLevels->min() ?? 1);
+                        $maxLevel = (int) ($salaryScale?->max_level ?? $observedLevels->max() ?? $minLevel);
+                        $levels = $minLevel > 0 && $maxLevel >= $minLevel
+                            ? collect(range($minLevel, $maxLevel))
+                            : $observedLevels->sort()->values();
+
+                        $rows = $levels->map(function (int $level) use ($rowsByLevel, $scaleCode): array {
+                            $levelLines = $rowsByLevel->get($level, collect());
+                            $male = $levelLines->filter(fn (MovementLine $line): bool => $this->sex($line) === 'M')->count();
+                            $female = $levelLines->filter(fn (MovementLine $line): bool => $this->sex($line) === 'F')->count();
+
+                            return [
+                                'level' => $level,
+                                'label' => $scaleCode.$level,
+                                'male' => $male,
+                                'female' => $female,
+                                'total' => $male + $female,
+                            ];
+                        })->values();
+
+                        return [
+                            'scale' => trim($scaleCode.' - '.($salaryScale?->name ?? '')),
+                            'scale_code' => $scaleCode,
+                            'rows' => $rows,
+                            'totals' => [
+                                'male' => $rows->sum('male'),
+                                'female' => $rows->sum('female'),
+                                'total' => $rows->sum('total'),
+                            ],
+                        ];
+                    })
+                    ->sortBy('scale')
+                    ->values();
+
+                $occupationRows = $this->manpowerOccupationRows($departmentLines);
+
+                return [
+                    'department_id' => $first->currentEmployment?->department_id,
+                    'department' => $first->currentEmployment?->department?->name ?? 'Unassigned',
+                    'sections' => $sections,
+                    'occupation_rows' => $occupationRows,
+                    'occupation_totals' => [
+                        'male' => $occupationRows->sum('male'),
+                        'female' => $occupationRows->sum('female'),
+                        'total' => $occupationRows->sum('total'),
+                    ],
+                ];
+            })
+            ->values();
+
+        return [
+            'type' => 'manpower-distribution',
+            'title' => $this->budgetYear($workbook).' Manpower Distribution',
+            'groups' => $groups,
+        ];
+    }
+
     protected function staffStrength(BudgetWorkbook $workbook): array
     {
         $groups = $workbook->lines()
@@ -308,6 +385,7 @@ class BudgetReportService
                 'staff.personalDetail',
                 'staff.qualifications.qualificationType',
                 'currentEmployment.department',
+                'currentEmployment.cadre',
                 'currentEmployment.rank',
                 'currentSalaryScale',
                 'proposedSalaryScale',
@@ -641,6 +719,56 @@ class BudgetReportService
                 return $section;
             })
             ->values();
+    }
+
+    protected function manpowerOccupationRows(Collection $lines): Collection
+    {
+        $labels = [
+            'professional' => 'Professional/Technicians',
+            'administrative' => 'Administrative/Managerial',
+            'clerical' => 'Clerical',
+            'others' => 'Others',
+        ];
+
+        return collect($labels)
+            ->map(function (string $label, string $key) use ($lines): array {
+                $matched = $lines->filter(fn (MovementLine $line): bool => $this->manpowerOccupationKey($line) === $key);
+                $male = $matched->filter(fn (MovementLine $line): bool => $this->sex($line) === 'M')->count();
+                $female = $matched->filter(fn (MovementLine $line): bool => $this->sex($line) === 'F')->count();
+
+                return [
+                    'occupation' => $label,
+                    'male' => $male,
+                    'female' => $female,
+                    'total' => $male + $female,
+                ];
+            })
+            ->values();
+    }
+
+    protected function manpowerOccupationKey(MovementLine $line): string
+    {
+        $source = collect([
+            $line->currentEmployment?->staff_category,
+            $line->currentEmployment?->cadre?->name,
+            $line->currentEmployment?->rank?->name,
+        ])->filter()->implode(' ');
+
+        $normalized = str($source)->lower()->toString();
+
+        if (preg_match('/\b(clerical|clerk|typist|secretarial|registry|records?)\b/', $normalized)) {
+            return 'clerical';
+        }
+
+        if (preg_match('/\b(admin|administrative|manager|managerial|director|executive|account|finance|human resource|hr)\b/', $normalized)) {
+            return 'administrative';
+        }
+
+        if (preg_match('/\b(professional|technician|technical|doctor|medical|clinical|nurse|nursing|midwife|midwifery|pharmacist|pharmacy|laboratory|lab|radiographer|radiography|physio|dental|dentist|optometrist|optometry|scientist|engineer)\b/', $normalized)) {
+            return 'professional';
+        }
+
+        return 'others';
     }
 
     protected function qualification(MovementLine $line): string

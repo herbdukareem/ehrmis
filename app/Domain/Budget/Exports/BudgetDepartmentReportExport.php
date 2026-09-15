@@ -25,9 +25,11 @@ class BudgetDepartmentReportExport implements WithMultipleSheets
         return $groups->map(function (array $group) use (&$usedTitles) {
             $title = $this->sheetTitle($group['department'], $usedTitles);
 
-            return $this->report['type'] === 'staff-list'
-                ? new BudgetStaffListSheet($this->workbook, $this->report['title'], $group, $title)
-                : new BudgetQualificationSheet($this->workbook, $this->report['title'], $group, $title);
+            return match ($this->report['type']) {
+                'staff-list' => new BudgetStaffListSheet($this->workbook, $this->report['title'], $group, $title),
+                'manpower-distribution' => new BudgetManpowerDistributionSheet($this->workbook, $this->report['title'], $group, $title),
+                default => new BudgetQualificationSheet($this->workbook, $this->report['title'], $group, $title),
+            };
         })->values()->all();
     }
 
