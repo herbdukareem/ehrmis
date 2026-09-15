@@ -98,6 +98,23 @@ class StaffUpdateService
         });
     }
 
+    public function updateContractStaffFlag(Staff $staff, bool $isContractStaff): Staff
+    {
+        return DB::transaction(function () use ($staff, $isContractStaff): Staff {
+            $before = $staff->toArray();
+
+            $staff->forceFill([
+                'is_contract_staff' => $isContractStaff,
+            ])->save();
+
+            $this->auditLogService->logUpdated($staff, $before, [
+                'source' => 'staff_management.contract_staff',
+            ]);
+
+            return $staff->fresh();
+        });
+    }
+
     /**
      * @param  array<string, mixed>  $qualificationData
      */

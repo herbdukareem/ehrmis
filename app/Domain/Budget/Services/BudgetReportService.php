@@ -5,11 +5,16 @@ namespace App\Domain\Budget\Services;
 use App\Domain\Budget\Models\BudgetLine;
 use App\Domain\Budget\Models\BudgetWorkbook;
 use App\Domain\Movement\Models\MovementLine;
+use App\Support\ReportFormatter;
 use Illuminate\Support\Collection;
 use InvalidArgumentException;
 
 class BudgetReportService
 {
+    public function __construct(protected BudgetAllowanceSummaryService $allowanceSummaryService) {}
+
+    public const EXCEL_REPORTS = ['recurrent-expenditure', 'staff-list', 'qualification-distribution'];
+
     public const REPORTS = [
         'recurrent-expenditure' => 'Recurrent expenditure',
         'staff-list' => 'Budget staff list',
@@ -42,35 +47,77 @@ class BudgetReportService
             ->orderBy('level')
             ->get();
 
-        $previousLines = BudgetLine::query()
-            ->whereHas('workbook', fn ($query) => $query
-                ->where('mda_id', $workbook->mda_id)
-                ->where('year', $workbook->year - 1)
-                ->whereIn('status', ['approved', 'locked']))
-            ->get()
+        $previousWorkbook = BudgetWorkbook::query()
+            ->where('mda_id', $workbook->mda_id)
+            ->where('year', $workbook->year - 1)
+            ->whereIn('status', ['approved', 'locked'])
+            ->orderByDesc('approved_at')->orderByDesc('id')->first();
+        $previousBudgetLines = $previousWorkbook?->lines()->get() ?? collect();
+        $previousLines = $previousBudgetLines
             ->keyBy(fn (BudgetLine $line): string => $this->lineKey($line->department_id, $line->salary_scale_id, $line->level));
+        $allowances = $this->allowanceSummaryService->forWorkbook($workbook, $lines);
+        $previousAllowances = $previousWorkbook
+            ? $this->allowanceSummaryService->forWorkbook($previousWorkbook, $previousBudgetLines)
+            : collect();
+        $centralized = $allowances !== null && $previousAllowances !== null;
+        $zeroTotals = ['approved_staff' => 0, 'actual_staff' => 0, 'approved_estimate' => 0, 'actual_expense' => 0, 'required_staff' => 0, 'proposed_estimate' => 0];
+        $movementRows = $this->movementBudgetRows($workbook);
+        $notes = $centralized || $lines->isEmpty() ? [] : [
+            'Allowances remain included in the grade-level figures because the saved salary breakdown is unavailable or does not match this budget. No separate allowance amount has been added.',
+        ];
 
         $groups = $lines
-            ->groupBy(fn (BudgetLine $line): string => $this->departmentLabel($line).'|'.$this->scaleLabel($line))
-            ->map(function (Collection $group) use ($previousLines): array {
+            ->groupBy(fn (BudgetLine $line): string => ($line->department_id ?? 0).'|'.($line->salary_scale_id ?? 0))
+            ->map(function (Collection $group) use ($previousLines, $allowances, $previousAllowances, $centralized, $movementRows, $zeroTotals): array {
                 $first = $group->first();
-                $rows = $group->map(function (BudgetLine $line) use ($previousLines): array {
+                $groupAllowanceTotals = $zeroTotals;
+                $rows = $group->map(function (BudgetLine $line) use ($previousLines, $allowances, $previousAllowances, $centralized, $movementRows, &$groupAllowanceTotals): array {
                     $previous = $previousLines->get($this->lineKey($line->department_id, $line->salary_scale_id, $line->level));
+                    $currentAllowance = $centralized ? ($allowances->get($line->id)['current'] ?? 0) : 0;
+                    $proposedAllowance = $centralized ? ($allowances->get($line->id)['proposed'] ?? 0) : 0;
+                    $approvedAllowance = $centralized && $previous ? ($previousAllowances->get($previous->id)['proposed'] ?? 0) : 0;
+                    $movementRow = $movementRows->get($this->lineKey($line->department_id, $line->salary_scale_id, $line->level));
+                    $fallbackRequiredStaff = max(0, (int) $line->staff_count - (int) $line->retiring_count);
+                    $requiredStaff = $line->required_staff_count
+                        ?? ($movementRow['required_staff_count'] ?? null)
+                        ?? $fallbackRequiredStaff;
+                    $actualStaff = $line->required_staff_count === null && $movementRow !== null
+                        ? (int) $movementRow['actual_staff']
+                        : (int) $line->staff_count;
+                    $currentGrossTotal = $line->required_staff_count === null && $movementRow !== null
+                        ? (float) $movementRow['current_gross_total']
+                        : (float) $line->current_gross_total;
+                    $proposedGrossTotal = $line->required_staff_count === null
+                        && $movementRow !== null
+                        && (int) $movementRow['required_staff_count'] !== $fallbackRequiredStaff
+                            ? (float) $movementRow['proposed_gross_total']
+                            : (float) $line->proposed_gross_total;
+                    $groupAllowanceTotals['approved_estimate'] += $this->annualize($approvedAllowance);
+                    $groupAllowanceTotals['actual_expense'] += $this->semiAnnualize($currentAllowance);
+                    $groupAllowanceTotals['proposed_estimate'] += $this->annualize($proposedAllowance);
 
                     return [
                         'level' => $line->level,
                         'approved_staff' => (int) ($previous?->staff_count ?? 0),
-                        'actual_staff' => (int) $line->staff_count,
-                        'approved_estimate' => $this->annualize($previous?->proposed_gross_total ?? 0),
-                        'actual_expense' => $this->semiAnnualize($line->current_gross_total),
-                        'required_staff' => max(0, (int) $line->staff_count - (int) $line->retiring_count),
-                        'proposed_estimate' => $this->annualize($line->proposed_gross_total),
+                        'actual_staff' => $actualStaff,
+                        'approved_estimate' => $this->annualize(($previous?->proposed_gross_total ?? 0) - $approvedAllowance),
+                        'actual_expense' => $this->semiAnnualize($currentGrossTotal - $currentAllowance),
+                        'required_staff' => $requiredStaff,
+                        'proposed_estimate' => $this->annualize($proposedGrossTotal - $proposedAllowance),
                     ];
                 })->values();
 
                 return [
+                    'department_id' => $first->department_id,
+                    'salary_scale_id' => $first->salary_scale_id,
+                    'is_administration' => in_array(strtolower(trim($first->department?->code ?? '')), ['admin', 'administration'], true)
+                        || in_array(strtolower(trim($this->departmentLabel($first))), ['admin', 'administration'], true),
                     'department' => $this->departmentLabel($first),
                     'scale' => $this->scaleLabel($first),
+                    'scale_code' => $first->salaryScale?->code ?? 'N/A',
+                    'grade_label' => $this->gradeLabel($first->salaryScale?->code, $first->salaryScale?->name),
+                    'min_level' => $first->salaryScale?->min_level,
+                    'max_level' => $first->salaryScale?->max_level,
                     'rows' => $rows,
                     'totals' => [
                         'approved_staff' => $rows->sum('approved_staff'),
@@ -80,14 +127,48 @@ class BudgetReportService
                         'required_staff' => $rows->sum('required_staff'),
                         'proposed_estimate' => $rows->sum('proposed_estimate'),
                     ],
+                    'allowance_totals' => $groupAllowanceTotals,
                 ];
             })
             ->values();
+
+        $existingKeys = $lines->map(fn (BudgetLine $line): string => $this->lineKey($line->department_id, $line->salary_scale_id, $line->level));
+        $movementOnlyRows = $movementRows
+            ->reject(fn (array $row, string $key): bool => $existingKeys->contains($key))
+            ->values();
+
+        if ($movementOnlyRows->isNotEmpty()) {
+            $groups = $this->appendMovementOnlyRequiredRows($groups, $movementOnlyRows);
+        }
+
+        $groups = $groups->map(fn (array $group): array => $this->expandRecurrentGroupLevels($group));
+
+        if ($centralized && $groups->isNotEmpty()) {
+            $groups = $groups->map(function (array $group): array {
+                $baseTotals = $group['totals'];
+                $groupAllowanceTotals = $group['allowance_totals'] ?? array_fill_keys(array_keys($baseTotals), 0);
+
+                foreach ($groupAllowanceTotals as $key => $amount) {
+                    $group['totals'][$key] = round($group['totals'][$key] + $amount, 2);
+                }
+                $group['summary_rows'] = $this->legacyRecurrentSummaryRows($group, $baseTotals, $groupAllowanceTotals, true);
+
+                return $group;
+            });
+        } else {
+            $groups = $groups->map(function (array $group) use ($zeroTotals): array {
+                $group['summary_rows'] = $this->legacyRecurrentSummaryRows($group, $group['totals'], $zeroTotals, false);
+
+                return $group;
+            });
+        }
 
         return [
             'type' => 'recurrent-expenditure',
             'title' => $this->budgetYear($workbook).' Proposed Recurrent Expenditure',
             'groups' => $groups,
+            'notes' => $notes,
+            'allowances_centralized' => $centralized,
             'grand_totals' => [
                 'approved_staff' => $groups->sum(fn (array $group): int|float => $group['totals']['approved_staff']),
                 'actual_staff' => $groups->sum(fn (array $group): int|float => $group['totals']['actual_staff']),
@@ -102,6 +183,7 @@ class BudgetReportService
     protected function staffList(BudgetWorkbook $workbook): array
     {
         $lines = $this->movementLines($workbook)
+            ->filter(fn (MovementLine $line): bool => $line->countsAsCurrentStaff())
             ->sortBy([
                 fn (MovementLine $line): string => $line->currentEmployment?->department?->name ?? '',
                 fn (MovementLine $line): int => -1 * (int) ($line->current_level ?? 0),
@@ -113,11 +195,18 @@ class BudgetReportService
             'type' => 'staff-list',
             'title' => $this->budgetYear($workbook).' Budget Staff List',
             'groups' => $lines
-                ->groupBy(fn (MovementLine $line): string => $line->currentEmployment?->department?->name ?? 'Unassigned')
-                ->map(fn (Collection $group, string $department): array => [
-                    'department' => $department,
-                    'rows' => $group->values()->map(fn (MovementLine $line, int $index): array => $this->staffRow($line, $index + 1)),
-                ])
+                ->groupBy(fn (MovementLine $line) => $line->currentEmployment?->department_id ?? 'unassigned')
+                ->map(function (Collection $group): array {
+                    $rows = $group->values()->map(fn (MovementLine $line): array => $this->staffRow($line));
+                    $sections = $this->numberStaffListSections($this->staffListSections($rows));
+
+                    return [
+                        'department_id' => $group->first()->currentEmployment?->department_id,
+                        'department' => $group->first()->currentEmployment?->department?->name ?? 'Unassigned',
+                        'sections' => $sections,
+                        'rows' => $sections->flatMap(fn (array $section): Collection => $section['rows'])->values(),
+                    ];
+                })
                 ->values(),
         ];
     }
@@ -125,7 +214,7 @@ class BudgetReportService
     protected function qualificationDistribution(BudgetWorkbook $workbook): array
     {
         $lines = $this->movementLines($workbook)
-            ->reject(fn (MovementLine $line): bool => in_array($line->retirement_status, ['retiring', 'retired'], true))
+            ->filter(fn (MovementLine $line): bool => $line->countsAsRequiredStaff())
             ->values();
 
         $qualifications = $lines
@@ -135,7 +224,7 @@ class BudgetReportService
             ->values();
 
         $groups = $lines
-            ->groupBy(fn (MovementLine $line): string => ($line->currentEmployment?->department?->name ?? 'Unassigned').'|'.($line->proposedSalaryScale?->code ?? $line->currentSalaryScale?->code ?? 'N/A'))
+            ->groupBy(fn (MovementLine $line): string => ($line->currentEmployment?->department_id ?? 'unassigned').'|'.($line->proposed_salary_scale_id ?? $line->current_salary_scale_id ?? 'unassigned'))
             ->map(function (Collection $group) use ($qualifications): array {
                 $first = $group->first();
                 $levels = $group
@@ -146,6 +235,7 @@ class BudgetReportService
                     ->values();
 
                 return [
+                    'department_id' => $first->currentEmployment?->department_id,
                     'department' => $first->currentEmployment?->department?->name ?? 'Unassigned',
                     'scale' => $first->proposedSalaryScale?->code ?? $first->currentSalaryScale?->code ?? 'N/A',
                     'qualifications' => $qualifications,
@@ -189,7 +279,7 @@ class BudgetReportService
                     'department' => $department,
                     'staff_count' => $lines->sum('staff_count'),
                     'retiring_count' => $lines->sum('retiring_count'),
-                    'required_staff' => $lines->sum(fn (BudgetLine $line): int => max(0, (int) $line->staff_count - (int) $line->retiring_count)),
+                    'required_staff' => $lines->sum(fn (BudgetLine $line): int => $line->required_staff_count ?? max(0, (int) $line->staff_count - (int) $line->retiring_count)),
                     'current_gross_total' => $lines->sum('current_gross_total'),
                     'proposed_gross_total' => $lines->sum('proposed_gross_total'),
                 ];
@@ -225,27 +315,332 @@ class BudgetReportService
             ->get() ?? collect();
     }
 
-    protected function staffRow(MovementLine $line, int $serialNumber): array
+    protected function movementBudgetRows(BudgetWorkbook $workbook): Collection
+    {
+        $lines = $workbook->movementWorkbook
+            ?->lines()
+            ->with(['staff', 'currentEmployment.department', 'currentSalaryScale', 'proposedSalaryScale'])
+            ->get() ?? collect();
+
+        $rows = [];
+
+        foreach ($lines as $line) {
+            $departmentId = $line->currentEmployment?->department_id;
+            $currentKey = $this->lineKey($departmentId, $line->current_salary_scale_id, $line->current_level);
+            $this->initializeMovementRequiredRow(
+                $rows,
+                $currentKey,
+                $departmentId,
+                $line->currentEmployment?->department?->name ?? 'Unassigned',
+                $line->current_salary_scale_id,
+                $line->currentSalaryScale,
+                $line->current_level,
+            );
+
+            if ($line->countsAsCurrentStaff()) {
+                $rows[$currentKey]['actual_staff']++;
+                $rows[$currentKey]['retiring_count'] += $line->retirement_status === 'retiring' && ! $line->hasMovementOverride() ? 1 : 0;
+                $rows[$currentKey]['current_gross_total'] += (float) ($line->current_amounts['calculated_gross'] ?? 0);
+            }
+
+            if (! $line->countsAsRequiredStaff()) {
+                continue;
+            }
+
+            $salaryScale = $line->proposedSalaryScale ?? $line->currentSalaryScale;
+            $salaryScaleId = $line->proposed_salary_scale_id ?? $line->current_salary_scale_id;
+            $level = $line->proposed_level ?? $line->current_level;
+            $proposedKey = $this->lineKey($departmentId, $salaryScaleId, $level);
+
+            $this->initializeMovementRequiredRow(
+                $rows,
+                $proposedKey,
+                $departmentId,
+                $line->currentEmployment?->department?->name ?? 'Unassigned',
+                $salaryScaleId,
+                $salaryScale,
+                $level,
+            );
+
+            $rows[$proposedKey]['required_staff_count']++;
+            $rows[$proposedKey]['proposed_gross_total'] += (float) ($line->proposed_amounts['calculated_gross'] ?? 0);
+        }
+
+        return collect($rows)->map(function (array $row): array {
+            $row['current_gross_total'] = round($row['current_gross_total'], 2);
+            $row['proposed_gross_total'] = round($row['proposed_gross_total'], 2);
+
+            return $row;
+        });
+    }
+
+    protected function initializeMovementRequiredRow(
+        array &$rows,
+        string $key,
+        ?int $departmentId,
+        string $department,
+        ?int $salaryScaleId,
+        mixed $salaryScale,
+        ?int $level,
+    ): void {
+        $rows[$key] ??= [
+            'department_id' => $departmentId,
+            'department' => $department,
+            'salary_scale_id' => $salaryScaleId,
+            'scale' => trim(($salaryScale?->code ?? 'N/A').' - '.($salaryScale?->name ?? '')),
+            'scale_code' => $salaryScale?->code ?? 'N/A',
+            'min_level' => $salaryScale?->min_level,
+            'max_level' => $salaryScale?->max_level,
+            'level' => $level,
+            'actual_staff' => 0,
+            'retiring_count' => 0,
+            'required_staff_count' => 0,
+            'current_gross_total' => 0.0,
+            'proposed_gross_total' => 0.0,
+        ];
+    }
+
+    protected function appendMovementOnlyRequiredRows(Collection $groups, Collection $movementRows): Collection
+    {
+        $groupedMovementRows = $movementRows->groupBy(fn (array $row): string => ($row['department_id'] ?? 0).'|'.($row['salary_scale_id'] ?? 0));
+
+        $groups = $groups->map(function (array $group) use (&$groupedMovementRows): array {
+            $key = ($group['department_id'] ?? 0).'|'.($group['salary_scale_id'] ?? 0);
+            $rows = $groupedMovementRows->pull($key, collect());
+
+            if ($rows->isEmpty()) {
+                return $group;
+            }
+
+            $group['rows'] = $this->mergeMovementOnlyRows($group['rows'], $rows);
+            $group['totals'] = $this->recurrentTotals($group['rows']);
+
+            return $group;
+        });
+
+        foreach ($groupedMovementRows as $rows) {
+            $first = $rows->first();
+            $reportRows = $this->mergeMovementOnlyRows(collect(), $rows);
+            $groups->push([
+                'department_id' => $first['department_id'],
+                'salary_scale_id' => $first['salary_scale_id'],
+                'is_administration' => in_array(strtolower(trim($first['department'])), ['admin', 'administration'], true),
+                'department' => $first['department'],
+                'scale' => $first['scale'],
+                'scale_code' => $first['scale_code'],
+                'grade_label' => $this->gradeLabel($first['scale_code'], $this->scaleNameFromLabel($first['scale'])),
+                'min_level' => $first['min_level'],
+                'max_level' => $first['max_level'],
+                'rows' => $reportRows,
+                'totals' => $this->recurrentTotals($reportRows),
+                'allowance_totals' => array_fill_keys(array_keys($this->recurrentTotals($reportRows)), 0),
+            ]);
+        }
+
+        return $groups->sortBy([
+            ['department', 'asc'],
+            ['scale', 'asc'],
+        ])->values();
+    }
+
+    protected function mergeMovementOnlyRows(Collection $reportRows, Collection $movementRows): Collection
+    {
+        return $reportRows
+            ->concat($movementRows->map(fn (array $row): array => [
+                'level' => $row['level'],
+                'approved_staff' => 0,
+                'actual_staff' => $row['actual_staff'],
+                'approved_estimate' => 0,
+                'actual_expense' => $this->semiAnnualize($row['current_gross_total']),
+                'required_staff' => $row['required_staff_count'],
+                'proposed_estimate' => $this->annualize($row['proposed_gross_total']),
+            ]))
+            ->sortBy('level')
+            ->values();
+    }
+
+    protected function expandRecurrentGroupLevels(array $group): array
+    {
+        if (($group['scale_code'] ?? '') === 'Allowances') {
+            return $group;
+        }
+
+        $rowsByLevel = $group['rows']->keyBy('level');
+        $levels = $rowsByLevel->keys()->filter(fn ($level): bool => $level !== null)->map(fn ($level): int => (int) $level);
+        $minLevel = (int) ($group['min_level'] ?? $levels->min() ?? 1);
+        $maxLevel = (int) ($group['max_level'] ?? $levels->max() ?? $minLevel);
+
+        if ($minLevel < 1 || $maxLevel < $minLevel) {
+            return $group;
+        }
+
+        $group['rows'] = collect(range($minLevel, $maxLevel))
+            ->map(fn (int $level): array => $rowsByLevel->get($level) ?? $this->emptyRecurrentRow($level))
+            ->values();
+        $group['totals'] = $this->recurrentTotals($group['rows']);
+
+        return $group;
+    }
+
+    protected function legacyRecurrentSummaryRows(array $group, array $staffTotals, array $allowanceTotals, bool $showAllowanceAmounts): array
+    {
+        $grantTotals = array_fill_keys(array_keys($staffTotals), 0);
+        $personnelTotals = [];
+
+        foreach ($staffTotals as $key => $amount) {
+            $personnelTotals[$key] = round((float) $amount + (float) ($allowanceTotals[$key] ?? 0) + (float) ($grantTotals[$key] ?? 0), 2);
+        }
+
+        return [
+            ['label' => $this->levelTotalLabel($group), ...$this->countOnlyTotals($staffTotals)],
+            ['label' => 'S/GRADE', ...$this->blankRecurrentTotals()],
+            ['label' => 'TOTAL FOR ALL STAFF', ...$this->amountOnlyTotals($staffTotals)],
+            ['label' => 'TOTAL ALLOWANCE FOR ALL STAFF', ...($showAllowanceAmounts ? $this->amountOnlyTotals($allowanceTotals) : $this->blankRecurrentTotals())],
+            ['label' => 'L/GRANT', ...$this->blankRecurrentTotals()],
+            ['label' => 'TOTAL PERSONNEL COST', ...$personnelTotals],
+        ];
+    }
+
+    protected function levelTotalLabel(array $group): string
+    {
+        $levels = collect($group['rows'] ?? [])
+            ->pluck('level')
+            ->filter(fn ($level): bool => $level !== null)
+            ->map(fn ($level): int => (int) $level);
+
+        if ($levels->isEmpty()) {
+            return 'TOTAL';
+        }
+
+        return 'TOTAL '.$levels->min().' - '.$levels->max();
+    }
+
+    protected function blankRecurrentTotals(): array
+    {
+        return [
+            'approved_staff' => null,
+            'actual_staff' => null,
+            'approved_estimate' => null,
+            'actual_expense' => null,
+            'required_staff' => null,
+            'proposed_estimate' => null,
+        ];
+    }
+
+    protected function countOnlyTotals(array $totals): array
+    {
+        return [
+            'approved_staff' => $totals['approved_staff'] ?? 0,
+            'actual_staff' => $totals['actual_staff'] ?? 0,
+            'approved_estimate' => 0,
+            'actual_expense' => 0,
+            'required_staff' => $totals['required_staff'] ?? 0,
+            'proposed_estimate' => 0,
+        ];
+    }
+
+    protected function amountOnlyTotals(array $totals): array
+    {
+        return [
+            'approved_staff' => null,
+            'actual_staff' => null,
+            'approved_estimate' => $totals['approved_estimate'] ?? 0,
+            'actual_expense' => $totals['actual_expense'] ?? 0,
+            'required_staff' => null,
+            'proposed_estimate' => $totals['proposed_estimate'] ?? 0,
+        ];
+    }
+
+    protected function emptyRecurrentRow(int $level): array
+    {
+        return [
+            'level' => $level,
+            'approved_staff' => 0,
+            'actual_staff' => 0,
+            'approved_estimate' => 0,
+            'actual_expense' => 0,
+            'required_staff' => 0,
+            'proposed_estimate' => 0,
+        ];
+    }
+
+    protected function recurrentTotals(Collection $rows): array
+    {
+        return [
+            'approved_staff' => $rows->sum('approved_staff'),
+            'actual_staff' => $rows->sum('actual_staff'),
+            'approved_estimate' => $rows->sum('approved_estimate'),
+            'actual_expense' => $rows->sum('actual_expense'),
+            'required_staff' => $rows->sum('required_staff'),
+            'proposed_estimate' => $rows->sum('proposed_estimate'),
+        ];
+    }
+
+    protected function staffRow(MovementLine $line): array
     {
         $staff = $line->staff;
         $employment = $line->currentEmployment;
+        $qualification = $staff?->qualifications->firstWhere('is_highest', true)
+            ?? $staff?->qualifications->first();
 
         return [
-            'sn' => $serialNumber,
-            'name' => $staff?->full_name,
+            'sn' => null,
+            'name' => ReportFormatter::personName($staff?->full_name),
             'sex' => $this->sex($line),
             'dob' => $staff?->date_of_birth?->format('Y-m-d'),
             'lga' => $staff?->personalDetail?->lga,
-            'qualification' => $this->qualification($line),
+            'qualification' => filled($qualification?->qualification_name) ? $qualification->qualification_name : 'Unspecified',
             'dfa' => $employment?->date_first_appointment?->format('Y-m-d'),
             'dpa' => $employment?->date_last_promotion?->format('Y-m-d'),
             'rank' => $employment?->rank?->name,
             'level_step' => trim(($line->currentSalaryScale?->code ?? '').' '.($line->current_level ?? '').'/'.($line->current_step ?? '')),
+            'scale_code' => $line->currentSalaryScale?->code ?? 'N/A',
+            'level' => $line->current_level,
             'psn' => $staff?->legacy_psn,
             'file_no' => $staff?->personalDetail?->file_no,
-            'cno' => $staff?->legacy_cno,
-            'remark' => str($line->eligibility_status)->replace('_', ' ')->title().' / '.str($line->retirement_status)->replace('_', ' ')->title(),
+            'cno' => ReportFormatter::cno($staff?->legacy_cno, $staff?->staff_number),
+            'remark' => str($line->isContractStaffForMovement() ? 'contract' : $line->eligibility_status)->replace('_', ' ')->title().' / '.str($line->retirement_status)->replace('_', ' ')->title(),
         ];
+    }
+
+    protected function staffListSections(Collection $rows): Collection
+    {
+        return $rows
+            ->groupBy(fn (array $row): string => ($row['scale_code'] ?? 'N/A').'|'.($row['level'] ?? 0))
+            ->map(function (Collection $sectionRows): array {
+                $first = $sectionRows->first();
+
+                return [
+                    'scale_code' => $first['scale_code'] ?? 'N/A',
+                    'level' => $first['level'],
+                    'title' => trim(($first['scale_code'] ?? 'N/A').' '.($first['level'] ?? '-')).' ('.$sectionRows->count().')',
+                    'rows' => $sectionRows->sortBy('name')->values(),
+                ];
+            })
+            ->sortBy([
+                ['scale_code', 'asc'],
+                ['level', 'desc'],
+            ])
+            ->values();
+    }
+
+    protected function numberStaffListSections(Collection $sections): Collection
+    {
+        $serialNumber = 1;
+
+        return $sections
+            ->map(function (array $section) use (&$serialNumber): array {
+                $section['rows'] = $section['rows']
+                    ->map(function (array $row) use (&$serialNumber): array {
+                        $row['sn'] = $serialNumber++;
+
+                        return $row;
+                    })
+                    ->values();
+
+                return $section;
+            })
+            ->values();
     }
 
     protected function qualification(MovementLine $line): string
@@ -280,6 +675,26 @@ class BudgetReportService
     protected function scaleLabel(BudgetLine $line): string
     {
         return trim(($line->salaryScale?->code ?? 'N/A').' - '.($line->salaryScale?->name ?? ''));
+    }
+
+    protected function gradeLabel(?string $scaleCode, ?string $scaleName): string
+    {
+        $label = trim((string) ($scaleName ?: $scaleCode ?: ''));
+
+        return $label !== '' ? mb_strtoupper($label) : 'GRADE';
+    }
+
+    protected function scaleNameFromLabel(?string $scale): ?string
+    {
+        if (! is_string($scale) || $scale === '') {
+            return null;
+        }
+
+        if (str_contains($scale, ' - ')) {
+            return trim(str($scale)->after(' - ')->toString());
+        }
+
+        return trim($scale);
     }
 
     protected function lineKey(?int $departmentId, ?int $salaryScaleId, ?int $level): string

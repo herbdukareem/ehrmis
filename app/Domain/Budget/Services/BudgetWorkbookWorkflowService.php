@@ -16,8 +16,7 @@ class BudgetWorkbookWorkflowService
     public function __construct(
         protected ApprovalWorkflowService $approvalWorkflowService,
         protected AuditLogService $auditLogService,
-    ) {
-    }
+    ) {}
 
     public function submit(BudgetWorkbook $workbook, ?User $actor = null): BudgetWorkbook
     {
@@ -63,7 +62,7 @@ class BudgetWorkbookWorkflowService
         return DB::transaction(function () use ($workbook, $actor): BudgetWorkbook {
             $before = $workbook->load('approvalWorkflow.steps')->toArray();
 
-            if ($actor && ! $workbook->approvalWorkflow) {
+            if ($actor && (! $workbook->approvalWorkflow || in_array($workbook->approvalWorkflow->status, ['draft', 'rejected', 'returned'], true))) {
                 $this->approvalWorkflowService->submit(
                     $workbook,
                     self::WORKFLOW_TYPE,
@@ -179,6 +178,48 @@ class BudgetWorkbookWorkflowService
             $this->auditLogService->logUpdated($workbook, $before, ['source' => 'budget_workflow.reopened']);
 
             return $workbook->fresh(['lines', 'movementWorkbook', 'mda', 'approvalWorkflow.steps']);
+        });
+    }
+
+    public function resetApprovalAfterRegeneration(BudgetWorkbook $workbook): BudgetWorkbook
+    {
+        return DB::transaction(function () use ($workbook): BudgetWorkbook {
+            $workbook = BudgetWorkbook::query()->where('mda_id', $workbook->mda_id)->whereKey($workbook->id)->lockForUpdate()->firstOrFail();
+            if ($workbook->status !== 'draft') {
+                throw new InvalidArgumentException('Only a regenerated draft budget can have its approval reset.');
+            }
+            $workflow = $workbook->approvalWorkflow()->lockForUpdate()->first();
+            $workflow?->load('steps');
+            $workflowNeedsReset = $workflow && ($workflow->status !== 'draft' || $workflow->steps->isNotEmpty()
+                || $workflow->submitted_at !== null || $workflow->approved_at !== null || $workflow->rejected_at !== null);
+            if (! $workflowNeedsReset && $workbook->approved_by === null && $workbook->approved_at === null && $workbook->locked_at === null) {
+                return $workbook;
+            }
+            $before = $workbook->load('approvalWorkflow.steps')->toArray();
+            if ($workflowNeedsReset) {
+                $metadata = $workflow->metadata ?? [];
+                $metadata['history'] = [
+                    ...($metadata['history'] ?? []),
+                    [
+                        ...$workflow->only(['status', 'submitted_by', 'submitted_at', 'approved_by', 'approved_at', 'rejected_by', 'rejected_at', 'rejection_comment', 'current_step_no']),
+                        'steps' => $workflow->steps->toArray(),
+                        'reason' => 'Budget regenerated',
+                        'recorded_at' => now()->toISOString(),
+                    ],
+                ];
+                $workflow->steps()->delete();
+                $workflow->forceFill([
+                    'status' => 'draft', 'submitted_by' => null, 'submitted_at' => null,
+                    'approved_by' => null, 'approved_at' => null, 'rejected_by' => null, 'rejected_at' => null,
+                    'rejection_comment' => null, 'current_step_no' => null, 'metadata' => $metadata,
+                ])->save();
+            }
+            $workbook->forceFill(['approved_by' => null, 'approved_at' => null, 'locked_at' => null])->save();
+            $this->auditLogService->log('budget.approval_reset_after_regeneration', $workbook, $before, $workbook->fresh('approvalWorkflow.steps')->toArray(), [
+                'mda_id' => $workbook->mda_id, 'source' => 'budget_generation',
+            ]);
+
+            return $workbook->fresh('approvalWorkflow.steps');
         });
     }
 }

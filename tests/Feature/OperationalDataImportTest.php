@@ -39,7 +39,7 @@ class OperationalDataImportTest extends TestCase
         $this->otherMda = Mda::query()->create(['code' => 'HMB', 'name' => 'Hospital Management Board', 'status' => 'active']);
         $this->department = Department::withoutGlobalScopes()->create(['mda_id' => $this->mda->id, 'code' => 'CLIN', 'name' => 'Clinical Services', 'status' => 'active']);
         $this->otherDepartment = Department::withoutGlobalScopes()->create(['mda_id' => $this->otherMda->id, 'code' => 'ADMIN', 'name' => 'Administration', 'status' => 'active']);
-        $this->scale = SalaryScale::query()->create(['mda_id' => $this->mda->id, 'code' => 'CM', 'name' => 'Medical Scale', 'min_level' => 1, 'max_level' => 7, 'min_step' => 1, 'max_step' => 10, 'status' => 'active']);
+        $this->scale = SalaryScale::query()->firstOrCreate(['code' => 'CM'], ['name' => 'Medical Scale', 'min_level' => 1, 'max_level' => 7, 'min_step' => 1, 'max_step' => 10, 'status' => 'active']);
         $this->user = User::factory()->mdaUser($this->mda)->create();
         $this->user->assignRole('MDA Admin');
     }
@@ -97,6 +97,7 @@ class OperationalDataImportTest extends TestCase
 
         $station = Station::withoutGlobalScopes()->where('code', 'HQ')->firstOrFail();
         $this->assertSame($this->mda->id, $station->mda_id);
+        $this->assertFalse($station->is_rural);
 
         $this->actingAs($this->user)->postJson('/api/operational-imports/stations', [
             'file' => $this->csv("code,name,description,status\nHQ,Central Headquarters,Updated station,active"),
@@ -133,6 +134,18 @@ class OperationalDataImportTest extends TestCase
         $this->actingAs($this->user)
             ->get('/api/operational-imports/highest-qualifications/template')
             ->assertNotFound();
+    }
+
+    public function test_station_import_accepts_lga_and_rural_flag_and_rejects_invalid_flags(): void
+    {
+        $this->actingAs($this->user)->postJson('/api/operational-imports/stations', [
+            'file' => $this->csv("code,name,status,lga,is_rural\nRURAL,Rural station,active, Paikoro ,1"),
+        ])->assertOk()->assertJsonPath('data.created', 1);
+        $this->assertDatabaseHas('stations', ['mda_id' => $this->mda->id, 'code' => 'RURAL', 'lga' => 'PAIKORO', 'is_rural' => true]);
+        $this->actingAs($this->user)->postJson('/api/operational-imports/stations', [
+            'file' => $this->csv("code,name,status,lga,is_rural\nINVALID,Invalid station,active,Paikoro,2"),
+        ])->assertUnprocessable();
+        $this->assertDatabaseMissing('stations', ['code' => 'INVALID']);
     }
 
     public function test_reimporting_existing_cadres_and_ranks_skips_unchanged_rows(): void

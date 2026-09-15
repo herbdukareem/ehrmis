@@ -139,16 +139,20 @@ class MovementSheetGenerationService
                     $summary['staff_considered']++;
                     $movementLine = $this->generateLinePayload($staff, $year, $budgetYear, $budgetMinimumStep);
 
-                    if ($movementLine['eligibility_status'] === 'due') {
-                        $summary['due_for_promotion']++;
-                    }
-
                     if ($movementLine['retirement_status'] === 'retiring') {
                         $summary['retiring_in_year']++;
                     }
 
                     if ($movementLine['retirement_status'] === 'retired') {
                         $summary['already_retired']++;
+                    }
+
+                    if ($movementLine['retirement_status'] === 'retired' && ! ($movementLine['is_contract_staff'] ?? false)) {
+                        continue;
+                    }
+
+                    if ($movementLine['eligibility_status'] === 'due') {
+                        $summary['due_for_promotion']++;
                     }
 
                     if ($movementLine['eligibility_status'] === 'blocked_by_policy') {
@@ -210,6 +214,7 @@ class MovementSheetGenerationService
         $currentScaleCode = $placement?->salaryScale?->code;
         $currentLevel = $placement?->level;
         $currentStep = $placement?->step;
+        $isContractStaff = (bool) $staff->is_contract_staff;
 
         $currentAmounts = $currentScaleCode !== null && $currentLevel !== null && $currentStep !== null
             ? $this->salaryCalculationService->calculateGrossForPlacement($currentScaleCode, $currentLevel, $currentStep, $eligibleAllowanceCodes, (int) $staff->mda_id)
@@ -309,6 +314,14 @@ class MovementSheetGenerationService
             $eligibilityReason = 'Staff is already retired before the movement year.';
         }
 
+        if ($isContractStaff) {
+            $promotionDue = false;
+            $proposedLevel = $currentLevel;
+            $proposedStep = $currentStep;
+            $eligibilityStatus = 'contract';
+            $eligibilityReason = 'Staff is marked as contract staff on the staff record.';
+        }
+
         $proposedAmounts = $currentScaleCode !== null && $proposedLevel !== null && $proposedStep !== null
             ? $this->salaryCalculationService->calculateGrossForPlacement($currentScaleCode, $proposedLevel, $proposedStep, $eligibleAllowanceCodes, (int) $staff->mda_id)
             : $currentAmounts;
@@ -318,9 +331,11 @@ class MovementSheetGenerationService
             'current_salary_placement_id' => $placement?->id,
             'current_salary_scale_id' => $placement?->salary_scale_id,
             'proposed_salary_scale_id' => $placement?->salary_scale_id,
-            'selection_state' => $retirementStatus === 'retired' ? 'excluded' : 'included',
+            'selection_state' => $retirementStatus === 'retired' && ! $isContractStaff ? 'excluded' : 'included',
             'eligibility_status' => $eligibilityStatus,
             'retirement_status' => $retirementStatus,
+            'is_contract_staff' => $isContractStaff,
+            'is_special_movement' => false,
             'retirement_month' => $retirementMonth,
             'current_level' => $currentLevel,
             'current_step' => $currentStep,

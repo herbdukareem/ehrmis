@@ -13,7 +13,7 @@ class MovementDepartmentSummaryService
     public function summarize(MovementWorkbook $workbook): Collection
     {
         $lines = $workbook->lines()
-            ->with(['currentEmployment.department', 'currentSalaryScale', 'proposedSalaryScale'])
+            ->with(['staff', 'currentEmployment.department', 'currentSalaryScale', 'proposedSalaryScale'])
             ->get();
         $rows = [];
         $scaleRanges = [];
@@ -27,8 +27,8 @@ class MovementDepartmentSummaryService
             $proposedScaleId = $line->proposed_salary_scale_id;
             $proposedScale = $line->proposedSalaryScale?->code ?? $currentScale;
             $proposedLevel = $line->proposed_level;
-            $isRetiring = in_array($line->retirement_status, ['retiring', 'retired'], true);
-            $isIncluded = $line->selection_state === 'included' && ! $isRetiring;
+            $isRetiring = $line->retirement_status === 'retiring' && ! $line->hasMovementOverride();
+            $isIncluded = $line->countsAsRequiredStaff();
             $isMoving = $isIncluded && ($currentScaleId !== $proposedScaleId || $currentLevel !== $proposedLevel);
 
             $this->registerScaleRange($scaleRanges, $departmentId, $department, $line->currentSalaryScale, $currentLevel);
@@ -36,7 +36,7 @@ class MovementDepartmentSummaryService
 
             $currentKey = implode('|', [$departmentId ?? 0, $currentScaleId ?? 0, $currentLevel ?? 0]);
             $this->initializeRow($rows, $currentKey, $departmentId, $department, $currentScale, $currentLevel);
-            $rows[$currentKey]['present_staff']++;
+            $rows[$currentKey]['present_staff'] += $line->countsAsCurrentStaff() ? 1 : 0;
 
             if ($isMoving) {
                 $rows[$currentKey]['staff_moving']++;

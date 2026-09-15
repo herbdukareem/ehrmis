@@ -8,12 +8,14 @@ import PageHeading from '../components/PageHeading.vue';
 import StatusPill from '../components/StatusPill.vue';
 import { api, apiMessage } from '../lib/api';
 import { can } from '../stores/auth';
+import { reportCno, reportDate } from '../lib/reportFormatting';
 
 const route = useRoute();
 const data = ref(null);
 const activeTab = ref('detail');
 const note = ref('');
 const feedback = ref('');
+const savingFlagIds = ref([]);
 const tabs = computed(() => [
     { id: 'detail', label: 'Staff movement detail', count: data.value?.lines?.length ?? 0 },
     { id: 'summary', label: 'Summary', count: data.value?.department_summaries?.length ?? 0 },
@@ -23,9 +25,11 @@ const detailColumns = [
     { key: 'full_name', label: 'Name' },
     { key: 'highest_qualification', label: 'H. Qual.' },
     { key: 'current_placement', label: 'Current placement' },
+    { key: 'date_first_appointment', label: 'DFA' },
     { key: 'date_last_promotion', label: 'DPA' },
     { key: 'next_promotion_date', label: 'DNP' },
     { key: 'proposed_placement', label: 'Moving to' },
+    { key: 'is_special_movement', label: 'Special' },
     { key: 'eligibility_status', label: 'Eligibility' },
 ];
 const summaryColumns = [
@@ -49,6 +53,69 @@ const summaryRows = (rows) => rows.map((row, index) => ({ ...row, serial_number:
 const exportUrl = (departmentId = null) => `/api/movement-workbooks/${route.params.id}/summary-export${departmentId ? `?department_id=${departmentId}` : ''}`;
 const detailExportUrl = (departmentId = null) => `/api/movement-workbooks/${route.params.id}/detail-export${departmentId ? `?department_id=${departmentId}` : ''}`;
 const load = async () => { data.value = (await api.get(`/movement-workbooks/${route.params.id}`)).data.data; };
+const canEditMovementFlags = computed(() => can('create-movement-sheets') && !['approved', 'locked', 'generating', 'generation_failed'].includes(data.value?.status));
+const isSavingFlag = (line) => savingFlagIds.value.includes(line.id);
+const updateLineFlags = async (line, changes) => {
+    const previous = {
+        is_contract_staff: line.is_contract_staff,
+        is_special_movement: line.is_special_movement,
+        proposed_level: line.proposed_level,
+        proposed_step: line.proposed_step,
+        proposed_placement: line.proposed_placement,
+        eligibility_status: line.eligibility_status,
+        eligibility_reason: line.eligibility_reason,
+    };
+
+    Object.assign(line, changes);
+    savingFlagIds.value = [...savingFlagIds.value, line.id];
+
+    try {
+        const payload = {
+            is_contract_staff: Boolean(line.is_contract_staff),
+            is_special_movement: Boolean(line.is_special_movement),
+        };
+
+        if (line.is_special_movement) {
+            payload.proposed_level = line.proposed_level;
+        }
+
+        feedback.value = (await api.patch(`/movement-workbooks/${route.params.id}/lines/${line.id}/flags`, payload)).data.message;
+        await load();
+    } catch (error) {
+        Object.assign(line, previous);
+        feedback.value = apiMessage(error);
+    } finally {
+        savingFlagIds.value = savingFlagIds.value.filter((id) => id !== line.id);
+    }
+};
+const updateSpecialFlag = (line, checked, event) => {
+    if (line.is_contract_staff && checked) {
+        event.target.checked = false;
+        feedback.value = 'Contract staff are already included with contract status.';
+        return;
+    }
+
+    if (!checked) {
+        updateLineFlags(line, { is_special_movement: false });
+        return;
+    }
+
+    const answer = window.prompt('Enter the grade level this staff should move to', line.proposed_level ?? line.current_level ?? '');
+    const proposedLevel = Number.parseInt(answer, 10);
+
+    if (!answer || Number.isNaN(proposedLevel)) {
+        event.target.checked = false;
+        feedback.value = 'Select a valid grade level for special movement.';
+        return;
+    }
+
+    updateLineFlags(line, {
+        is_contract_staff: false,
+        is_special_movement: true,
+        proposed_level: proposedLevel,
+        eligibility_status: 'due',
+    });
+};
 const action = async (name) => {
     try {
         feedback.value = (await api.post(`/movement-workbooks/${route.params.id}/${name}`, { comment: note.value })).data.message;
@@ -67,7 +134,7 @@ onMounted(load);
             <StatusPill :status="data.status" />
         </PageHeading>
         <section v-if="!['generating', 'generation_failed'].includes(data.status)" class="civic-decision-bar">
-            <div><span>Staff considered</span><strong>{{ data.summary?.staff_considered ?? 0 }}</strong></div>
+            <div><span>Staff considered</span><strong>{{ data.lines.length }}</strong></div>
             <div><span>Promotion due</span><strong>{{ data.summary?.due_for_promotion ?? 0 }}</strong></div>
             <div><span>Retiring</span><strong>{{ data.summary?.retiring_in_year ?? 0 }}</strong></div>
             <div><span>Budget minimum</span><strong>Step {{ data.budget_minimum_step ?? 5 }}</strong></div>
@@ -107,7 +174,20 @@ onMounted(load);
                     </div>
                 </summary>
                 <DataTable :columns="detailColumns" :rows="department.lines">
-                    <template #legacy_cno="{ row }"><RouterLink class="civic-record-link" :to="`/staff/${row.staff_id}`">{{ row.legacy_cno ?? row.staff_number }}</RouterLink></template>
+                    <template #legacy_cno="{ row }"><RouterLink class="civic-record-link" :to="`/staff/${row.staff_id}`">{{ reportCno(row.legacy_cno, row.staff_number) }}</RouterLink></template>
+                    <template #date_first_appointment="{ row }">{{ reportDate(row.date_first_appointment) }}</template>
+                    <template #date_last_promotion="{ row }">{{ reportDate(row.date_last_promotion) }}</template>
+                    <template #next_promotion_date="{ row }">{{ reportDate(row.next_promotion_date) }}</template>
+                    <template #is_special_movement="{ row }">
+                        <label class="civic-flag-check" title="Count this staff as a special movement exception">
+                            <input
+                                type="checkbox"
+                                :checked="row.is_special_movement"
+                                :disabled="!canEditMovementFlags || isSavingFlag(row) || row.is_contract_staff"
+                                @change="updateSpecialFlag(row, $event.target.checked, $event)"
+                            >
+                        </label>
+                    </template>
                     <template #eligibility_status="{ row }">
                         <StatusPill :status="row.eligibility_status" />
                         <small v-if="row.eligibility_reason" class="civic-policy-reason">{{ row.eligibility_reason }}</small>

@@ -74,7 +74,7 @@ onMounted(async () => {
                 <label class="civic-field"><span>Status reason</span><input v-model="form.status_reason" placeholder="Required when status changes"></label>
                 <label class="civic-field"><span>Phone</span><input v-model="form.personal_detail.phone"></label>
                 <label class="civic-field"><span>Email</span><input v-model="form.personal_detail.email" type="email"></label>
-                <label class="civic-field"><span>LGA</span><input v-model="form.personal_detail.lga"></label>
+                <label class="civic-field"><span>LGA of origin</span><input v-model="form.personal_detail.lga"></label>
                 <label class="civic-field"><span>State of origin</span><input v-model="form.personal_detail.state_of_origin"></label>
                 <label class="civic-field"><span>File number</span><input v-model="form.personal_detail.file_no"></label>
                 <label class="civic-field civic-field-wide"><span>Address</span><textarea v-model="form.personal_detail.address" rows="3"></textarea></label>

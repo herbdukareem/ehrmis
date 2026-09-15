@@ -75,6 +75,7 @@ class DashboardController extends Controller
                     'staff' => $staffQuery->count(),
                     'active_staff' => $this->activeStaffCount($user),
                     'retired_staff' => $this->retiredStaffCount($user),
+                    'contract_staff' => $this->contractStaffCount($user),
                     'other_staff' => (clone $staffQuery)->whereNotIn('status', ['active', 'retired'])->count(),
                     'import_batches' => $importQuery->count(),
                     'movement_workbooks' => $movementQuery->count(),
@@ -113,6 +114,70 @@ class DashboardController extends Controller
         return response()->json(['data' => $data]);
     }
 
+    public function retirementStaff(Request $request): JsonResponse
+    {
+        $user = $request->user();
+        abort_unless($user->can('view-reports') && ! $user->hasStationScope(), 403);
+        $currentYear = CarbonImmutable::today()->year;
+        $validated = $request->validate([
+            'year' => ['required', 'integer', 'between:'.($currentYear - 5).','.($currentYear + 4)],
+            'page' => ['sometimes', 'integer', 'min:1'],
+            'per_page' => ['sometimes', 'integer', 'in:20,50,100'],
+        ]);
+        $year = (int) $validated['year'];
+        $historical = $year < $currentYear;
+        $from = CarbonImmutable::create($year)->startOfYear();
+        $to = $from->endOfYear();
+        $matching = $historical
+            ? $this->retirementHistoryQuery($user, $from, $to)
+            : $this->retirementProjectionQuery($user, $from, $to);
+
+        // Use the chart's scoped query and return each staff member once.
+        $query = Staff::query()->whereIn('staff.id', $matching->select('staff.id'))
+            ->with(['mda', 'currentEmployment.department', 'currentEmployment.station', 'currentEmployment.cadre', 'currentEmployment.rank'])
+            ->select('staff.*');
+        if ($historical) {
+            $query->selectSub(
+                StaffStatusHistory::query()->selectRaw('MIN(effective_from)')
+                    ->whereColumn('staff_id', 'staff.id')->where('status', 'retired'),
+                'recorded_retirement_date',
+            );
+        }
+        $page = $query->orderBy('full_name')->orderBy('staff.id')->paginate($validated['per_page'] ?? 50);
+
+        return response()->json([
+            'data' => $page->getCollection()->map(function (Staff $staff) use ($user, $historical): array {
+                $employment = $staff->currentEmployment;
+                $recordedDate = $historical ? $staff->recorded_retirement_date : null;
+
+                return [
+                    'id' => $staff->id,
+                    'staff_number' => $staff->staff_number,
+                    'full_name' => $staff->full_name,
+                    'mda' => $staff->mda?->name,
+                    'department' => $employment?->department?->name,
+                    'station' => $employment?->station?->name,
+                    'cadre' => $employment?->cadre?->name,
+                    'rank' => $employment?->rank?->name,
+                    'status' => $staff->status,
+                    'retirement_date' => $recordedDate ? CarbonImmutable::parse($recordedDate)->toDateString() : $employment?->expected_retirement_date?->toDateString(),
+                    'retirement_date_source' => $recordedDate ? 'Recorded' : 'Expected',
+                    'can_view_record' => $user->can('view', $staff),
+                ];
+            })->values(),
+            'meta' => [
+                'year' => $year,
+                'kind' => $historical ? 'history' : 'projection',
+                'current_page' => $page->currentPage(),
+                'last_page' => $page->lastPage(),
+                'per_page' => $page->perPage(),
+                'total' => $page->total(),
+                'from' => $page->firstItem(),
+                'to' => $page->lastItem(),
+            ],
+        ]);
+    }
+
     public function facility(Request $request): JsonResponse
     {
         $user = $request->user()->loadMissing('station.mda');
@@ -134,6 +199,7 @@ class DashboardController extends Controller
                 'staff' => (clone $staff)->count(),
                 'active_staff' => $active->count(),
                 'retired_staff' => (clone $staff)->where(fn (Builder $query) => $query->where('staff.status', 'retired')->orWhere('staff_employments.employment_status', 'retired')->orWhereDate('staff_employments.expected_retirement_date', '<=', $today->toDateString()))->count(),
+                'contract_staff' => (clone $staff)->where('staff.is_contract_staff', true)->count(),
             ],
             'retirement_windows' => [
                 'this_month' => $this->facilityRetirementCount((int) $user->station_id, $today->startOfMonth(), $today->endOfMonth()),
@@ -192,6 +258,7 @@ class DashboardController extends Controller
             $staffCount = Staff::query()->where('mda_id', $mda->id)->count();
             $activeStaff = $this->activeStaffCountForMda($user, (int) $mda->id);
             $retiredStaff = $this->retiredStaffCountForMda($user, (int) $mda->id);
+            $contractStaff = $this->contractStaffCountForMda($user, (int) $mda->id);
             $retiringThisYear = $this->retirementCountForMda(
                 $user,
                 (int) $mda->id,
@@ -221,6 +288,7 @@ class DashboardController extends Controller
                 'staff_count' => $staffCount,
                 'active_staff' => $activeStaff,
                 'retired_staff' => $retiredStaff,
+                'contract_staff' => $contractStaff,
                 'retiring_this_year' => $retiringThisYear,
                 'data_issues' => $dataIssues,
                 'pending_promotions' => $pendingPromotions,
@@ -247,11 +315,16 @@ class DashboardController extends Controller
 
     protected function retirementCount($user, CarbonImmutable $from, CarbonImmutable $to): int
     {
+        return $this->retirementProjectionQuery($user, $from, $to)->distinct()->count('staff.id');
+    }
+
+    protected function retirementProjectionQuery($user, CarbonImmutable $from, CarbonImmutable $to): Builder
+    {
         return $this->employmentQuery($user)
             ->where('staff.status', '!=', 'retired')
             ->where('staff_employments.employment_status', '!=', 'retired')
-            ->whereBetween('staff_employments.expected_retirement_date', [$from->toDateString(), $to->toDateString()])
-            ->count();
+            ->whereDate('staff_employments.expected_retirement_date', '>=', $from->toDateString())
+            ->whereDate('staff_employments.expected_retirement_date', '<=', $to->toDateString());
     }
 
     protected function retiredStaffCount($user): int
@@ -283,6 +356,14 @@ class DashboardController extends Controller
             ->count();
     }
 
+    protected function contractStaffCount($user): int
+    {
+        $query = Staff::query()->where('is_contract_staff', true);
+        $user->scopeToAccessibleStaff($query);
+
+        return $query->count();
+    }
+
     protected function retiredStaffCountForMda($user, int $mdaId): int
     {
         $today = CarbonImmutable::today()->toDateString();
@@ -312,6 +393,16 @@ class DashboardController extends Controller
                     ->orWhereDate('staff_employments.expected_retirement_date', '>', $today);
             })
             ->count();
+    }
+
+    protected function contractStaffCountForMda($user, int $mdaId): int
+    {
+        $query = Staff::query()
+            ->where('mda_id', $mdaId)
+            ->where('is_contract_staff', true);
+        $user->scopeToAccessibleStaff($query);
+
+        return $query->count();
     }
 
     protected function retirementCountForMda($user, int $mdaId, CarbonImmutable $from, CarbonImmutable $to): int
@@ -491,37 +582,35 @@ class DashboardController extends Controller
     {
         return collect(range(5, 1))->map(function (int $offset) use ($user, $today): array {
             $year = $today->year - $offset;
-            $yearStart = CarbonImmutable::create($year)->startOfYear()->toDateString();
-            $yearEnd = CarbonImmutable::create($year)->endOfYear()->toDateString();
-
-            $retiredHistory = StaffStatusHistory::query()
-                ->selectRaw('staff_id, MIN(effective_from) as retired_effective_from')
-                ->where('status', 'retired')
-                ->groupBy('staff_id');
-
-            $total = StaffEmployment::query()
-                ->join('staff', 'staff.id', '=', 'staff_employments.staff_id')
-                ->leftJoinSub($retiredHistory, 'retired_history', function ($join): void {
-                    $join->on('retired_history.staff_id', '=', 'staff.id');
-                })
-                ->whereNull('staff.deleted_at')
-                ->where('staff_employments.is_current', true)
-                ->where(function (Builder $query) use ($yearStart, $yearEnd): void {
-                    $query
-                        ->whereBetween('retired_history.retired_effective_from', [$yearStart, $yearEnd])
-                        ->orWhere(function (Builder $fallbackQuery) use ($yearStart, $yearEnd): void {
-                            $fallbackQuery
-                                ->whereNull('retired_history.retired_effective_from')
-                                ->whereBetween('staff_employments.expected_retirement_date', [$yearStart, $yearEnd]);
-                        });
-                })
-                ->distinct('staff.id');
-
-            $this->scopeStaffEmploymentQuery($total, $user, 'staff_employments.department_id');
-            $total = $total->count('staff.id');
+            $total = $this->retirementHistoryQuery($user, CarbonImmutable::create($year)->startOfYear(), CarbonImmutable::create($year)->endOfYear())
+                ->distinct()->count('staff.id');
 
             return ['label' => (string) $year, 'total' => $total];
         })->all();
+    }
+
+    protected function retirementHistoryQuery($user, CarbonImmutable $from, CarbonImmutable $to): Builder
+    {
+        $retiredHistory = StaffStatusHistory::query()
+            ->selectRaw('staff_id, MIN(effective_from) as retired_effective_from')
+            ->where('status', 'retired')->groupBy('staff_id');
+        $dates = [$from->toDateString(), $to->toDateString()];
+
+        return $this->employmentQuery($user)
+            ->leftJoinSub($retiredHistory, 'retired_history', function ($join): void {
+                $join->on('retired_history.staff_id', '=', 'staff.id');
+            })
+            ->where(function (Builder $query) use ($dates): void {
+                $query->where(function (Builder $recorded) use ($dates): void {
+                    $recorded->whereDate('retired_history.retired_effective_from', '>=', $dates[0])
+                        ->whereDate('retired_history.retired_effective_from', '<=', $dates[1]);
+                })
+                    ->orWhere(function (Builder $fallback) use ($dates): void {
+                        $fallback->whereNull('retired_history.retired_effective_from')
+                            ->whereDate('staff_employments.expected_retirement_date', '>=', $dates[0])
+                            ->whereDate('staff_employments.expected_retirement_date', '<=', $dates[1]);
+                    });
+            });
     }
 
     protected function employmentQuery($user)

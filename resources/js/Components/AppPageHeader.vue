@@ -23,6 +23,7 @@ const props = defineProps({
         type: Boolean,
         default: true,
     },
+    showBreadcrumbs: { type: Boolean, default: true },
 });
 
 const breadcrumbItems = computed(() => {
@@ -44,7 +45,7 @@ const backItem = computed(() => {
 
 <template>
     <header class="border-b border-ehrmis-border pb-4">
-        <div class="flex min-w-0 items-center justify-between gap-4">
+        <div v-if="showBreadcrumbs" class="flex min-w-0 items-center justify-between gap-4">
             <AppBreadcrumbs :items="breadcrumbItems" :home-href="homeHref" />
 
             <Link

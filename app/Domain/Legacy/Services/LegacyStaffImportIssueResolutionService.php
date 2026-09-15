@@ -22,8 +22,7 @@ class LegacyStaffImportIssueResolutionService
 {
     public function __construct(
         protected AuditLogService $auditLogService,
-    ) {
-    }
+    ) {}
 
     public function applyMapping(LegacyStaffImportRow $row, string $field, int $targetId, User $user, ?string $notes = null): LegacyStaffImportRow
     {
@@ -117,9 +116,9 @@ class LegacyStaffImportIssueResolutionService
         return $warning->fresh();
     }
 
-    public function resolveIdentifier(LegacyStaffImportRow $row, string $staffNumber, User $user, ?string $notes = null): LegacyStaffImportRow
+    public function resolveIdentifier(LegacyStaffImportRow $row, string $staffNumber, User $user, ?string $notes = null, bool $generated = false): LegacyStaffImportRow
     {
-        return DB::transaction(function () use ($row, $staffNumber, $user, $notes): LegacyStaffImportRow {
+        return DB::transaction(function () use ($row, $staffNumber, $user, $notes, $generated): LegacyStaffImportRow {
             $staffNumber = trim($staffNumber);
 
             if ($row->mda_id === null) {
@@ -128,8 +127,7 @@ class LegacyStaffImportIssueResolutionService
                 ]);
             }
 
-            $liveDuplicate = Staff::withoutGlobalScopes()
-                ->where('mda_id', $row->mda_id)
+            $liveDuplicate = Staff::query()->forMda((int) $row->mda_id)->withTrashed()
                 ->where('staff_number', $staffNumber)
                 ->exists();
             $stagedDuplicate = LegacyStaffImportRow::query()
@@ -150,6 +148,9 @@ class LegacyStaffImportIssueResolutionService
                 'staff_number' => $staffNumber,
                 'dedupe_key' => $staffNumber,
             ]);
+            if ($generated) {
+                $payload['staff_number_source'] = 'system_generated';
+            }
 
             $row->forceFill([
                 'staff_number' => $staffNumber,
@@ -158,18 +159,18 @@ class LegacyStaffImportIssueResolutionService
             ])->save();
 
             $this->markErrorsResolved($row, 'missing_identifier', $user, $notes, [
-                'action' => 'manual_identifier_resolution',
+                'action' => $generated ? 'generated_identifier_resolution' : 'manual_identifier_resolution',
                 'staff_number' => $staffNumber,
             ]);
             $this->markErrorsResolved($row, 'provisional_identifier', $user, $notes, [
-                'action' => 'manual_identifier_resolution',
+                'action' => $generated ? 'generated_identifier_resolution' : 'manual_identifier_resolution',
                 'staff_number' => $staffNumber,
             ]);
             $this->refreshRowStatus($row);
             $row->save();
 
             $this->auditLogService->log(
-                'legacy_staff_import.identifier.resolved',
+                $generated ? 'legacy_staff_import.identifier.generated' : 'legacy_staff_import.identifier.resolved',
                 $row,
                 $beforeRow,
                 $row->fresh()?->toArray() ?? $row->toArray(),

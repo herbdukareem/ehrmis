@@ -4,72 +4,46 @@ namespace App\Domain\Movement\Exports;
 
 use App\Domain\Movement\Models\MovementWorkbook;
 use App\Domain\Movement\Services\MovementDepartmentSummaryService;
-use Maatwebsite\Excel\Concerns\FromArray;
-use Maatwebsite\Excel\Concerns\ShouldAutoSize;
-use Maatwebsite\Excel\Concerns\WithStyles;
-use PhpOffice\PhpSpreadsheet\Worksheet\Worksheet;
+use Maatwebsite\Excel\Concerns\WithMultipleSheets;
 
-class MovementSummaryExport implements FromArray, ShouldAutoSize, WithStyles
+class MovementSummaryExport implements WithMultipleSheets
 {
     public function __construct(
         protected MovementWorkbook $workbook,
         protected MovementDepartmentSummaryService $summaryService,
         protected ?int $departmentId = null,
-    ) {
+    ) {}
+
+    public function sheets(): array
+    {
+        $this->workbook->loadMissing('mda');
+        $departments = $this->summaryService->summarize($this->workbook)
+            ->filter(fn (array $department): bool => $this->departmentId === null || $department['department_id'] === $this->departmentId);
+        if ($departments->isEmpty()) {
+            $departments = collect([['department' => 'No records', 'rows' => []]]);
+        }
+        $usedTitles = [];
+
+        return $departments->map(function (array $department) use (&$usedTitles): MovementSummarySheet {
+            return new MovementSummarySheet($this->workbook, $department, $this->sheetTitle($department['department'], $usedTitles));
+        })->values()->all();
     }
 
-    public function array(): array
+    protected function sheetTitle(string $department, array &$usedTitles): string
     {
-        $rows = [
-            [$this->workbook->name ?? "{$this->workbook->year} Movement Sheet"],
-            ['Movement year', $this->workbook->year, 'Budget year', $this->workbook->budget_year, 'Budget minimum step', $this->workbook->budget_minimum_step],
-            [],
-        ];
-
-        foreach ($this->summaryService->summarize($this->workbook) as $department) {
-            if ($this->departmentId !== null && $department['department_id'] !== $this->departmentId) {
-                continue;
-            }
-
-            $rows[] = [$department['department']];
-            $rows[] = ['S/N', 'Scale', 'Level', 'Present No. of Staff', 'No. of Staff Moving', 'No. of Staff Retiring', 'No. of Staff Joining', 'Expected Total'];
-
-            foreach ($department['rows'] as $index => $row) {
-                $rows[] = [
-                    $index + 1,
-                    $row['scale'],
-                    $row['level'],
-                    $row['present_staff'],
-                    $row['staff_moving'],
-                    $row['staff_retiring'],
-                    $row['staff_joining'],
-                    $row['expected_total'],
-                ];
-            }
-
-            $rows[] = [];
+        $name = str_replace(['\\', '/', '?', '*', ':', '[', ']'], '-', $department);
+        $name = trim(preg_replace('/[\x00-\x1F\x7F]/u', '', $name), " '\t\n\r\0\x0B") ?: 'Unassigned';
+        if (strcasecmp($name, 'History') === 0) {
+            $name .= ' department';
         }
+        $number = 1;
+        do {
+            $suffix = $number > 1 ? ' ('.$number.')' : '';
+            $title = rtrim(mb_substr($name, 0, 31 - mb_strlen($suffix)), " '").$suffix;
+            $number++;
+        } while (in_array(mb_strtolower($title), $usedTitles, true));
+        $usedTitles[] = mb_strtolower($title);
 
-        return $rows;
-    }
-
-    public function styles(Worksheet $sheet): array
-    {
-        $sheet->getStyle('A1:H1')->getFont()->setBold(true)->setSize(14);
-
-        foreach ($sheet->getRowIterator() as $row) {
-            $value = $sheet->getCell('A'.$row->getRowIndex())->getValue();
-
-            if (is_string($value) && $value !== '' && $sheet->getCell('B'.$row->getRowIndex())->getValue() === null) {
-                $sheet->mergeCells("A{$row->getRowIndex()}:H{$row->getRowIndex()}");
-                $sheet->getStyle("A{$row->getRowIndex()}:H{$row->getRowIndex()}")->getFont()->setBold(true);
-            }
-
-            if ($value === 'S/N') {
-                $sheet->getStyle("A{$row->getRowIndex()}:H{$row->getRowIndex()}")->getFont()->setBold(true);
-            }
-        }
-
-        return [];
+        return $title;
     }
 }

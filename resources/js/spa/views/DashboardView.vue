@@ -1,5 +1,7 @@
 <script setup>
-import { computed, onMounted, ref } from 'vue';
+import { computed, nextTick, onMounted, ref } from 'vue';
+import AppButton from '@/Components/AppButton.vue';
+import DashboardRetirementStaff from '../components/DashboardRetirementStaff.vue';
 import DonutChart from '../components/DonutChart.vue';
 import HorizontalBarChart from '../components/HorizontalBarChart.vue';
 import LoadingBlock from '../components/LoadingBlock.vue';
@@ -12,6 +14,8 @@ import { setPageError } from '../stores/app';
 const data = ref(null);
 const activeView = ref('organization');
 const selectedCadreIndex = ref(0);
+const selectedRetirement = ref(null);
+const retirementStaffPanel = ref(null);
 const views = [
     { id: 'organization', label: 'Departments' },
     { id: 'salary', label: 'Salary & gender' },
@@ -31,6 +35,16 @@ const retirementMaximum = computed(() => Math.max(
     ...(data.value?.retirement_trends.projection ?? []).map((row) => row.total),
     1,
 ));
+const retirementBars = computed(() => [
+    ...(data.value?.retirement_trends.history ?? []).map((row) => ({ ...row, kind: 'history', kindLabel: 'Actual' })),
+    ...(data.value?.retirement_trends.projection ?? []).map((row) => ({ ...row, kind: 'projection', kindLabel: 'Projected' })),
+]);
+
+async function showRetirementStaff(row) {
+    selectedRetirement.value = { year: Number(row.label), kind: row.kind };
+    await nextTick();
+    retirementStaffPanel.value?.$el?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+}
 
 onMounted(async () => {
     if (!can('view-reports')) {
@@ -83,10 +97,11 @@ onMounted(async () => {
             </div>
         </section>
 
-        <section class="civic-metric-band civic-metric-band-wide">
+        <section class="civic-metric-band civic-metric-band-wide civic-metric-band-five">
             <div><span>Total staff</span><strong>{{ data.counts.staff.toLocaleString() }}</strong></div>
             <div><span>Active</span><strong>{{ data.counts.active_staff.toLocaleString() }}</strong></div>
             <div><span>Retired</span><strong>{{ data.counts.retired_staff.toLocaleString() }}</strong></div>
+            <div><span>Contract staff</span><strong>{{ data.counts.contract_staff.toLocaleString() }}</strong></div>
             <div><span>Other status</span><strong>{{ data.counts.other_staff.toLocaleString() }}</strong></div>
         </section>
 
@@ -144,17 +159,45 @@ onMounted(async () => {
                         </div>
                         <h2>History and five-year projection</h2>
                     </div>
-                    
-                    </div>
-                <div class="civic-timeline-chart">
-                    <div v-for="row in data.retirement_trends.history" :key="`h-${row.label}`" class="civic-timeline-column history">
-                        <div class="civic-timeline-value">{{ row.total }}</div><div class="civic-timeline-track"><span :style="{ height: `${Math.max((row.total / retirementMaximum) * 100, 3)}%` }"></span></div><strong>{{ row.label }}</strong><small>Actual</small>
-                    </div>
-                    <div v-for="row in data.retirement_trends.projection" :key="`p-${row.label}`" class="civic-timeline-column projection">
-                        <div class="civic-timeline-value">{{ row.total }}</div><div class="civic-timeline-track"><span :style="{ height: `${Math.max((row.total / retirementMaximum) * 100, 3)}%` }"></span></div><strong>{{ row.label }}</strong><small>Projected</small>
-                    </div>
+                    <span>Click a year to view the affected staff.</span>
                 </div>
+                <div class="civic-timeline-chart">
+                    <AppButton
+                        v-for="row in retirementBars" :key="`${row.kind}-${row.label}`"
+                        variant="ghost" class="civic-timeline-column retirement-bar"
+                        :class="[row.kind, { selected: selectedRetirement?.year === Number(row.label) }]"
+                        :aria-label="`View ${row.total} staff for ${row.label} (${row.kindLabel.toLowerCase()})`"
+                        :aria-pressed="selectedRetirement?.year === Number(row.label)"
+                        :aria-controls="selectedRetirement ? 'retirement-staff-list' : undefined"
+                        @click="showRetirementStaff(row)"
+                    >
+                        <span class="civic-timeline-value">{{ row.total }}</span>
+                        <span class="civic-timeline-track"><span :style="{ height: `${Math.max((row.total / retirementMaximum) * 100, 3)}%` }"></span></span>
+                        <strong>{{ row.label }}</strong><small>{{ row.kindLabel }}</small>
+                    </AppButton>
+                </div>
+                <DashboardRetirementStaff
+                    v-if="selectedRetirement" ref="retirementStaffPanel"
+                    :year="selectedRetirement.year" :kind="selectedRetirement.kind"
+                    @close="selectedRetirement = null"
+                />
             </div>
         </section>
     </template>
 </template>
+
+<style scoped>
+.retirement-bar {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    justify-content: stretch;
+    width: 100%;
+    padding: 6px 0;
+    border: 1px solid transparent;
+    border-radius: 4px;
+    background: transparent;
+    align-items: stretch;
+}
+.retirement-bar:hover, .retirement-bar.selected { background: #f0fdfa; border-color: #99d8d0; }
+.retirement-bar:focus-visible { outline: 2px solid var(--civic-blue); outline-offset: 3px; }
+</style>

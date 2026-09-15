@@ -8,6 +8,7 @@ defineProps({
         type: Array,
         default: () => [],
     },
+    rowKey: { type: String, default: 'id' },
 });
 </script>
 
@@ -18,23 +19,28 @@ defineProps({
                 <thead>
                     <tr>
                         <th
-                            v-for="header in headers"
-                            :key="header"
+                            v-for="(header, index) in headers"
+                            :key="header.key ?? index"
+                            scope="col"
                         >
-                            {{ header }}
+                            {{ header.label ?? header }}
                         </th>
                     </tr>
                 </thead>
                 <tbody>
                     <tr
                         v-for="(row, index) in rows"
-                        :key="index"
+                        :key="row[rowKey] ?? index"
                     >
                         <td
-                            v-for="(value, cellIndex) in row"
+                            v-for="(header, cellIndex) in headers"
                             :key="`${index}-${cellIndex}`"
                         >
-                            {{ value }}
+                            <slot :name="`cell-${header.key ?? cellIndex}`" :row="row" :value="row[header.key ?? cellIndex]">
+                                <slot name="cell" :row="row" :value="row[header.key ?? cellIndex]" :column="header">
+                                    {{ row[header.key ?? cellIndex] }}
+                                </slot>
+                            </slot>
                         </td>
                     </tr>
                 </tbody>

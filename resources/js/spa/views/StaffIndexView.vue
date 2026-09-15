@@ -5,11 +5,14 @@ import LoadingBlock from '../components/LoadingBlock.vue';
 import PageHeading from '../components/PageHeading.vue';
 import StatusPill from '../components/StatusPill.vue';
 import { api, apiMessage } from '../lib/api';
+import { can } from '../stores/auth';
 
 const rows = ref([]);
 const meta = ref(null);
 const options = ref(null);
 const busy = ref(true);
+const bulkBusy = ref('');
+const bulkProgress = reactive({ processed: 0, changed: 0, skipped: 0 });
 const flaggedStaff = ref([]);
 const showFlaggedModal = ref(false);
 const showEditModal = ref(false);
@@ -30,6 +33,7 @@ const filters = reactive({
     psn: '',
     department_id: '',
     status: '',
+    contract: '',
     cadre_id: '',
     rank_id: '',
     page: 1,
@@ -44,6 +48,7 @@ const columns = [
     { key: 'department', label: 'Department' },
     { key: 'cadre', label: 'Cadre' },
     { key: 'salary_display', label: 'Placement' },
+    { key: 'contract', label: 'Contract' },
     { key: 'status', label: 'Status' },
 ];
 
@@ -55,7 +60,7 @@ const load = async () => {
     busy.value = false;
 };
 
-watch(() => [filters.search, filters.cno, filters.psn, filters.department_id, filters.status, filters.cadre_id, filters.rank_id], () => {
+watch(() => [filters.search, filters.cno, filters.psn, filters.department_id, filters.status, filters.contract, filters.cadre_id, filters.rank_id], () => {
     clearTimeout(timer);
     filters.page = 1;
     timer = setTimeout(load, 250);
@@ -74,7 +79,7 @@ watch(() => filters.cadre_id, () => {
 });
 
 const resetFilters = () => {
-    Object.assign(filters, { search: '', cno: '', psn: '', department_id: '', status: '', cadre_id: '', rank_id: '', page: 1 });
+    Object.assign(filters, { search: '', cno: '', psn: '', department_id: '', status: '', contract: '', cadre_id: '', rank_id: '', page: 1 });
 };
 
 const loadFlagged = async () => {
@@ -128,6 +133,44 @@ const saveIssueResolution = async () => {
     }
 };
 
+const recomputeAll = async (type) => {
+    const label = type === 'salary' ? 'salary and allowances' : 'retirement dates';
+    if (!window.confirm(`Recompute ${label} for all staff you can access?`)) {
+        return;
+    }
+
+    bulkBusy.value = type;
+    Object.assign(bulkProgress, { processed: 0, changed: 0, skipped: 0 });
+
+    try {
+        const endpoint = type === 'salary' ? '/staff/recompute-salaries' : '/staff/recompute-retirement-dates';
+        const limit = type === 'salary' ? 25 : 100;
+        let cursor = 0;
+
+        while (true) {
+            const response = await api.post(endpoint, { cursor, limit });
+            const batch = response.data.meta ?? {};
+
+            bulkProgress.processed += batch.processed ?? 0;
+            bulkProgress.changed += batch.changed ?? 0;
+            bulkProgress.skipped += batch.skipped ?? 0;
+
+            if (!batch.has_more || !batch.next_cursor || batch.next_cursor === cursor) {
+                break;
+            }
+
+            cursor = batch.next_cursor;
+        }
+
+        alert(`Recomputed ${label}.\nProcessed: ${bulkProgress.processed}\nChanged: ${bulkProgress.changed}\nSkipped: ${bulkProgress.skipped}`);
+        await load();
+    } catch (error) {
+        alert(apiMessage(error));
+    } finally {
+        bulkBusy.value = '';
+    }
+};
+
 onMounted(async () => {
     options.value = (await api.get('/staff/options')).data.data;
     await load();
@@ -137,7 +180,26 @@ onMounted(async () => {
 </script>
 
 <template>
-    <PageHeading eyebrow="Establishment record" title="Staff registry" description="Search and inspect the authoritative workforce register." />
+    <PageHeading eyebrow="Establishment record" title="Staff registry" description="Search and inspect the authoritative workforce register.">
+        <button
+            v-if="can('update-staff-allowances')"
+            class="civic-button"
+            type="button"
+            :disabled="Boolean(bulkBusy)"
+            @click="recomputeAll('salary')"
+        >
+            {{ bulkBusy === 'salary' ? `Recomputing ${bulkProgress.processed}...` : 'Recompute salaries' }}
+        </button>
+        <button
+            v-if="can('update-staff-appointment')"
+            class="civic-button"
+            type="button"
+            :disabled="Boolean(bulkBusy)"
+            @click="recomputeAll('retirement')"
+        >
+            {{ bulkBusy === 'retirement' ? `Recomputing ${bulkProgress.processed}...` : 'Recompute retirements' }}
+        </button>
+    </PageHeading>
     <section class="civic-workspace">
         <div class="civic-filter-line">
             <label class="civic-field civic-field-search"><span>Search registry</span><input v-model="filters.search" placeholder="Staff number or officer name"></label>
@@ -147,6 +209,7 @@ onMounted(async () => {
         <div class="civic-filter-line">
             <label class="civic-field"><span>Department</span><select v-model="filters.department_id"><option value="">All departments</option><option v-for="department in options?.departments" :key="department.id" :value="department.id">{{ department.name }}</option></select></label>
             <label class="civic-field"><span>Status</span><select v-model="filters.status"><option value="">All statuses</option><option v-for="status in options?.statuses" :key="status">{{ status }}</option></select></label>
+            <label class="civic-field"><span>Contract</span><select v-model="filters.contract"><option value="">All staff</option><option value="1">Contract only</option><option value="0">Non-contract only</option></select></label>
             <label class="civic-field"><span>Cadre</span><select v-model="filters.cadre_id"><option value="">All cadres</option><option v-for="cadre in cadres" :key="cadre.id" :value="cadre.id">{{ cadre.name }}</option></select></label>
             <label class="civic-field"><span>Rank</span><select v-model="filters.rank_id"><option value="">All ranks</option><option v-for="rank in ranks" :key="rank.id" :value="rank.id">{{ rank.name }}</option></select></label>
             <button class="civic-button" type="button" @click="resetFilters">Clear filters</button>
@@ -156,6 +219,7 @@ onMounted(async () => {
         <DataTable v-else :columns="columns" :rows="rows">
             <template #staff_number="{ row }"><RouterLink class="civic-record-link" :to="`/staff/${row.id}`">{{ row.staff_number }}</RouterLink></template>
             <template #full_name="{ row }"><div class="civic-primary-cell">{{ row.full_name }}</div><small>{{ row.mda?.code ?? 'No MDA' }}</small></template>
+            <template #contract="{ row }">{{ row.is_contract_staff ? 'Yes' : 'No' }}</template>
             <template #status="{ row }"><StatusPill :status="row.status" /></template>
         </DataTable>
         <div v-if="meta?.last_page > 1" class="civic-pagination">

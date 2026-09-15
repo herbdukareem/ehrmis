@@ -79,7 +79,7 @@ class SetupManagementController extends Controller
                 ],
                 'mdas' => Mda::query()->visibleToUser($user)->orderBy('name')->get(['id', 'code', 'name', 'description', 'status']),
                 'departments' => $departments,
-                'stations' => $this->visibleStationQuery($user)->orderBy('name')->get(['id', 'mda_id', 'code', 'name', 'description', 'status']),
+                'stations' => $this->visibleStationQuery($user)->orderBy('name')->get(['id', 'mda_id', 'code', 'name', 'description', 'lga', 'is_rural', 'status']),
                 'cadres' => $cadres->map(fn (Cadre $cadre): array => [
                     'id' => $cadre->id,
                     'department_id' => $cadre->department_id,
@@ -399,6 +399,10 @@ class SetupManagementController extends Controller
                 'name' => ['required', 'string', 'max:255'],
                 'description' => ['nullable', 'string'],
                 'status' => ['required', Rule::in(['active', 'inactive'])],
+                ...($config['type'] === 'stations' ? [
+                    'lga' => ['sometimes', 'nullable', 'string', 'max:120'],
+                    'is_rural' => ['sometimes', 'boolean'],
+                ] : []),
             ]),
             'cadres' => $request->validate([
                 'department_id' => ['required', 'integer', 'exists:departments,id'],
@@ -674,6 +678,10 @@ class SetupManagementController extends Controller
                 'name' => $validated['name'],
                 'description' => $validated['description'] ?? null,
                 'status' => $validated['status'],
+                ...($config['type'] === 'stations' ? [
+                    'lga' => array_key_exists('lga', $validated) ? (strtoupper(trim((string) $validated['lga'])) ?: null) : $record?->lga,
+                    'is_rural' => (bool) ($validated['is_rural'] ?? $record?->is_rural ?? false),
+                ] : []),
             ],
             'cadres' => [
                 'department_id' => (int) $validated['department_id'],
@@ -755,7 +763,8 @@ class SetupManagementController extends Controller
     {
         return match ($type) {
             'mdas' => $record->only(['id', 'code', 'name', 'description', 'status']),
-            'departments', 'stations' => $record->only(['id', 'mda_id', 'code', 'name', 'description', 'status']),
+            'departments' => $record->only(['id', 'mda_id', 'code', 'name', 'description', 'status']),
+            'stations' => $record->only(['id', 'mda_id', 'code', 'name', 'description', 'lga', 'is_rural', 'status']),
             'cadres' => $record->load(['department:id,mda_id,code,name', 'salaryScale:id,code,name'])->only(['id', 'department_id', 'salary_scale_id', 'name', 'description', 'status']) + [
                 'department' => $record->department?->only(['id', 'mda_id', 'code', 'name']),
                 'salary_scale' => $record->salaryScale?->only(['id', 'code', 'name']),

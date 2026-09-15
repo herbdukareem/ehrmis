@@ -78,7 +78,7 @@
             </td>
             <td class="meta-box" style="width:150px;">
                 Generated on
-                <strong>{{ $generatedAt->format('d M Y, h:i A') }}</strong>
+                <strong>{{ $generatedAt->format(\App\Support\ReportFormatter::DATETIME_FORMAT) }}</strong>
             </td>
         </tr>
     </table>
@@ -105,9 +105,9 @@
                     <div class="section-title">Identity Details</div>
                     <table class="fact-table">
                         <tr><td class="fact-label">Staff number</td><td class="fact-value">{{ $staff['staff_number'] ?? '-' }}</td></tr>
-                        <tr><td class="fact-label">Legacy CNO</td><td class="fact-value">{{ $staff['legacy_cno'] ?? '-' }}</td></tr>
+                        <tr><td class="fact-label">CNO / Staff number</td><td class="fact-value">{{ \App\Support\ReportFormatter::cno($staff['legacy_cno'] ?? null, $staff['staff_number'] ?? null) ?? '-' }}</td></tr>
                         <tr><td class="fact-label">Legacy PSN</td><td class="fact-value">{{ $staff['legacy_psn'] ?? '-' }}</td></tr>
-                        <tr><td class="fact-label">Date of birth</td><td class="fact-value">{{ $staff['date_of_birth'] ?? '-' }}</td></tr>
+                        <tr><td class="fact-label">Date of birth</td><td class="fact-value">{{ \App\Support\ReportFormatter::date($staff['date_of_birth'] ?? null) ?? '-' }}</td></tr>
                         <tr><td class="fact-label">Sex</td><td class="fact-value">{{ $staff['sex'] ?? '-' }}</td></tr>
                     </table>
                 </div>
@@ -142,9 +142,9 @@
                 <td>
                     <table class="fact-table">
                         <tr><td class="fact-label">Rank</td><td class="fact-value">{{ $staff['current_employment']['rank_name'] ?? '-' }}</td></tr>
-                        <tr><td class="fact-label">First appointment</td><td class="fact-value">{{ $staff['current_employment']['date_first_appointment'] ?? '-' }}</td></tr>
-                        <tr><td class="fact-label">Last promotion</td><td class="fact-value">{{ $staff['current_employment']['date_last_promotion'] ?? '-' }}</td></tr>
-                        <tr><td class="fact-label">Retirement date</td><td class="fact-value">{{ $staff['current_employment']['expected_retirement_date'] ?? '-' }}</td></tr>
+                        <tr><td class="fact-label">First appointment</td><td class="fact-value">{{ \App\Support\ReportFormatter::date($staff['current_employment']['date_first_appointment'] ?? null) ?? '-' }}</td></tr>
+                        <tr><td class="fact-label">Last promotion</td><td class="fact-value">{{ \App\Support\ReportFormatter::date($staff['current_employment']['date_last_promotion'] ?? null) ?? '-' }}</td></tr>
+                        <tr><td class="fact-label">Retirement date</td><td class="fact-value">{{ \App\Support\ReportFormatter::date($staff['current_employment']['expected_retirement_date'] ?? null) ?? '-' }}</td></tr>
                     </table>
                 </td>
             </tr>
@@ -195,7 +195,7 @@
         <tr>
             <td>
                 <div class="disclaimer">
-                    This slip is system-generated from the eHRMIS establishment register and should be used alongside any official personnel file. It is valid as printed on {{ $generatedAt->format('d M Y') }}.
+                    This slip is system-generated from the eHRMIS establishment register and should be used alongside any official personnel file. It is valid as printed on {{ $generatedAt->format(\App\Support\ReportFormatter::DATE_FORMAT) }}.
                 </div>
             </td>
             <td class="signature-block">

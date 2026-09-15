@@ -2,6 +2,8 @@
 
 namespace App\Http\Controllers\Api;
 
+use App\Domain\Budget\Exports\BudgetDepartmentReportExport;
+use App\Domain\Budget\Exports\RecurrentExpenditureExport;
 use App\Domain\Budget\Models\BudgetWorkbook;
 use App\Domain\Budget\Services\BudgetGenerationService;
 use App\Domain\Budget\Services\BudgetReportService;
@@ -11,6 +13,8 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
 use InvalidArgumentException;
+use Maatwebsite\Excel\Facades\Excel;
+use Symfony\Component\HttpFoundation\BinaryFileResponse;
 
 class BudgetWorkbookController extends Controller
 {
@@ -96,12 +100,37 @@ class BudgetWorkbookController extends Controller
                     'level' => $line->level,
                     'staff_count' => $line->staff_count,
                     'retiring_count' => $line->retiring_count,
+                    'required_staff_count' => $line->required_staff_count,
                     'current_gross_total' => $line->current_gross_total,
                     'proposed_gross_total' => $line->proposed_gross_total,
                     'variance_total' => $line->variance_total,
                 ])->values(),
             ],
         ]);
+    }
+
+    public function exportReport(BudgetWorkbook $budgetWorkbook, string $report, BudgetReportService $service): BinaryFileResponse
+    {
+        $this->authorize('print', $budgetWorkbook);
+        abort_unless(in_array($report, BudgetReportService::EXCEL_REPORTS, true), 404, 'Unsupported budget Excel report.');
+
+        $memory = (string) config('reports.budget_export_memory_limit', '512M');
+        $current = (string) ini_get('memory_limit');
+        if ($current !== '-1' && ini_parse_quantity($memory) > ini_parse_quantity($current)) {
+            ini_set('memory_limit', $memory);
+        }
+        if ((int) ini_get('max_execution_time') > 0) {
+            set_time_limit(max((int) ini_get('max_execution_time'), (int) config('reports.budget_export_timeout', 120)));
+        }
+        $reportData = $service->build($budgetWorkbook, $report);
+        $export = $report === 'recurrent-expenditure'
+            ? new RecurrentExpenditureExport($budgetWorkbook, $reportData)
+            : new BudgetDepartmentReportExport($budgetWorkbook, $reportData);
+
+        return Excel::download(
+            $export,
+            "budget-{$budgetWorkbook->id}-{$report}.xlsx",
+        );
     }
 
     public function report(BudgetWorkbook $budgetWorkbook, string $report, BudgetReportService $service): Response

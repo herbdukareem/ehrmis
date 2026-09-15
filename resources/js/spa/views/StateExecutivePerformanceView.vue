@@ -3,6 +3,7 @@ import { onMounted, ref } from 'vue';
 import LoadingBlock from '../components/LoadingBlock.vue';
 import PageHeading from '../components/PageHeading.vue';
 import { api, apiMessage } from '../lib/api';
+import { reportDateTime } from '../lib/reportFormatting';
 
 const year = ref(String(new Date().getFullYear()));
 const period = ref('q1');
@@ -35,7 +36,7 @@ onMounted(load);
         <header class="executive-print-header">
             <strong>HMB-eHRMIS</strong>
             <span>State Executive Performance Report</span>
-            <span v-if="data">{{ data.year }} - {{ data.period.toUpperCase() }} - Generated {{ data.generated_at }}</span>
+            <span v-if="data">{{ data.year }} - {{ data.period.toUpperCase() }} - Generated {{ reportDateTime(data.generated_at) }}</span>
         </header>
 
         <PageHeading

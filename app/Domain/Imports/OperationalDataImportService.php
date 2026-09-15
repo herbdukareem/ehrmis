@@ -81,8 +81,8 @@ class OperationalDataImportService
                 [['CLIN', 'Clinical Services', $defaultMda?->code ?? 'MOH', 'Clinical service department', 'active']],
             ),
             'stations' => new SpreadsheetTemplateExport(
-                ['code', 'name', 'mda_code', 'description', 'status'],
-                [['HQ', 'Headquarters', $defaultMda?->code ?? 'MOH', 'Main administrative station', 'active']],
+                ['code', 'name', 'mda_code', 'description', 'status', 'lga', 'is_rural'],
+                [['HQ', 'Headquarters', $defaultMda?->code ?? 'MOH', 'Main administrative station', 'active', '', 0]],
             ),
             'cadres' => new SpreadsheetTemplateExport(
                 ['name', 'mda_code', 'department_code', 'salary_scale_code', 'description', 'status'],
@@ -217,11 +217,21 @@ class OperationalDataImportService
                 }
 
                 $station ??= new Station();
+                $lga = $this->nullable($row['lga'] ?? $station->lga);
+                if ($lga !== null && mb_strlen($lga) > 120) {
+                    $this->rowError($index, 'lga', 'LGA must not exceed 120 characters.');
+                }
+                $isRural = $this->nullable($row['is_rural'] ?? null) ?? ($station->is_rural ? '1' : '0');
+                if (! in_array($isRural, ['0', '1'], true)) {
+                    $this->rowError($index, 'is_rural', 'Rural station must be 0 or 1.');
+                }
                 $station->fill([
                     'mda_id' => $mda->id,
                     'code' => $code,
                     'name' => $name,
                     'description' => $this->nullable($row['description'] ?? null),
+                    'lga' => $lga !== null ? Str::upper($lga) : null,
+                    'is_rural' => $isRural === '1',
                     'status' => $this->status($row['status'] ?? null, $index),
                 ]);
 

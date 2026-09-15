@@ -77,6 +77,8 @@ class StaffModuleTest extends TestCase
 
     public function test_staff_search_and_filters_work(): void
     {
+        $this->staffRetired->forceFill(['is_contract_staff' => true])->save();
+
         $searchResponse = $this->actingAs($this->mdaUser)
             ->getJson('/api/staff?search=CNO-A1');
 
@@ -102,6 +104,16 @@ class StaffModuleTest extends TestCase
             $this->assertContains($this->staffA->id, array_column($response->json('data'), 'id'));
             $this->assertNotContains($this->staffB->id, array_column($response->json('data'), 'id'));
         }
+
+        $contractResponse = $this->actingAs($this->mdaUser)->getJson('/api/staff?contract=1');
+        $contractResponse->assertOk();
+        $this->assertContains($this->staffRetired->id, array_column($contractResponse->json('data'), 'id'));
+        $this->assertNotContains($this->staffA->id, array_column($contractResponse->json('data'), 'id'));
+
+        $nonContractResponse = $this->actingAs($this->mdaUser)->getJson('/api/staff?contract=0');
+        $nonContractResponse->assertOk();
+        $this->assertContains($this->staffA->id, array_column($nonContractResponse->json('data'), 'id'));
+        $this->assertNotContains($this->staffRetired->id, array_column($nonContractResponse->json('data'), 'id'));
     }
 
     public function test_staff_filter_options_are_scoped_to_the_users_mda(): void
@@ -127,6 +139,7 @@ class StaffModuleTest extends TestCase
             ->assertJsonPath('data.current_employment.cadre_name', 'ADMIN OFFICER')
             ->assertJsonPath('data.current_employment.rank_name', 'A.O I')
             ->assertJsonPath('data.current_salary_placement.salary_scale_code', 'GL')
+            ->assertJsonPath('data.is_contract_staff', false)
             ->assertJsonPath('data.retirement_state', 'active')
             ->assertJsonPath('data.can_update_appointment', true)
             ->assertJsonPath('data.can_update_allowances', true)
@@ -252,11 +265,12 @@ class StaffModuleTest extends TestCase
         $this->assertContains($this->staffA->id, array_column($indexResponse->json('data'), 'id'));
         $this->assertNotContains($otherStaff->id, array_column($indexResponse->json('data'), 'id'));
 
-        $this->actingAs($user)
+        $optionsResponse = $this->actingAs($user)
             ->getJson('/api/staff/options')
-            ->assertOk()
-            ->assertJsonFragment(['id' => $this->staffA->currentEmployment->department_id])
-            ->assertJsonMissing(['id' => $otherDepartment->id, 'name' => $otherDepartment->name]);
+            ->assertOk();
+        $departmentIds = array_column($optionsResponse->json('data.departments'), 'id');
+        $this->assertContains($this->staffA->currentEmployment->department_id, $departmentIds);
+        $this->assertNotContains($otherDepartment->id, $departmentIds);
 
         $this->actingAs($user)
             ->getJson('/api/staff/'.$otherStaff->id)
@@ -527,6 +541,89 @@ class StaffModuleTest extends TestCase
             ->assertNotFound();
     }
 
+    public function test_staff_detail_uses_live_allowance_calculation_when_snapshot_is_stale(): void
+    {
+        $rate = SalaryStructureRate::query()->create([
+            'mda_id' => $this->mdaA->id,
+            'salary_scale_id' => $this->salaryScale->id,
+            'level' => 9,
+            'step' => 2,
+            'basic_salary' => 50000,
+            'legacy_gross_salary' => 55000,
+            'status' => 'active',
+        ]);
+        SalaryStructureRateAllowance::query()->create([
+            'mda_id' => $this->mdaA->id,
+            'salary_structure_rate_id' => $rate->id,
+            'allowance_type_id' => $this->hazardType->id,
+            'amount' => 5000,
+            'status' => 'active',
+        ]);
+        $this->staffA->currentSalaryPlacement->forceFill([
+            'allowance_total_snapshot' => 0,
+            'allowance_breakdown_snapshot' => [],
+            'calculated_gross_salary_snapshot' => 50000,
+        ])->save();
+
+        $this->actingAs($this->mdaUser)
+            ->getJson('/api/staff/'.$this->staffA->id)
+            ->assertOk()
+            ->assertJsonPath('data.salary_summary.total_allowances', 5000)
+            ->assertJsonPath('data.salary_summary.calculated_gross_salary', 55000);
+    }
+
+    public function test_authorized_user_can_recompute_salary_and_retirement_dates_for_one_staff_or_visible_staff(): void
+    {
+        $rate = SalaryStructureRate::query()->create([
+            'mda_id' => $this->mdaA->id,
+            'salary_scale_id' => $this->salaryScale->id,
+            'level' => 9,
+            'step' => 2,
+            'basic_salary' => 50000,
+            'legacy_gross_salary' => 55000,
+            'status' => 'active',
+        ]);
+        SalaryStructureRateAllowance::query()->create([
+            'mda_id' => $this->mdaA->id,
+            'salary_structure_rate_id' => $rate->id,
+            'allowance_type_id' => $this->hazardType->id,
+            'amount' => 5000,
+            'status' => 'active',
+        ]);
+        $this->staffA->currentSalaryPlacement->forceFill([
+            'allowance_total_snapshot' => 0,
+            'calculated_gross_salary_snapshot' => 50000,
+        ])->save();
+
+        $this->actingAs($this->mdaUser)
+            ->postJson('/api/staff/'.$this->staffA->id.'/recompute-salary')
+            ->assertOk()
+            ->assertJsonPath('data.salary_summary.total_allowances', 5000)
+            ->assertJsonPath('data.salary_summary.calculated_gross_salary', 55000);
+
+        $this->assertDatabaseHas('staff_salary_placements', [
+            'staff_id' => $this->staffA->id,
+            'allowance_total_snapshot' => 5000,
+            'calculated_gross_salary_snapshot' => 55000,
+        ]);
+
+        $this->postJson('/api/staff/'.$this->staffA->id.'/recompute-retirement-date')
+            ->assertOk()
+            ->assertJsonPath('data.current_employment.expected_retirement_date', '2045-01-01');
+
+        $this->staffA->currentEmployment()->update(['expected_retirement_date' => '2048-01-01']);
+        $this->postJson('/api/staff/recompute-retirement-dates')
+            ->assertOk()
+            ->assertJsonPath('meta.processed', 2)
+            ->assertJsonPath('meta.changed', 2);
+
+        $this->postJson('/api/staff/recompute-salaries')
+            ->assertOk()
+            ->assertJsonPath('meta.processed', 2);
+
+        $this->assertSame('2048-01-01', $this->staffB->currentEmployment->fresh()->expected_retirement_date?->toDateString());
+    }
+
     public function test_staff_allowance_updates_require_the_dedicated_permission(): void
     {
         $user = User::factory()->mdaUser($this->mdaA)->create();
@@ -640,6 +737,7 @@ class StaffModuleTest extends TestCase
                 'date_last_promotion' => '2024-05-01',
                 'expected_retirement_date' => '2049-01-01',
                 'employment_status' => 'active',
+                'is_contract_staff' => true,
                 'effective_from' => '2026-06-01',
                 'salary_scale_id' => $scale->id,
                 'level' => 10,
@@ -652,7 +750,8 @@ class StaffModuleTest extends TestCase
             ->assertJsonPath('data.current_employment.rank_name', 'AO II')
             ->assertJsonPath('data.current_salary_placement.salary_scale_code', 'CONHESS')
             ->assertJsonPath('data.current_salary_placement.level', 10)
-            ->assertJsonPath('data.current_salary_placement.step', 3);
+            ->assertJsonPath('data.current_salary_placement.step', 3)
+            ->assertJsonPath('data.is_contract_staff', true);
 
         $this->assertDatabaseHas('staff_employments', [
             'staff_id' => $this->staffA->id,
@@ -669,6 +768,28 @@ class StaffModuleTest extends TestCase
             'step' => 3,
             'is_current' => true,
         ]);
+        $this->assertTrue($this->staffA->fresh()->is_contract_staff);
+
+        $this->putJson("/api/staff/{$this->staffA->id}/appointment", [
+            'department_id' => $department->id,
+            'station_id' => $station->id,
+            'location_name' => 'Central Accounts',
+            'cadre_id' => $cadre->id,
+            'rank_id' => $rank->id,
+            'date_first_appointment' => '2010-01-01',
+            'date_last_promotion' => '2024-05-01',
+            'expected_retirement_date' => '2049-01-01',
+            'employment_status' => 'active',
+            'is_contract_staff' => false,
+            'effective_from' => '2026-06-01',
+            'salary_scale_id' => $scale->id,
+            'level' => 10,
+            'step' => 3,
+        ])
+            ->assertOk()
+            ->assertJsonPath('data.is_contract_staff', false);
+
+        $this->assertFalse($this->staffA->fresh()->is_contract_staff);
     }
 
     public function test_flagged_issue_allowance_changes_require_allowance_permission(): void
@@ -794,9 +915,8 @@ class StaffModuleTest extends TestCase
             'status' => 'active',
         ]);
 
-        $this->salaryScale = SalaryScale::query()->create([
+        $this->salaryScale = SalaryScale::query()->firstOrCreate(['code' => 'GL'], [
             'mda_id' => $this->mdaA->id,
-            'code' => 'GL',
             'name' => 'GRADE LEVEL',
             'min_level' => 1,
             'max_level' => 17,

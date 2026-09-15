@@ -21,6 +21,8 @@ class MovementLine extends Model
         'selection_state',
         'eligibility_status',
         'retirement_status',
+        'is_contract_staff',
+        'is_special_movement',
         'retirement_month',
         'current_level',
         'current_step',
@@ -36,6 +38,8 @@ class MovementLine extends Model
     {
         return [
             'retirement_month' => 'integer',
+            'is_contract_staff' => 'boolean',
+            'is_special_movement' => 'boolean',
             'current_level' => 'integer',
             'current_step' => 'integer',
             'proposed_level' => 'integer',
@@ -74,5 +78,38 @@ class MovementLine extends Model
     public function proposedSalaryScale(): BelongsTo
     {
         return $this->belongsTo(SalaryScale::class, 'proposed_salary_scale_id');
+    }
+
+    public function hasMovementOverride(): bool
+    {
+        return $this->isContractStaffForMovement() || (bool) $this->is_special_movement;
+    }
+
+    public function isContractStaffForMovement(): bool
+    {
+        if ((bool) $this->is_contract_staff) {
+            return true;
+        }
+
+        if ($this->relationLoaded('staff')) {
+            return (bool) $this->staff?->is_contract_staff;
+        }
+
+        return false;
+    }
+
+    public function countsAsCurrentStaff(): bool
+    {
+        return $this->retirement_status !== 'retired' || $this->hasMovementOverride();
+    }
+
+    public function countsAsRequiredStaff(): bool
+    {
+        if ($this->selection_state !== 'included') {
+            return false;
+        }
+
+        return ! in_array($this->retirement_status, ['retiring', 'retired'], true)
+            || $this->hasMovementOverride();
     }
 }

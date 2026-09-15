@@ -21,6 +21,7 @@ class StaffResource extends JsonResource
             'legacy_cno' => $this->legacy_cno,
             'legacy_psn' => $this->legacy_psn,
             'status' => $this->status,
+            'is_contract_staff' => (bool) $this->is_contract_staff,
             'department' => $this->currentEmployment?->department?->name,
             'station' => $this->currentEmployment?->station?->name,
             'cadre' => $this->currentEmployment?->cadre?->name,

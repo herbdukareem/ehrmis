@@ -28,6 +28,7 @@ class UpdateStaffAppointmentRequest extends FormRequest
             'expected_retirement_date' => ['nullable', 'date'],
             'next_promotion_date' => ['nullable', 'date'],
             'employment_status' => ['required', 'string', 'max:30'],
+            'is_contract_staff' => ['sometimes', 'boolean'],
             'effective_from' => ['nullable', 'date'],
             'salary_scale_id' => ['nullable', 'integer', 'exists:salary_scales,id', 'required_with:level,step'],
             'level' => ['nullable', 'integer', 'min:1', 'max:30', 'required_with:salary_scale_id,step'],

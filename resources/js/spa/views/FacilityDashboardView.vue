@@ -37,10 +37,11 @@ onMounted(async () => {
             <RouterLink v-if="can('view-service-reports')" class="civic-text-action" to="/service-reports">Open service reports</RouterLink>
         </section>
 
-        <section class="civic-metric-band civic-metric-band-wide">
+        <section class="civic-metric-band civic-metric-band-wide civic-metric-band-five">
             <div><span>Facility staff</span><strong>{{ data.counts.staff.toLocaleString() }}</strong></div>
             <div><span>Active staff</span><strong>{{ data.counts.active_staff.toLocaleString() }}</strong></div>
             <div><span>Retired staff</span><strong>{{ data.counts.retired_staff.toLocaleString() }}</strong></div>
+            <div><span>Contract staff</span><strong>{{ data.counts.contract_staff.toLocaleString() }}</strong></div>
             <div><span>Retiring this year</span><strong>{{ data.retirement_windows.this_year.toLocaleString() }}</strong></div>
         </section>
 

@@ -23,9 +23,8 @@ class StaffSalaryPlacementServiceTest extends TestCase
     {
         $mda = Mda::query()->create(['code' => 'MOH', 'name' => 'MINISTRY OF HEALTH', 'status' => 'active']);
 
-        $salaryScale = SalaryScale::query()->create([
+        $salaryScale = SalaryScale::query()->firstOrCreate(['code' => 'GL'], [
             'mda_id' => $mda->id,
-            'code' => 'GL',
             'name' => 'GRADE LEVEL',
             'min_level' => 1,
             'max_level' => 17,

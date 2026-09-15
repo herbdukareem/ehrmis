@@ -2,6 +2,49 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Shared application components, including the reports workspace. */
+@layer components {
+    .ehrmis-card {
+        @apply min-w-0 rounded-lg border bg-white;
+        border-color: var(--civic-line);
+    }
+    .ehrmis-label { @apply block text-xs font-semibold; color: var(--civic-ink); }
+    .ehrmis-help-text { @apply mt-1 text-xs text-ehrmis-muted; }
+    .ehrmis-input, .ehrmis-select {
+        @apply block w-full rounded-md border bg-white px-3 py-2 text-sm;
+        border-color: var(--civic-line);
+        color: var(--civic-ink);
+    }
+    .ehrmis-input:focus, .ehrmis-select:focus-visible { @apply outline-none ring-2; --tw-ring-color: var(--civic-blue); border-color: var(--civic-blue); }
+    .ehrmis-btn-primary, .ehrmis-btn-secondary, .ehrmis-btn-outline, .ehrmis-btn-ghost, .ehrmis-btn-danger, .ehrmis-btn-accent {
+        @apply inline-flex items-center justify-center gap-2 rounded-md border font-semibold transition;
+    }
+    .ehrmis-btn-primary { background: var(--civic-blue); border-color: var(--civic-blue); color: white; }
+    .ehrmis-btn-secondary { background: var(--civic-indigo); border-color: var(--civic-indigo); color: white; }
+    .ehrmis-btn-outline { @apply bg-white; border-color: var(--civic-line); color: var(--civic-ink); }
+    .ehrmis-btn-ghost { @apply border-transparent bg-transparent; color: var(--civic-blue); }
+    .ehrmis-btn-danger { background: var(--civic-danger); border-color: var(--civic-danger); color: white; }
+    .ehrmis-btn-accent { background: var(--civic-brass); border-color: var(--civic-brass); color: white; }
+    .ehrmis-btn-primary:hover:not(:disabled), .ehrmis-btn-secondary:hover:not(:disabled) { filter: brightness(.9); }
+    .ehrmis-btn-outline:hover:not(:disabled), .ehrmis-btn-ghost:hover:not(:disabled) { background: var(--civic-paper); }
+    .ehrmis-btn-primary:disabled, .ehrmis-btn-secondary:disabled, .ehrmis-btn-outline:disabled,
+    .ehrmis-btn-ghost:disabled, .ehrmis-btn-danger:disabled, .ehrmis-btn-accent:disabled { @apply cursor-not-allowed opacity-50; }
+    .ehrmis-btn-primary:focus-visible, .ehrmis-btn-outline:focus-visible { @apply outline-none ring-2 ring-offset-2; --tw-ring-color: var(--civic-blue); }
+    .ehrmis-table-wrap { @apply min-w-0 overflow-hidden rounded-lg border; border-color: var(--civic-line); }
+    .ehrmis-table { @apply w-full text-left text-sm; }
+    .ehrmis-table th { @apply px-4 py-3 text-xs font-semibold; background: var(--civic-paper); color: var(--civic-ink); }
+    .ehrmis-table td { @apply border-t px-4 py-4; border-color: var(--civic-line); }
+    .ehrmis-table tbody tr:nth-child(even) { background: var(--civic-surface); }
+    .ehrmis-badge-neutral, .ehrmis-badge-success, .ehrmis-badge-warning, .ehrmis-badge-danger, .ehrmis-badge-info {
+        @apply inline-flex w-fit items-center rounded px-2 py-1 text-xs font-semibold;
+    }
+    .ehrmis-badge-neutral { @apply bg-slate-100 text-slate-700; }
+    .ehrmis-badge-success { @apply bg-emerald-50 text-emerald-800; }
+    .ehrmis-badge-warning { @apply bg-amber-50 text-amber-800; }
+    .ehrmis-badge-danger { @apply bg-rose-50 text-rose-800; }
+    .ehrmis-badge-info { @apply bg-blue-50 text-blue-800; }
+}
+
 :root {
     --civic-ink: #14302e;
     --civic-indigo: #134e4a;
@@ -1117,6 +1160,7 @@ details.civic-detail > :not(summary) {
 }
 .civic-form-stack { display: grid; gap: 16px; margin-top: 30px; }
 .civic-metric-band-wide { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.civic-metric-band-five { grid-template-columns: repeat(5, minmax(0, 1fr)); }
 .civic-retirement-strip { display: grid; grid-template-columns: 1.35fr repeat(4, 1fr); margin: 14px 0 20px; color: #fff; background: var(--civic-blue); border: 1px solid #284e7b; }
 .civic-retirement-strip > div { display: grid; gap: 5px; padding: 16px 20px; border-right: 1px solid rgb(255 255 255 / .16); }
 .civic-retirement-strip > div:last-child { border-right: 0; }
@@ -1284,6 +1328,9 @@ details.civic-detail > :not(summary) {
 .civic-summary-panel:not([open]) .civic-summary-toggle { color: var(--civic-blue); }
 .civic-summary-panel:not([open]) .civic-summary-toggle::after { content: "Expand +"; }
 .civic-policy-reason { display: block; max-width: 280px; margin-top: 6px; color: var(--civic-muted); font-size: 10px; font-weight: 600; line-height: 1.45; }
+.civic-flag-check { display: inline-flex; align-items: center; justify-content: center; min-width: 32px; }
+.civic-flag-check input { width: 18px; height: 18px; accent-color: var(--civic-blue); cursor: pointer; }
+.civic-flag-check input:disabled { cursor: not-allowed; opacity: .55; }
 .civic-field-wide { grid-column: span 2; }
 .civic-field textarea { width: 100%; resize: vertical; }
 .civic-inline-form { display: grid; grid-template-columns: 1fr 1.5fr auto; gap: 14px; align-items: end; }

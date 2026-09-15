@@ -12,13 +12,16 @@ class MovementSummaryService
         $aggregates = [];
 
         $workbook->lines()
-            ->with('currentEmployment')
+            ->with(['staff', 'currentEmployment'])
             ->chunkById(200, function ($lines) use (&$aggregates): void {
                 foreach ($lines as $line) {
                     $departmentId = $line->currentEmployment?->department_id;
                     $salaryScaleId = $line->current_salary_scale_id;
                     $level = $line->current_level;
                     $key = implode('|', [$departmentId ?? 0, $salaryScaleId ?? 0, $level ?? 0]);
+                    $countsAsCurrentStaff = $line->countsAsCurrentStaff();
+                    $countsAsRequiredStaff = $line->countsAsRequiredStaff();
+                    $countsAsRetiring = $line->retirement_status === 'retiring' && ! $line->hasMovementOverride();
 
                     $aggregates[$key] ??= [
                         'department_id' => $departmentId,
@@ -34,17 +37,18 @@ class MovementSummaryService
                         'variance_total' => 0.0,
                     ];
 
-                    $aggregates[$key]['staff_count']++;
-                    $aggregates[$key]['due_count'] += $line->eligibility_status === 'due' ? 1 : 0;
-                    $aggregates[$key]['retiring_count'] += $line->retirement_status === 'retiring' ? 1 : 0;
-                    $aggregates[$key]['retired_count'] += $line->retirement_status === 'retired' ? 1 : 0;
-                    $aggregates[$key]['blocked_count'] += $line->eligibility_status === 'blocked_by_policy' ? 1 : 0;
+                    $aggregates[$key]['staff_count'] += $countsAsCurrentStaff ? 1 : 0;
+                    $aggregates[$key]['due_count'] += $countsAsRequiredStaff && $line->eligibility_status === 'due' ? 1 : 0;
+                    $aggregates[$key]['retiring_count'] += $countsAsRetiring ? 1 : 0;
+                    $aggregates[$key]['retired_count'] += $line->retirement_status === 'retired' && ! $line->hasMovementOverride() ? 1 : 0;
+                    $aggregates[$key]['blocked_count'] += $countsAsRequiredStaff && $line->eligibility_status === 'blocked_by_policy' ? 1 : 0;
 
                     $currentGross = (float) ($line->current_amounts['calculated_gross'] ?? 0);
                     $proposedGross = (float) ($line->proposed_amounts['calculated_gross'] ?? 0);
-                    $aggregates[$key]['current_gross_total'] += $currentGross;
-                    $aggregates[$key]['proposed_gross_total'] += $proposedGross;
-                    $aggregates[$key]['variance_total'] += ($proposedGross - $currentGross);
+                    $aggregates[$key]['current_gross_total'] += $countsAsCurrentStaff ? $currentGross : 0;
+                    $aggregates[$key]['proposed_gross_total'] += $countsAsRequiredStaff ? $proposedGross : 0;
+                    $aggregates[$key]['variance_total'] += ($countsAsRequiredStaff ? $proposedGross : 0)
+                        - ($countsAsCurrentStaff ? $currentGross : 0);
                 }
             });
 

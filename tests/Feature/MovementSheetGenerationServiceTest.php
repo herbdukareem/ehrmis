@@ -42,9 +42,7 @@ class MovementSheetGenerationServiceTest extends TestCase
             'status' => 'active',
         ]);
 
-        $salaryScale = SalaryScale::query()->create([
-            'mda_id' => $mda->id,
-            'code' => 'GL',
+        $salaryScale = SalaryScale::query()->firstOrCreate(['code' => 'GL'], [
             'name' => 'GRADE LEVEL',
             'min_level' => 1,
             'max_level' => 17,
@@ -192,6 +190,38 @@ class MovementSheetGenerationServiceTest extends TestCase
             'is_current' => true,
         ]);
 
+        $contractRetiredStaff = Staff::withoutGlobalScopes()->create([
+            'mda_id' => $mda->id,
+            'staff_number' => 'C001',
+            'surname' => 'Contract',
+            'first_name' => 'User',
+            'full_name' => 'Contract User',
+            'status' => 'retired',
+            'date_of_birth' => '1960-01-01',
+            'is_contract_staff' => true,
+        ]);
+
+        StaffEmployment::query()->create([
+            'staff_id' => $contractRetiredStaff->id,
+            'mda_id' => $mda->id,
+            'department_id' => $department->id,
+            'date_first_appointment' => '1990-01-01',
+            'date_last_promotion' => '2020-01-01',
+            'expected_retirement_date' => '2023-06-01',
+            'employment_status' => 'retired',
+            'is_current' => true,
+        ]);
+
+        StaffSalaryPlacement::query()->create([
+            'staff_id' => $contractRetiredStaff->id,
+            'salary_scale_id' => $salaryScale->id,
+            'level' => 9,
+            'step' => 2,
+            'basic_salary' => 50000,
+            'gross_salary' => 55000,
+            'is_current' => true,
+        ]);
+
         $workbook = app(MovementSheetGenerationService::class)->generateForMda(
             $mda->id,
             2024,
@@ -204,7 +234,7 @@ class MovementSheetGenerationServiceTest extends TestCase
         $this->assertInstanceOf(MovementWorkbook::class, $workbook);
         $this->assertSame(2, MovementLine::query()->where('workbook_id', $workbook->id)->count());
         $this->assertSame(1, $workbook->summary['due_for_promotion']);
-        $this->assertSame(1, $workbook->summary['already_retired']);
+        $this->assertSame(2, $workbook->summary['already_retired']);
         $this->assertDatabaseHas('movement_summaries', [
             'workbook_id' => $workbook->id,
             'department_id' => $department->id,
@@ -212,7 +242,7 @@ class MovementSheetGenerationServiceTest extends TestCase
             'level' => 9,
             'staff_count' => 2,
             'due_count' => 1,
-            'retired_count' => 1,
+            'retired_count' => 0,
         ]);
 
         $activeLine = MovementLine::query()
@@ -220,9 +250,14 @@ class MovementSheetGenerationServiceTest extends TestCase
             ->where('staff_id', $activeStaff->id)
             ->firstOrFail();
 
-        $retiredLine = MovementLine::query()
+        $this->assertDatabaseMissing('movement_lines', [
+            'workbook_id' => $workbook->id,
+            'staff_id' => $retiredStaff->id,
+        ]);
+
+        $contractRetiredLine = MovementLine::query()
             ->where('workbook_id', $workbook->id)
-            ->where('staff_id', $retiredStaff->id)
+            ->where('staff_id', $contractRetiredStaff->id)
             ->firstOrFail();
 
         $this->assertSame($activePlacement->id, $activeLine->current_salary_placement_id);
@@ -233,9 +268,10 @@ class MovementSheetGenerationServiceTest extends TestCase
         $this->assertEquals(55000.0, $activeLine->current_amounts['calculated_gross']);
         $this->assertEquals(77000.0, $activeLine->proposed_amounts['calculated_gross']);
 
-        $this->assertSame('retired', $retiredLine->retirement_status);
-        $this->assertSame('excluded', $retiredLine->selection_state);
-        $this->assertSame('retired', $retiredLine->eligibility_status);
+        $this->assertTrue($contractRetiredLine->is_contract_staff);
+        $this->assertSame('retired', $contractRetiredLine->retirement_status);
+        $this->assertSame('included', $contractRetiredLine->selection_state);
+        $this->assertSame('contract', $contractRetiredLine->eligibility_status);
 
         $departmentSummary = app(MovementDepartmentSummaryService::class)->summarize($workbook)->first();
         $levelNineSummary = collect($departmentSummary['rows'])->firstWhere('level', 9);
@@ -246,8 +282,8 @@ class MovementSheetGenerationServiceTest extends TestCase
         $this->assertSame(0, $levelSeventeenSummary['expected_total']);
         $this->assertSame(2, $levelNineSummary['present_staff']);
         $this->assertSame(1, $levelNineSummary['staff_moving']);
-        $this->assertSame(1, $levelNineSummary['staff_retiring']);
-        $this->assertSame(0, $levelNineSummary['expected_total']);
+        $this->assertSame(0, $levelNineSummary['staff_retiring']);
+        $this->assertSame(1, $levelNineSummary['expected_total']);
         $this->assertSame(0, $levelTenSummary['present_staff']);
         $this->assertSame(1, $levelTenSummary['staff_joining']);
         $this->assertSame(1, $levelTenSummary['expected_total']);
@@ -272,9 +308,7 @@ class MovementSheetGenerationServiceTest extends TestCase
             'status' => 'active',
         ]);
 
-        $salaryScale = SalaryScale::query()->create([
-            'mda_id' => $mda->id,
-            'code' => 'GL',
+        $salaryScale = SalaryScale::query()->firstOrCreate(['code' => 'GL'], [
             'name' => 'GRADE LEVEL',
             'min_level' => 1,
             'max_level' => 17,
@@ -382,9 +416,7 @@ class MovementSheetGenerationServiceTest extends TestCase
                 'status' => 'active',
             ]);
 
-            $salaryScale = SalaryScale::query()->create([
-                'mda_id' => $mda->id,
-                'code' => 'GL',
+            $salaryScale = SalaryScale::query()->firstOrCreate(['code' => 'GL'], [
                 'name' => 'GRADE LEVEL',
                 'min_level' => 1,
                 'max_level' => 17,

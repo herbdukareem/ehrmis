@@ -550,6 +550,9 @@ class LegacyFoundationImportService
                     'mda_id' => $mda->id,
                     'code' => $this->makeStationCode($legacyStation->id, $stationName),
                     'description' => $this->buildStationDescription($legacyStation),
+                    ...($this->cleanString($legacyStation->lga_name ?? null) !== null
+                        ? ['lga' => strtoupper($this->cleanString($legacyStation->lga_name))]
+                        : []),
                     'status' => 'active',
                 ],
             );

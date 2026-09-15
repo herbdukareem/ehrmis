@@ -15,6 +15,7 @@ use App\Domain\Staff\Models\StaffSalaryPlacement;
 use App\Domain\Staff\Models\StaffStatusHistory;
 use App\Models\User;
 use App\Models\UserAccessScope;
+use Database\Seeders\ModuleSeeder;
 use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
@@ -23,6 +24,13 @@ class DashboardIntelligenceTest extends TestCase
 {
     use RefreshDatabase;
 
+    protected function setUp(): void
+    {
+        parent::setUp();
+
+        $this->seed(ModuleSeeder::class);
+    }
+
     public function test_facility_dashboard_returns_only_the_assigned_facility_workforce(): void
     {
         CarbonImmutable::setTestNow('2026-06-13');
@@ -30,7 +38,7 @@ class DashboardIntelligenceTest extends TestCase
         $station = Station::query()->create(['mda_id' => $mda->id, 'code' => 'GHM', 'name' => 'General Hospital Minna', 'status' => 'active']);
         $otherStation = Station::query()->create(['mda_id' => $mda->id, 'code' => 'GHS', 'name' => 'General Hospital Suleja', 'status' => 'active']);
         $department = Department::query()->create(['mda_id' => $mda->id, 'code' => 'CLIN', 'name' => 'Clinical Services', 'status' => 'active']);
-        $scale = SalaryScale::query()->create(['mda_id' => $mda->id, 'code' => 'GL', 'name' => 'Grade Level', 'min_level' => 1, 'max_level' => 17, 'min_step' => 1, 'max_step' => 15, 'status' => 'active']);
+        $scale = SalaryScale::query()->firstOrCreate(['code' => 'GL'], ['name' => 'Grade Level', 'min_level' => 1, 'max_level' => 17, 'min_step' => 1, 'max_step' => 15, 'status' => 'active']);
         $cadre = Cadre::query()->create(['department_id' => $department->id, 'salary_scale_id' => $scale->id, 'name' => 'Medical Officer', 'status' => 'active']);
 
         foreach ([[$station, 'GHM-001', 'female'], [$otherStation, 'GHS-001', 'male']] as [$staffStation, $number, $sex]) {
@@ -46,6 +54,7 @@ class DashboardIntelligenceTest extends TestCase
             ->assertJsonPath('data.facility.id', $station->id)
             ->assertJsonPath('data.counts.staff', 1)
             ->assertJsonPath('data.counts.active_staff', 1)
+            ->assertJsonPath('data.counts.contract_staff', 0)
             ->assertJsonPath('data.distributions.gender.0.label', 'Female');
 
         $this->actingAs($user)->getJson('/api/dashboard')->assertForbidden();
@@ -58,13 +67,14 @@ class DashboardIntelligenceTest extends TestCase
         $mda = Mda::query()->create(['code' => 'MOH', 'name' => 'Ministry of Health', 'status' => 'active']);
         $otherMda = Mda::query()->create(['code' => 'HMB', 'name' => 'Hospital Management Board', 'status' => 'active']);
         $department = Department::query()->create(['mda_id' => $mda->id, 'code' => 'CLIN', 'name' => 'Clinical Services', 'status' => 'active']);
-        $scale = SalaryScale::query()->create(['mda_id' => $mda->id, 'code' => 'GL', 'name' => 'Grade Level', 'min_level' => 1, 'max_level' => 17, 'min_step' => 1, 'max_step' => 15, 'status' => 'active']);
+        $scale = SalaryScale::query()->firstOrCreate(['code' => 'GL'], ['name' => 'Grade Level', 'min_level' => 1, 'max_level' => 17, 'min_step' => 1, 'max_step' => 15, 'status' => 'active']);
         $cadre = Cadre::query()->create(['department_id' => $department->id, 'salary_scale_id' => $scale->id, 'name' => 'Medical Officer', 'status' => 'active']);
-        $hazard = AllowanceType::query()->create(['mda_id' => $mda->id, 'code' => 'hazard', 'name' => 'Hazard Allowance', 'status' => 'active']);
+        $hazard = AllowanceType::query()->firstOrCreate(['code' => 'hazard'], ['name' => 'Hazard Allowance', 'status' => 'active']);
 
         $staff = Staff::withoutGlobalScopes()->create([
             'mda_id' => $mda->id, 'staff_number' => 'MOH-001', 'surname' => 'One',
             'first_name' => 'Officer', 'full_name' => 'Officer One', 'sex' => 'female', 'status' => 'active',
+            'is_contract_staff' => true,
         ]);
         StaffEmployment::query()->create([
             'staff_id' => $staff->id, 'mda_id' => $mda->id, 'department_id' => $department->id,
@@ -87,6 +97,7 @@ class DashboardIntelligenceTest extends TestCase
             ->assertOk()
             ->assertJsonPath('data.counts.staff', 1)
             ->assertJsonPath('data.counts.active_staff', 1)
+            ->assertJsonPath('data.counts.contract_staff', 1)
             ->assertJsonPath('data.retirement_windows.this_month', 1)
             ->assertJsonPath('data.distributions.departments.0.label', 'Clinical Services')
             ->assertJsonPath('data.distributions.salary_scales.0.label', 'GL')
@@ -105,8 +116,8 @@ class DashboardIntelligenceTest extends TestCase
         $mdaB = Mda::query()->create(['code' => 'HMB', 'name' => 'Hospital Management Board', 'status' => 'active']);
         $mdaC = Mda::query()->create(['code' => 'EDU', 'name' => 'Ministry of Education', 'status' => 'active']);
         foreach ([[$mdaA, 'MOH-001'], [$mdaB, 'HMB-001'], [$mdaC, 'EDU-001']] as [$mda, $staffNumber]) {
-            $scale = SalaryScale::query()->create(['mda_id' => $mda->id, 'code' => 'GL', 'name' => 'Grade Level', 'min_level' => 1, 'max_level' => 17, 'min_step' => 1, 'max_step' => 15, 'status' => 'active']);
-            $hazard = AllowanceType::query()->create(['mda_id' => $mda->id, 'code' => 'hazard', 'name' => 'Hazard Allowance', 'status' => 'active']);
+            $scale = SalaryScale::query()->firstOrCreate(['code' => 'GL'], ['name' => 'Grade Level', 'min_level' => 1, 'max_level' => 17, 'min_step' => 1, 'max_step' => 15, 'status' => 'active']);
+            $hazard = AllowanceType::query()->firstOrCreate(['code' => 'hazard'], ['name' => 'Hazard Allowance', 'status' => 'active']);
             $department = Department::query()->create(['mda_id' => $mda->id, 'code' => $mda->code, 'name' => $mda->name.' Admin', 'status' => 'active']);
             $cadre = Cadre::query()->create(['department_id' => $department->id, 'salary_scale_id' => $scale->id, 'name' => $mda->code.' Officer', 'status' => 'active']);
             $staff = Staff::withoutGlobalScopes()->create([
@@ -177,7 +188,7 @@ class DashboardIntelligenceTest extends TestCase
         $mdaC = Mda::query()->create(['code' => 'PHC', 'name' => 'Primary Healthcare', 'status' => 'active']);
 
         foreach ([[$mdaA, 'MOH-001'], [$mdaB, 'HMB-001']] as [$mda, $staffNumber]) {
-            $scale = SalaryScale::query()->create(['mda_id' => $mda->id, 'code' => 'GL', 'name' => 'Grade Level', 'min_level' => 1, 'max_level' => 17, 'min_step' => 1, 'max_step' => 15, 'status' => 'active']);
+            $scale = SalaryScale::query()->firstOrCreate(['code' => 'GL'], ['name' => 'Grade Level', 'min_level' => 1, 'max_level' => 17, 'min_step' => 1, 'max_step' => 15, 'status' => 'active']);
             $department = Department::query()->create(['mda_id' => $mda->id, 'code' => $mda->code, 'name' => 'Admin', 'status' => 'active']);
             $cadre = Cadre::query()->create(['department_id' => $department->id, 'salary_scale_id' => $scale->id, 'name' => $mda->code.' Officer', 'status' => 'active']);
             $staff = Staff::withoutGlobalScopes()->create([
@@ -244,7 +255,7 @@ class DashboardIntelligenceTest extends TestCase
 
         $mda = Mda::query()->create(['code' => 'MOH', 'name' => 'Ministry of Health', 'status' => 'active']);
         $department = Department::query()->create(['mda_id' => $mda->id, 'code' => 'ADM', 'name' => 'Admin', 'status' => 'active']);
-        $scale = SalaryScale::query()->create(['mda_id' => $mda->id, 'code' => 'GL', 'name' => 'Grade Level', 'min_level' => 1, 'max_level' => 17, 'min_step' => 1, 'max_step' => 15, 'status' => 'active']);
+        $scale = SalaryScale::query()->firstOrCreate(['code' => 'GL'], ['name' => 'Grade Level', 'min_level' => 1, 'max_level' => 17, 'min_step' => 1, 'max_step' => 15, 'status' => 'active']);
         $cadre = Cadre::query()->create(['department_id' => $department->id, 'salary_scale_id' => $scale->id, 'name' => 'Admin Officer', 'status' => 'active']);
 
         $staff = Staff::withoutGlobalScopes()->create([
@@ -285,7 +296,7 @@ class DashboardIntelligenceTest extends TestCase
 
         $mda = Mda::query()->create(['code' => 'MOH', 'name' => 'Ministry of Health', 'status' => 'active']);
         $department = Department::query()->create(['mda_id' => $mda->id, 'code' => 'ADM', 'name' => 'Admin', 'status' => 'active']);
-        $scale = SalaryScale::query()->create(['mda_id' => $mda->id, 'code' => 'GL', 'name' => 'Grade Level', 'min_level' => 1, 'max_level' => 17, 'min_step' => 1, 'max_step' => 15, 'status' => 'active']);
+        $scale = SalaryScale::query()->firstOrCreate(['code' => 'GL'], ['name' => 'Grade Level', 'min_level' => 1, 'max_level' => 17, 'min_step' => 1, 'max_step' => 15, 'status' => 'active']);
         $cadre = Cadre::query()->create(['department_id' => $department->id, 'salary_scale_id' => $scale->id, 'name' => 'Admin Officer', 'status' => 'active']);
 
         $staff = Staff::withoutGlobalScopes()->create([

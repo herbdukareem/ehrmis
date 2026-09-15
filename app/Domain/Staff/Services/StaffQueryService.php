@@ -72,6 +72,14 @@ class StaffQueryService
             $query->where('status', (string) $filters['status']);
         }
 
+        if (($filters['contract'] ?? '') !== '') {
+            $contract = filter_var($filters['contract'], FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE);
+
+            if ($contract !== null) {
+                $query->where('is_contract_staff', $contract);
+            }
+        }
+
         if (! empty($filters['retirement_state'])) {
             $retirementState = (string) $filters['retirement_state'];
             $today = now()->toDateString();

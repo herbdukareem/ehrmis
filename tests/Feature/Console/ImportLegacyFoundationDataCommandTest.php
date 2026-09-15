@@ -80,6 +80,8 @@ class ImportLegacyFoundationDataCommandTest extends TestCase
         $this->assertDatabaseHas('stations', [
             'mda_id' => $mda->id,
             'name' => 'MOH HQTR',
+            'lga' => 'CHANCHAGA',
+            'is_rural' => false,
         ]);
 
         $salaryScale = SalaryScale::query()->where('code', 'GL')->firstOrFail();

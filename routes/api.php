@@ -19,6 +19,7 @@ use App\Http\Controllers\Api\SetupManagementController;
 use App\Http\Controllers\Api\MovementWorkbookController;
 use App\Http\Controllers\Api\SpaAuthController;
 use App\Http\Controllers\Api\StaffController;
+use App\Http\Controllers\Api\StaffListReportController;
 use App\Http\Controllers\Api\StaffMediaController;
 use App\Http\Controllers\Api\StaffPostingRequestController;
 use App\Http\Controllers\Api\StationController;
@@ -122,11 +123,20 @@ Route::middleware('auth')->group(function (): void {
     Route::get('/dashboard', [DashboardController::class, 'show'])
         ->middleware('ensure.module:dashboards_analytics')
         ->name('api.dashboard');
+    Route::get('/dashboard/retirement-staff', [DashboardController::class, 'retirementStaff'])
+        ->middleware('ensure.module:dashboards_analytics')
+        ->name('api.dashboard.retirement-staff');
     Route::get('/facility-dashboard', [DashboardController::class, 'facility'])
         ->name('api.facility-dashboard');
     Route::get('/executive-dashboard', ExecutiveDashboardController::class)
         ->middleware('ensure.module:dashboards_analytics')
         ->name('api.executive-dashboard');
+
+    Route::middleware('ensure.module:dashboards_analytics')->prefix('reports')->group(function (): void {
+        Route::get('/staff-list/options', [StaffListReportController::class, 'options'])->name('api.reports.staff-list.options');
+        Route::get('/staff-list/export', [StaffListReportController::class, 'export'])->name('api.reports.staff-list.export');
+        Route::get('/staff-list', [StaffListReportController::class, 'index'])->name('api.reports.staff-list.index');
+    });
 
     Route::middleware('ensure.module:settings')->group(function (): void {
         Route::get('/settings', [SettingsController::class, 'show'])->name('api.settings.show');
@@ -151,12 +161,16 @@ Route::middleware('auth')->group(function (): void {
     Route::middleware('ensure.module:staff_registry')->group(function (): void {
         Route::get('/staff/options', [StaffController::class, 'options'])->name('api.staff.options');
         Route::get('/staff/flagged-issues', [StaffController::class, 'flaggedIssues'])->name('api.staff.flagged-issues');
+        Route::post('/staff/recompute-salaries', [StaffController::class, 'recomputeAllSalaries'])->name('api.staff.recompute-salaries');
+        Route::post('/staff/recompute-retirement-dates', [StaffController::class, 'recomputeAllRetirementDates'])->name('api.staff.recompute-retirement-dates');
         Route::get('/staff', [StaffController::class, 'index'])->name('api.staff.index');
         Route::get('/staff/{staff}', [StaffController::class, 'show'])->name('api.staff.show');
         Route::get('/staff/{staff}/record-slip', [StaffController::class, 'recordSlip'])->name('api.staff.record-slip.show');
         Route::put('/staff/{staff}', [StaffController::class, 'update'])->name('api.staff.update');
         Route::put('/staff/{staff}/appointment', [StaffController::class, 'updateAppointment'])->name('api.staff.appointment.update');
         Route::put('/staff/{staff}/allowances', [StaffController::class, 'updateAllowances'])->name('api.staff.allowances.update');
+        Route::post('/staff/{staff}/recompute-salary', [StaffController::class, 'recomputeSalary'])->name('api.staff.recompute-salary');
+        Route::post('/staff/{staff}/recompute-retirement-date', [StaffController::class, 'recomputeRetirementDate'])->name('api.staff.recompute-retirement-date');
         Route::put('/staff/{staff}/flagged-issues', [StaffController::class, 'resolveFlaggedIssue'])->name('api.staff.flagged-issues.resolve');
         Route::post('/staff/{staff}/passport', [StaffMediaController::class, 'storePassport'])->name('api.staff.passport.store');
         Route::get('/staff/{staff}/passport', [StaffMediaController::class, 'passport'])->name('api.staff.passport.show');
@@ -186,6 +200,7 @@ Route::middleware('auth')->group(function (): void {
         Route::get('/movement-workbooks', [MovementWorkbookController::class, 'index'])->name('api.movement-workbooks.index');
         Route::post('/movement-workbooks', [MovementWorkbookController::class, 'store'])->name('api.movement-workbooks.store');
         Route::get('/movement-workbooks/{workbook}', [MovementWorkbookController::class, 'show'])->name('api.movement-workbooks.show');
+        Route::patch('/movement-workbooks/{workbook}/lines/{line}/flags', [MovementWorkbookController::class, 'updateLineFlags'])->name('api.movement-workbooks.lines.flags');
         Route::get('/movement-workbooks/{workbook}/summary-export', [MovementWorkbookController::class, 'exportSummary'])->name('api.movement-workbooks.summary-export');
         Route::get('/movement-workbooks/{workbook}/detail-export', [MovementWorkbookController::class, 'exportDetail'])->name('api.movement-workbooks.detail-export');
         Route::post('/movement-workbooks/{workbook}/review', [WorkflowActionController::class, 'movementReview'])->name('api.movement-workbooks.review');
@@ -231,6 +246,7 @@ Route::middleware('auth')->group(function (): void {
         Route::post('/budget-workbooks', [BudgetWorkbookController::class, 'store'])->name('api.budget-workbooks.store');
         Route::get('/budget-workbooks/{budgetWorkbook}', [BudgetWorkbookController::class, 'show'])->name('api.budget-workbooks.show');
         Route::get('/budget-workbooks/{budgetWorkbook}/reports/{report}', [BudgetWorkbookController::class, 'report'])->name('api.budget-workbooks.reports.show');
+        Route::get('/budget-workbooks/{budgetWorkbook}/reports/{report}/export', [BudgetWorkbookController::class, 'exportReport'])->name('api.budget-workbooks.reports.export');
         Route::post('/budget-workbooks/{budgetWorkbook}/submit', [WorkflowActionController::class, 'budgetSubmit'])->name('api.budget-workbooks.submit');
         Route::post('/budget-workbooks/{budgetWorkbook}/approve', [WorkflowActionController::class, 'budgetApprove'])->name('api.budget-workbooks.approve');
         Route::post('/budget-workbooks/{budgetWorkbook}/reject', [WorkflowActionController::class, 'budgetReject'])->name('api.budget-workbooks.reject');

@@ -20,6 +20,8 @@ const staff = ref(null);
 const activeTab = ref('details');
 const selectedAllowanceIds = ref([]);
 const allowanceBusy = ref(false);
+const salaryRecomputeBusy = ref(false);
+const retirementRecomputeBusy = ref(false);
 const appointmentModalOpen = ref(false);
 const appointmentBusy = ref(false);
 const appointmentErrors = ref({});
@@ -38,6 +40,7 @@ const emptyAppointmentForm = () => ({
     expected_retirement_date: '',
     next_promotion_date: '',
     employment_status: 'active',
+    is_contract_staff: false,
     effective_from: '',
     salary_scale_id: '',
     level: '',
@@ -59,8 +62,8 @@ const appointmentCadres = computed(() => {
         departmentId ? Number(item.department_id) === departmentId : departmentIds.includes(Number(item.department_id))
     ));
 });
-const appointmentSalaryScales = computed(() => (appointmentOptions.value?.salary_scales ?? [])
-    .filter((item) => Number(item.mda_id) === Number(staff.value?.mda?.id)));
+// Salary scales are global references and do not have an MDA owner.
+const appointmentSalaryScales = computed(() => appointmentOptions.value?.salary_scales ?? []);
 const appointmentRanks = computed(() => {
     const cadreId = Number(appointmentForm.value.cadre_id || 0);
     const salaryScaleId = Number(appointmentForm.value.salary_scale_id || 0);
@@ -129,6 +132,7 @@ const primeAppointmentForm = () => {
         expected_retirement_date: inputValue(staff.value?.current_employment?.expected_retirement_date),
         next_promotion_date: inputValue(staff.value?.current_employment?.next_promotion_date),
         employment_status: inputValue(staff.value?.current_employment?.employment_status || 'active'),
+        is_contract_staff: Boolean(staff.value?.is_contract_staff),
         effective_from: '',
         salary_scale_id: inputValue(staff.value?.current_salary_placement?.salary_scale_id),
         level: inputValue(staff.value?.current_salary_placement?.level),
@@ -168,6 +172,7 @@ const appointmentPayload = () => {
         expected_retirement_date: nullable(appointmentForm.value.expected_retirement_date),
         next_promotion_date: nullable(appointmentForm.value.next_promotion_date),
         employment_status: appointmentForm.value.employment_status || 'active',
+        is_contract_staff: Boolean(appointmentForm.value.is_contract_staff),
         effective_from: nullable(appointmentForm.value.effective_from),
         salary_scale_id: nullable(appointmentForm.value.salary_scale_id),
         level: nullable(appointmentForm.value.level),
@@ -192,6 +197,34 @@ const saveAllowances = async () => {
         pushToast(apiMessage(exception), 'error', 4200);
     } finally {
         allowanceBusy.value = false;
+    }
+};
+
+const recomputeSalary = async () => {
+    salaryRecomputeBusy.value = true;
+
+    try {
+        const response = await api.post(`/staff/${staff.value.id}/recompute-salary`);
+        setStaff(response.data.data);
+        pushToast(response.data.message);
+    } catch (exception) {
+        pushToast(apiMessage(exception), 'error', 4200);
+    } finally {
+        salaryRecomputeBusy.value = false;
+    }
+};
+
+const recomputeRetirementDate = async () => {
+    retirementRecomputeBusy.value = true;
+
+    try {
+        const response = await api.post(`/staff/${staff.value.id}/recompute-retirement-date`);
+        setStaff(response.data.data);
+        pushToast(response.data.message);
+    } catch (exception) {
+        pushToast(apiMessage(exception), 'error', 4200);
+    } finally {
+        retirementRecomputeBusy.value = false;
     }
 };
 
@@ -229,6 +262,8 @@ onMounted(load);
                 <div class="civic-eyebrow">Official record</div>
                 <dl>
                     <div><dt>Staff number</dt><dd>{{ staff.staff_number }}</dd></div>
+                    <div><dt>File number</dt><dd>{{ staff.personal_detail?.file_no ?? '-' }}</dd></div>
+                    <div><dt>LGA of origin</dt><dd>{{ staff.personal_detail?.lga ?? '-' }}</dd></div>
                     <div><dt>Legacy CNO / PSN</dt><dd>{{ staff.legacy_cno ?? '-' }} / {{ staff.legacy_psn ?? '-' }}</dd></div>
                     <div><dt>Sex</dt><dd>{{ staff.sex ?? '-' }}</dd></div>
                     <div><dt>Date of birth</dt><dd>{{ formatDate(staff.date_of_birth) }}</dd></div>
@@ -249,6 +284,15 @@ onMounted(load);
                         >
                             Edit appointment
                         </button>
+                        <button
+                            v-if="staff.can_update_appointment"
+                            class="civic-button"
+                            type="button"
+                            :disabled="retirementRecomputeBusy"
+                            @click="recomputeRetirementDate"
+                        >
+                            {{ retirementRecomputeBusy ? 'Recomputing...' : 'Recompute retirement' }}
+                        </button>
                     </div>
                     <dl class="civic-detail-grid">
                         <div><dt>MDA</dt><dd>{{ staff.mda?.name ?? '-' }}</dd></div>
@@ -260,11 +304,23 @@ onMounted(load);
                         <div><dt>Last promotion</dt><dd>{{ formatDate(staff.current_employment?.date_last_promotion) }}</dd></div>
                         <div><dt>Retirement date</dt><dd>{{ formatDate(staff.current_employment?.expected_retirement_date) }}</dd></div>
                         <div><dt>Employment status</dt><dd>{{ prettifyLabel(staff.current_employment?.employment_status) }}</dd></div>
+                        <div><dt>Contract staff</dt><dd>{{ staff.is_contract_staff ? 'Yes' : 'No' }}</dd></div>
                     </dl>
                 </article>
 
                 <article>
-                    <h2>Salary position</h2>
+                    <div class="civic-section-head">
+                        <h2>Salary position</h2>
+                        <button
+                            v-if="staff.can_update_allowances"
+                            class="civic-button"
+                            type="button"
+                            :disabled="salaryRecomputeBusy"
+                            @click="recomputeSalary"
+                        >
+                            {{ salaryRecomputeBusy ? 'Recomputing...' : 'Recompute salary' }}
+                        </button>
+                    </div>
                     <dl class="civic-detail-grid">
                         <div><dt>Scale/Level/Step</dt><dd>{{ staff.current_salary_placement?.salary_scale_code ?? '-' }} {{ staff.current_salary_placement?.level ?? '-' }}/{{ staff.current_salary_placement?.step ?? '-' }}</dd></div>
                         <div><dt>Placement effective</dt><dd>{{ formatDate(staff.current_salary_placement?.effective_from) }}</dd></div>
@@ -392,6 +448,10 @@ onMounted(load);
                         <AppDateInput v-model="appointmentForm.next_promotion_date" label="Next promotion date" :error="appointmentErrors.next_promotion_date?.[0]" />
                         <AppTextInput v-model="appointmentForm.staff_category" label="Staff category" />
                         <AppTextInput v-model="appointmentForm.initial_rank" label="Initial rank note" />
+                        <label class="civic-check civic-contract-check">
+                            <input v-model="appointmentForm.is_contract_staff" type="checkbox">
+                            <span>Contract staff</span>
+                        </label>
                     </div>
                 </AppCard>
 
@@ -464,6 +524,11 @@ onMounted(load);
     width: 100%;
     min-height: 2.75rem;
     padding: 0.7rem 0.85rem;
+}
+
+.civic-contract-check {
+    align-self: end;
+    min-height: 2.75rem;
 }
 
 .civic-modal-note {

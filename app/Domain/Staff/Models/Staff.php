@@ -32,12 +32,14 @@ class Staff extends Model
         'passport_path',
         'passport_mime_type',
         'status',
+        'is_contract_staff',
     ];
 
     protected function casts(): array
     {
         return [
             'date_of_birth' => 'date',
+            'is_contract_staff' => 'boolean',
         ];
     }
 

@@ -16,7 +16,7 @@ class StationController extends Controller
         $stations = Station::query()
             ->when($request->integer('mda_id'), fn ($query) => $query->where('mda_id', $request->integer('mda_id')))
             ->orderBy('name')
-            ->get(['id', 'mda_id', 'code', 'name', 'description', 'status']);
+            ->get(['id', 'mda_id', 'code', 'name', 'description', 'lga', 'is_rural', 'status']);
 
         return response()->json(['data' => $stations]);
     }

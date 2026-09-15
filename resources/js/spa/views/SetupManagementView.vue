@@ -99,8 +99,9 @@ const blankForm = (type) => {
         case 'mdas':
             return { code: '', name: '', description: '', status: 'active' };
         case 'departments':
-        case 'stations':
             return { mda_id: defaultMdaId, code: '', name: '', description: '', status: 'active' };
+        case 'stations':
+            return { mda_id: defaultMdaId, code: '', name: '', description: '', lga: '', is_rural: 0, status: 'active' };
         case 'cadres':
             return { department_id: Number(data.value?.departments?.[0]?.id ?? 0) || null, salary_scale_id: Number(data.value?.salary_scales?.[0]?.id ?? 0) || null, name: '', description: '', status: 'active' };
         case 'ranks':
@@ -139,8 +140,10 @@ const fillForm = (type, record) => {
             forms.value[type] = { code: record.code, name: record.name, description: record.description ?? '', status: record.status };
             return;
         case 'departments':
-        case 'stations':
             forms.value[type] = { mda_id: record.mda_id, code: record.code, name: record.name, description: record.description ?? '', status: record.status };
+            return;
+        case 'stations':
+            forms.value[type] = { mda_id: record.mda_id, code: record.code, name: record.name, description: record.description ?? '', lga: record.lga ?? '', is_rural: record.is_rural ? 1 : 0, status: record.status };
             return;
         case 'cadres':
             forms.value[type] = { department_id: record.department_id, salary_scale_id: record.salary_scale_id, name: record.name, description: record.description ?? '', status: record.status };
@@ -215,6 +218,10 @@ const typeFields = computed(() => {
                 { key: 'mda_id', label: 'MDA', type: 'select', options: mdas.value, optionLabel: (item) => `${item.code} - ${item.name}`, disabled: mdas.value.length <= 1 },
                 { key: 'code', label: 'Code', type: 'text' },
                 { key: 'name', label: 'Name', type: 'text' },
+                ...(activeType.value === 'stations' ? [
+                    { key: 'lga', label: 'LGA', type: 'text' },
+                    { key: 'is_rural', label: 'Rural station', type: 'select', options: [{ id: 0, name: 'No' }, { id: 1, name: 'Yes' }], optionLabel: (item) => item.name },
+                ] : []),
                 { key: 'description', label: 'Description', type: 'textarea' },
                 { key: 'status', label: 'Status', type: 'select', options: ['active', 'inactive'] },
             ];
@@ -417,6 +424,7 @@ const searchText = (type, record) => [
     record.detail,
     record.salary_scale_code,
     record.description,
+    record.lga,
     record.department?.name,
     record.department?.code,
     record.cadre?.name,
@@ -437,6 +445,8 @@ const recordFacts = computed(() => {
     const record = selectedRecord.value;
     return [
         record.mda_id ? { label: 'MDA', value: mdaLabel(record.mda_id) } : null,
+        activeType.value === 'stations' ? { label: 'LGA', value: record.lga || 'Not assigned' } : null,
+        activeType.value === 'stations' ? { label: 'Rural station', value: record.is_rural ? 'Yes' : 'No' } : null,
         activeType.value === 'mdas' && record.code ? { label: 'Code', value: record.code } : null,
         activeType.value === 'mdas' && record.name ? { label: 'Name', value: record.name } : null,
         record.salary_scale_code ? { label: 'Salary scale', value: `${record.salary_scale_code} - ${record.salary_scale?.name ?? 'Promotion scale'}` } : null,

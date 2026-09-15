@@ -37,7 +37,7 @@ const columns = [
 const load = async () => {
     busy.value = true;
     const response = await api.get('/movement-workbooks');
-    rows.value = response.data.data.map((row) => ({ ...row, lines: row.summary?.lines_generated ?? 0 }));
+    rows.value = response.data.data.map((row) => ({ ...row, lines: row.line_count ?? row.summary?.lines_generated ?? 0 }));
     options.value = response.data.options;
     if (!form.mda_id) form.mda_id = options.value.mdas[0]?.id ?? '';
     busy.value = false;

@@ -18,8 +18,15 @@ class Station extends Model
         'code',
         'name',
         'description',
+        'lga',
+        'is_rural',
         'status',
     ];
+
+    protected function casts(): array
+    {
+        return ['is_rural' => 'boolean'];
+    }
 
     public function mda(): BelongsTo
     {

@@ -50,6 +50,7 @@ class StaffDetailResource extends JsonResource
             'sex' => $staff->sex,
             'date_of_birth' => optional($staff->date_of_birth)?->toDateString(),
             'status' => $staff->status,
+            'is_contract_staff' => (bool) $staff->is_contract_staff,
             'retirement_state' => $retirementState,
             'passport_url' => $staff->passport_path ? route('api.staff.passport.show', $staff, false) : null,
             'personal_detail' => $staff->personalDetail?->only([
@@ -147,12 +148,12 @@ class StaffDetailResource extends JsonResource
         );
 
         return [
-            'basic_salary' => $placement->basic_salary_snapshot !== null ? (float) $placement->basic_salary_snapshot : $calculation['basic_salary'],
-            'legacy_gross_salary' => $placement->legacy_gross_salary_snapshot !== null ? (float) $placement->legacy_gross_salary_snapshot : $calculation['legacy_gross_salary'],
-            'calculated_gross_salary' => $placement->calculated_gross_salary_snapshot !== null ? (float) $placement->calculated_gross_salary_snapshot : $calculation['calculated_gross'],
-            'gross_difference' => $placement->gross_difference_snapshot !== null ? (float) $placement->gross_difference_snapshot : $calculation['gross_difference'],
-            'allowance_breakdown' => $placement->allowance_breakdown_snapshot ?? $calculation['allowance_breakdown'],
-            'total_allowances' => $placement->allowance_total_snapshot !== null ? (float) $placement->allowance_total_snapshot : $calculation['total_allowances'],
+            'basic_salary' => $calculation['basic_salary'] ?? ($placement->basic_salary_snapshot !== null ? (float) $placement->basic_salary_snapshot : null),
+            'legacy_gross_salary' => $calculation['legacy_gross_salary'] ?? ($placement->legacy_gross_salary_snapshot !== null ? (float) $placement->legacy_gross_salary_snapshot : null),
+            'calculated_gross_salary' => $calculation['calculated_gross'] ?? ($placement->calculated_gross_salary_snapshot !== null ? (float) $placement->calculated_gross_salary_snapshot : null),
+            'gross_difference' => $calculation['gross_difference'] ?? ($placement->gross_difference_snapshot !== null ? (float) $placement->gross_difference_snapshot : null),
+            'allowance_breakdown' => $calculation['allowance_breakdown'] !== [] ? $calculation['allowance_breakdown'] : ($placement->allowance_breakdown_snapshot ?? []),
+            'total_allowances' => $calculation['calculated_gross'] !== null ? $calculation['total_allowances'] : ($placement->allowance_total_snapshot !== null ? (float) $placement->allowance_total_snapshot : null),
         ];
     }
 

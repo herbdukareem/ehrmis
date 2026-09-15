@@ -13,6 +13,7 @@ use App\Domain\Staff\Models\Rank;
 use App\Domain\Staff\Models\SalaryScale;
 use App\Domain\Staff\Models\Staff;
 use App\Domain\Staff\Services\StaffQueryService;
+use App\Domain\Staff\Services\StaffRecomputeService;
 use App\Domain\Staff\Services\StaffSalaryPlacementService;
 use App\Domain\Staff\Services\StaffUpdateService;
 use App\Domain\Staff\Services\StaffAllowanceService;
@@ -39,7 +40,7 @@ class StaffController extends Controller
 
         $filters = $request->only([
             'search', 'cno', 'psn', 'mda_id', 'department_id', 'station_id', 'cadre_id',
-            'rank_id', 'salary_scale_id', 'level', 'status', 'retirement_state', 'per_page',
+            'rank_id', 'salary_scale_id', 'level', 'status', 'contract', 'retirement_state', 'per_page',
         ]);
 
         $staff = $queryService->paginate($filters, $request->user(), (int) ($filters['per_page'] ?? 20));
@@ -171,8 +172,10 @@ class StaffController extends Controller
         $this->assertAppointmentReferencesAreAccessibleToUser($request->user(), $employmentData);
         $employmentChanged = $this->employmentDataHasChanges($currentEmployment, $employmentData);
         $placementChanged = $this->placementDataHasChanges($currentPlacement, $validated);
+        $contractFlagChanged = array_key_exists('is_contract_staff', $validated)
+            && (bool) $staff->is_contract_staff !== (bool) $validated['is_contract_staff'];
 
-        if (! $employmentChanged && ! $placementChanged) {
+        if (! $employmentChanged && ! $placementChanged && ! $contractFlagChanged) {
             $this->loadStaffRelations($staff);
 
             return response()->json([
@@ -188,10 +191,15 @@ class StaffController extends Controller
             $employmentData,
             $validated,
             $staffUpdateService,
-            $staffSalaryPlacementService
+            $staffSalaryPlacementService,
+            $contractFlagChanged,
         ): void {
             if ($employmentChanged) {
                 $staffUpdateService->createEmploymentRecord($staff, $employmentData);
+            }
+
+            if ($contractFlagChanged) {
+                $staffUpdateService->updateContractStaffFlag($staff, (bool) $validated['is_contract_staff']);
             }
 
             if ($placementChanged) {
@@ -240,6 +248,62 @@ class StaffController extends Controller
         return response()->json([
             'message' => 'Allowance eligibility and gross pay updated.',
             'data' => StaffDetailResource::make($staff)->resolve(),
+        ]);
+    }
+
+    public function recomputeSalary(Staff $staff, StaffRecomputeService $recomputeService): JsonResponse
+    {
+        $this->authorize('updateAllowances', $staff);
+
+        $result = $recomputeService->recomputeSalary($staff);
+        $staff->refresh();
+        $this->loadStaffRelations($staff);
+
+        return response()->json([
+            'message' => $result['status'] === 'missing_salary_rate'
+                ? 'No salary structure rate was found for this placement.'
+                : 'Salary and allowances recomputed.',
+            'data' => StaffDetailResource::make($staff)->resolve(),
+            'meta' => $result,
+        ]);
+    }
+
+    public function recomputeRetirementDate(Staff $staff, StaffRecomputeService $recomputeService): JsonResponse
+    {
+        $this->authorize('updateAppointment', $staff);
+
+        $result = $recomputeService->recomputeRetirementDate($staff);
+        $staff->refresh();
+        $this->loadStaffRelations($staff);
+
+        return response()->json([
+            'message' => 'Retirement date recomputed.',
+            'data' => StaffDetailResource::make($staff)->resolve(),
+            'meta' => $result,
+        ]);
+    }
+
+    public function recomputeAllSalaries(Request $request, StaffRecomputeService $recomputeService): JsonResponse
+    {
+        abort_unless($request->user()?->can('update-staff-allowances'), 403);
+
+        $summary = $this->recomputeVisibleStaff($request, fn (Staff $staff): array => $recomputeService->recomputeSalary($staff));
+
+        return response()->json([
+            'message' => "Salary and allowances recomputed for {$summary['processed']} staff.",
+            'meta' => $summary,
+        ]);
+    }
+
+    public function recomputeAllRetirementDates(Request $request, StaffRecomputeService $recomputeService): JsonResponse
+    {
+        abort_unless($request->user()?->can('update-staff-appointment'), 403);
+
+        $summary = $this->recomputeVisibleStaff($request, fn (Staff $staff): array => $recomputeService->recomputeRetirementDate($staff));
+
+        return response()->json([
+            'message' => "Retirement dates recomputed for {$summary['processed']} staff.",
+            'meta' => $summary,
         ]);
     }
 
@@ -380,6 +444,47 @@ class StaffController extends Controller
             'statusHistories',
             'documents.pages',
         ]);
+    }
+
+    /**
+     * @return array{processed: int, changed: int, skipped: int, statuses: array<string, int>, has_more: bool, next_cursor: int|null, batch_size: int}
+     */
+    protected function recomputeVisibleStaff(Request $request, callable $callback): array
+    {
+        $limit = max(1, min((int) $request->integer('limit', 50), 200));
+        $cursor = max(0, (int) $request->integer('cursor', 0));
+        $summary = [
+            'processed' => 0,
+            'changed' => 0,
+            'skipped' => 0,
+            'statuses' => [],
+            'has_more' => false,
+            'next_cursor' => null,
+            'batch_size' => $limit,
+        ];
+
+        $staffRows = Staff::query()
+            ->with(['currentEmployment', 'currentSalaryPlacement.salaryScale', 'allowanceAssignments.allowanceType'])
+            ->tap(fn ($query) => $request->user()->scopeToAccessibleStaff($query))
+            ->when($cursor > 0, fn ($query) => $query->where('id', '>', $cursor))
+            ->orderBy('id')
+            ->limit($limit + 1)
+            ->get();
+
+        $summary['has_more'] = $staffRows->count() > $limit;
+
+        foreach ($staffRows->take($limit) as $staff) {
+            $result = $callback($staff);
+            $status = (string) ($result['status'] ?? 'unknown');
+
+            $summary['processed']++;
+            $summary['changed'] += ($result['changed'] ?? false) ? 1 : 0;
+            $summary['skipped'] += in_array($status, ['missing_current_placement', 'missing_salary_rate', 'missing_current_employment'], true) ? 1 : 0;
+            $summary['statuses'][$status] = ($summary['statuses'][$status] ?? 0) + 1;
+            $summary['next_cursor'] = (int) $staff->id;
+        }
+
+        return $summary;
     }
 
     /**
