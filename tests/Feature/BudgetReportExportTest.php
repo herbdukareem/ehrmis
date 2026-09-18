@@ -418,6 +418,60 @@ class BudgetReportExportTest extends TestCase
             ->assertSee('Medical Officer');
     }
 
+    public function test_budget_staff_list_uses_actual_current_staff_placements(): void
+    {
+        $admin = $this->department('Administration');
+        $this->reportStaff($admin, staffAttributes: ['full_name' => 'Current Level Eight'], lineAttributes: [
+            'current_level' => 8,
+            'proposed_level' => 8,
+        ]);
+        $this->reportStaff($admin, staffAttributes: ['full_name' => 'Moving To Level Nine'], lineAttributes: [
+            'current_level' => 8,
+            'proposed_level' => 9,
+        ]);
+        $this->reportStaff($admin, staffAttributes: ['full_name' => 'Joining Level Eight'], lineAttributes: [
+            'current_level' => 7,
+            'proposed_level' => 8,
+        ]);
+        $this->reportStaff($admin, staffAttributes: ['full_name' => 'Retiring Level Eight'], lineAttributes: [
+            'current_level' => 8,
+            'proposed_level' => 8,
+            'retirement_status' => 'retiring',
+        ]);
+        $this->reportStaff($admin, staffAttributes: ['full_name' => 'Excluded Contract', 'is_contract_staff' => true], lineAttributes: [
+            'current_level' => 8,
+            'proposed_level' => 8,
+            'selection_state' => 'excluded',
+            'retirement_status' => 'retired',
+        ]);
+
+        $book = $this->download('staff-list');
+        try {
+            $sheet = $book->getActiveSheet();
+            $this->assertSame('GL 8 (4)', $sheet->getCell('A7')->getValue());
+            $levelEightRows = $sheet->rangeToArray('B9:J12', null, true, false);
+            $this->assertSame([
+                'Current Level Eight',
+                'Excluded Contract',
+                'Moving To Level Nine',
+                'Retiring Level Eight',
+            ], array_column($levelEightRows, 0));
+            $this->assertSame(['GL 8/2', 'GL 8/2', 'GL 8/2', 'GL 8/2'], array_column($levelEightRows, 8));
+            $this->assertSame('GL 7 (1)', $sheet->getCell('A13')->getValue());
+            $this->assertSame('Joining Level Eight', $sheet->getCell('B15')->getValue());
+            $this->assertSame('GL 7/2', $sheet->getCell('J15')->getValue());
+        } finally {
+            $book->disconnectWorksheets();
+        }
+
+        $this->get($this->url('staff-list'))->assertOk()
+            ->assertSee('GL 8 (4)')
+            ->assertSee('GL 7 (1)')
+            ->assertSee('Joining Level Eight')
+            ->assertSee('Retiring Level Eight')
+            ->assertSee('Excluded Contract');
+    }
+
     public function test_budget_and_movement_reports_fall_back_to_staff_number_for_all_blank_cnos(): void
     {
         $department = $this->department('Administration');

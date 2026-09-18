@@ -24,15 +24,15 @@ class MovementDepartmentSummaryService
             $currentScaleId = $line->current_salary_scale_id;
             $currentScale = $line->currentSalaryScale?->code ?? 'Unassigned';
             $currentLevel = $line->current_level;
-            $proposedScaleId = $line->proposed_salary_scale_id;
+            $proposedScaleId = $line->proposed_salary_scale_id ?? $currentScaleId;
             $proposedScale = $line->proposedSalaryScale?->code ?? $currentScale;
-            $proposedLevel = $line->proposed_level;
-            $isRetiring = $line->retirement_status === 'retiring' && ! $line->hasMovementOverride();
+            $proposedLevel = $line->proposed_level ?? $currentLevel;
             $isIncluded = $line->countsAsRequiredStaff();
             $isMoving = $isIncluded && ($currentScaleId !== $proposedScaleId || $currentLevel !== $proposedLevel);
+            $isLeaving = $line->countsAsCurrentStaff() && ! $isIncluded;
 
             $this->registerScaleRange($scaleRanges, $departmentId, $department, $line->currentSalaryScale, $currentLevel);
-            $this->registerScaleRange($scaleRanges, $departmentId, $department, $line->proposedSalaryScale, $proposedLevel);
+            $this->registerScaleRange($scaleRanges, $departmentId, $department, $line->proposedSalaryScale ?? $line->currentSalaryScale, $proposedLevel);
 
             $currentKey = implode('|', [$departmentId ?? 0, $currentScaleId ?? 0, $currentLevel ?? 0]);
             $this->initializeRow($rows, $currentKey, $departmentId, $department, $currentScale, $currentLevel);
@@ -42,7 +42,7 @@ class MovementDepartmentSummaryService
                 $rows[$currentKey]['staff_moving']++;
             }
 
-            if ($isRetiring) {
+            if ($isLeaving) {
                 $rows[$currentKey]['staff_retiring']++;
             }
 

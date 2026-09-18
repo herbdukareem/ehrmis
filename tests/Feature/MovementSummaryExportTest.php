@@ -71,12 +71,12 @@ class MovementSummaryExportTest extends TestCase
                 [2, 'CARE', 1, 1, 0, 0, 0, 1],
                 [3, 'MOVE', 3, 0, 0, 0, 1, 1],
                 [4, 'MOVE', 2, 3, 1, 1, 0, 1],
-                [5, 'MOVE', 1, 1, 0, 0, 0, 1],
+                [5, 'MOVE', 1, 1, 0, 1, 0, 0],
             ], $sheet->rangeToArray('A8:H12', null, true, false));
             $this->assertSame(DataType::TYPE_NUMERIC, $sheet->getCell('D8')->getDataType());
             $this->assertSame('0', $sheet->getCell('D8')->getFormattedValue());
             $this->assertSame('=SUM(D8:D12)', $sheet->getCell('D13')->getValue());
-            $this->assertEquals([5, 1, 1, 1, 4], $sheet->rangeToArray('D13:H13', null, true, false)[0]);
+            $this->assertEquals([5, 1, 2, 1, 3], $sheet->rangeToArray('D13:H13', null, true, false)[0]);
             foreach ($book->getAllSheets() as $departmentSheet) {
                 foreach (range('A', 'H') as $column) {
                     $header = $departmentSheet->getStyle($column.'7');
@@ -185,6 +185,33 @@ class MovementSummaryExportTest extends TestCase
         $this->assertSame(1, $joiningRow['staff_joining']);
         $this->assertSame(1, $joiningRow['expected_total']);
         $this->assertFalse($ordinaryRetired->fresh()->countsAsCurrentStaff());
+    }
+
+    public function test_expected_total_excludes_current_contract_staff_not_required_for_budget_year(): void
+    {
+        $admin = $this->department('Administration');
+        $this->line($admin, overrides: [
+            'current_level' => 1,
+            'proposed_level' => 1,
+        ]);
+        $excludedContract = $this->line($admin, overrides: [
+            'current_level' => 1,
+            'proposed_level' => 1,
+            'selection_state' => 'excluded',
+            'retirement_status' => 'retired',
+        ]);
+        $excludedContract->staff->forceFill(['is_contract_staff' => true])->save();
+
+        $rows = app(\App\Domain\Movement\Services\MovementDepartmentSummaryService::class)
+            ->summarize($this->workbook)
+            ->firstWhere('department_id', $admin->id)['rows'];
+        $row = collect($rows)->firstWhere('level', 1);
+
+        $this->assertSame(2, $row['present_staff']);
+        $this->assertSame(0, $row['staff_moving']);
+        $this->assertSame(1, $row['staff_retiring']);
+        $this->assertSame(0, $row['staff_joining']);
+        $this->assertSame(1, $row['expected_total']);
     }
 
     public function test_movement_detail_hides_ordinary_retired_staff_and_uses_staff_contract_flag(): void
