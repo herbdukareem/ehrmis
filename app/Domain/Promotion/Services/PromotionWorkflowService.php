@@ -114,7 +114,17 @@ class PromotionWorkflowService
         return DB::transaction(function () use ($application, $data, $actor): PromotionApplication {
             $application = PromotionApplication::query()->lockForUpdate()->findOrFail($application->id);
             $before = $application->toArray();
-            $staff = $application->staff?->load(['currentEmployment.rank', 'currentSalaryPlacement.salaryScale', 'qualifications.qualificationType']);
+            $staff = isset($data['staff_id'])
+                ? Staff::query()->findOrFail((int) $data['staff_id'])
+                : $application->staff;
+            $staff?->load(['currentEmployment.rank', 'currentSalaryPlacement.salaryScale', 'qualifications.qualificationType']);
+
+            if ($staff && ! $actor->canAccessStaff($staff)) {
+                throw new InvalidArgumentException('You may only screen promotion applications for staff within your assigned departments.');
+            }
+
+            $this->assertRankAccessibleToActor(isset($data['current_rank_id']) ? (int) $data['current_rank_id'] : null, $actor, 'current');
+            $this->assertRankAccessibleToActor(isset($data['proposed_rank_id']) ? (int) $data['proposed_rank_id'] : null, $actor, 'proposed');
 
             $proposedRank = isset($data['proposed_rank_id'])
                 ? Rank::query()->with('salaryScale')->find((int) $data['proposed_rank_id'])
@@ -508,6 +518,20 @@ class PromotionWorkflowService
 
         if ($maxLevel !== null && $level > $maxLevel) {
             throw new InvalidArgumentException('The proposed level exceeds the staff highest qualification ceiling for this salary scale.');
+        }
+    }
+
+    protected function assertRankAccessibleToActor(?int $rankId, User $actor, string $label): void
+    {
+        if ($rankId === null) {
+            return;
+        }
+
+        $query = Rank::query()->whereKey($rankId);
+        $query->whereHas('cadre.department', fn (Builder $departmentQuery) => $actor->scopeToAccessibleDepartments($departmentQuery, 'id'));
+
+        if (! $query->exists()) {
+            throw new InvalidArgumentException("The {$label} rank is outside your assigned departments.");
         }
     }
 

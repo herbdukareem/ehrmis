@@ -50,11 +50,6 @@ class DashboardController extends Controller
         $budgetQuery = BudgetWorkbook::query();
         $scope($budgetQuery);
 
-        if ($user->hasDepartmentRestrictedAccess()) {
-            $movementQuery->whereRaw('1 = 0');
-            $budgetQuery->whereRaw('1 = 0');
-        }
-
         $importQuery = LegacyStaffImportBatch::query()
             ->when(! $user->hasGlobalMdaAccess(), fn (Builder $query) => $query->whereHas(
                 'rows',

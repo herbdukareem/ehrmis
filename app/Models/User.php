@@ -2,11 +2,13 @@
 
 namespace App\Models;
 
+use App\Domain\Organization\Models\Department;
 use App\Domain\Organization\Models\Mda;
-use App\Domain\Staff\Models\Staff;
 use App\Domain\Organization\Models\Station;
+use App\Domain\Staff\Models\Staff;
 use App\Enums\RecordStatus;
 use App\Enums\UserType;
+use App\Scopes\MdaScope;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -169,11 +171,20 @@ class User extends Authenticatable
             return false;
         }
 
-        if (! $this->hasDepartmentRestrictedAccess()) {
+        if ($this->hasGlobalMdaAccess()) {
             return true;
         }
 
-        return $this->accessibleDepartmentIds()->contains((int) $departmentId);
+        if ($this->hasDepartmentRestrictedAccess()) {
+            return $this->accessibleDepartmentIds()->contains((int) $departmentId);
+        }
+
+        $departmentMdaId = Department::withoutGlobalScope(MdaScope::class)
+            ->whereKey($departmentId)
+            ->value('mda_id');
+
+        return $departmentMdaId !== null
+            && $this->accessibleMdaIds()->contains((int) $departmentMdaId);
     }
 
     public function canAccessStaff(Staff $staff): bool
@@ -221,17 +232,28 @@ class User extends Authenticatable
             return $query;
         }
 
-        if (! $this->hasDepartmentRestrictedAccess()) {
-            return $query;
+        if ($this->hasDepartmentRestrictedAccess()) {
+            $accessibleDepartmentIds = $this->accessibleDepartmentIds();
+
+            if ($accessibleDepartmentIds->isEmpty()) {
+                return $query->whereRaw('1 = 0');
+            }
+
+            return $query->whereIn($column, $accessibleDepartmentIds->all());
         }
 
-        $accessibleDepartmentIds = $this->accessibleDepartmentIds();
+        $accessibleMdaIds = $this->accessibleMdaIds();
 
-        if ($accessibleDepartmentIds->isEmpty()) {
+        if ($accessibleMdaIds->isEmpty()) {
             return $query->whereRaw('1 = 0');
         }
 
-        return $query->whereIn($column, $accessibleDepartmentIds->all());
+        return $query->whereIn(
+            $column,
+            Department::withoutGlobalScope(MdaScope::class)
+                ->select('id')
+                ->whereIn('mda_id', $accessibleMdaIds->all())
+        );
     }
 
     public function scopeToAccessibleStaff(Builder $query): Builder

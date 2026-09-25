@@ -3,6 +3,8 @@
 namespace Tests\Feature;
 
 use App\Domain\Organization\Models\Department;
+use App\Domain\Budget\Models\BudgetWorkbook;
+use App\Domain\Movement\Models\MovementWorkbook;
 use App\Domain\Organization\Models\Mda;
 use App\Domain\Organization\Models\Station;
 use App\Domain\Staff\Models\AllowanceType;
@@ -104,6 +106,66 @@ class DashboardIntelligenceTest extends TestCase
             ->assertJsonPath('data.distributions.gender.0.label', 'Female')
             ->assertJsonPath('data.distributions.cadres.0.allowances.0.code', 'hazard')
             ->assertJsonPath('data.distributions.cadres.0.allowances.0.label', 'Hazard Allowance');
+
+        CarbonImmutable::setTestNow();
+    }
+
+    public function test_dashboard_returns_department_scoped_counts_and_workbook_summaries(): void
+    {
+        CarbonImmutable::setTestNow('2026-06-13');
+
+        $mda = Mda::query()->create(['code' => 'HMB', 'name' => 'Hospital Management Board', 'status' => 'active']);
+        $departmentA = Department::query()->create(['mda_id' => $mda->id, 'code' => 'NUR', 'name' => 'Nursing', 'status' => 'active']);
+        $departmentB = Department::query()->create(['mda_id' => $mda->id, 'code' => 'MED', 'name' => 'Medical', 'status' => 'active']);
+        $scale = SalaryScale::query()->firstOrCreate(['code' => 'GL'], ['name' => 'Grade Level', 'min_level' => 1, 'max_level' => 17, 'min_step' => 1, 'max_step' => 15, 'status' => 'active']);
+        $cadreA = Cadre::query()->create(['department_id' => $departmentA->id, 'salary_scale_id' => $scale->id, 'name' => 'Nursing Officer', 'status' => 'active']);
+        $cadreB = Cadre::query()->create(['department_id' => $departmentB->id, 'salary_scale_id' => $scale->id, 'name' => 'Medical Officer', 'status' => 'active']);
+
+        foreach ([[$departmentA, $cadreA, 'Visible Staff'], [$departmentB, $cadreB, 'Hidden Staff']] as [$department, $cadre, $name]) {
+            $staff = Staff::withoutGlobalScopes()->create([
+                'mda_id' => $mda->id,
+                'staff_number' => str_replace(' ', '-', strtoupper($name)),
+                'surname' => explode(' ', $name)[0],
+                'first_name' => explode(' ', $name)[1],
+                'full_name' => $name,
+                'sex' => 'female',
+                'status' => 'active',
+            ]);
+            StaffEmployment::query()->create([
+                'staff_id' => $staff->id,
+                'mda_id' => $mda->id,
+                'department_id' => $department->id,
+                'cadre_id' => $cadre->id,
+                'expected_retirement_date' => '2048-01-01',
+                'employment_status' => 'active',
+                'is_current' => true,
+            ]);
+            StaffSalaryPlacement::query()->create(['staff_id' => $staff->id, 'salary_scale_id' => $scale->id, 'level' => 9, 'step' => 1, 'is_current' => true]);
+        }
+
+        $movement = MovementWorkbook::query()->create(['mda_id' => $mda->id, 'year' => 2026, 'status' => 'draft']);
+        BudgetWorkbook::query()->create(['mda_id' => $mda->id, 'movement_workbook_id' => $movement->id, 'year' => 2027, 'status' => 'draft']);
+
+        $user = User::factory()->mdaUser($mda)->create();
+        UserAccessScope::query()->create([
+            'user_id' => $user->id,
+            'scope_type' => 'department',
+            'mda_id' => $mda->id,
+            'department_id' => $departmentA->id,
+        ]);
+
+        $response = $this->actingAs($user)->getJson('/api/dashboard')->assertOk();
+
+        $response
+            ->assertJsonPath('data.counts.staff', 1)
+            ->assertJsonPath('data.counts.active_staff', 1)
+            ->assertJsonPath('data.counts.movement_workbooks', 1)
+            ->assertJsonPath('data.counts.budget_workbooks', 1)
+            ->assertJsonPath('data.attention.movement_drafts', 1)
+            ->assertJsonPath('data.attention.budget_drafts', 1)
+            ->assertJsonPath('data.distributions.departments.0.label', 'Nursing');
+
+        $this->assertStringNotContainsString('Medical', json_encode($response->json('data')));
 
         CarbonImmutable::setTestNow();
     }

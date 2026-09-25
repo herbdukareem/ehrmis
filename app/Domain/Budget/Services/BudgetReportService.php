@@ -5,6 +5,7 @@ namespace App\Domain\Budget\Services;
 use App\Domain\Budget\Models\BudgetLine;
 use App\Domain\Budget\Models\BudgetWorkbook;
 use App\Domain\Movement\Models\MovementLine;
+use App\Models\User;
 use App\Support\ReportFormatter;
 use Illuminate\Support\Collection;
 use InvalidArgumentException;
@@ -23,7 +24,7 @@ class BudgetReportService
         'staff-strength' => 'Staff strength summary',
     ];
 
-    public function build(BudgetWorkbook $workbook, string $report): array
+    public function build(BudgetWorkbook $workbook, string $report, ?User $user = null): array
     {
         if (! array_key_exists($report, self::REPORTS)) {
             throw new InvalidArgumentException('Unsupported budget report.');
@@ -32,17 +33,17 @@ class BudgetReportService
         $workbook->loadMissing(['mda', 'movementWorkbook']);
 
         return match ($report) {
-            'recurrent-expenditure' => $this->recurrentExpenditure($workbook),
-            'staff-list' => $this->staffList($workbook),
-            'qualification-distribution' => $this->qualificationDistribution($workbook),
-            'manpower-distribution' => $this->manpowerDistribution($workbook),
-            'staff-strength' => $this->staffStrength($workbook),
+            'recurrent-expenditure' => $this->recurrentExpenditure($workbook, $user),
+            'staff-list' => $this->staffList($workbook, $user),
+            'qualification-distribution' => $this->qualificationDistribution($workbook, $user),
+            'manpower-distribution' => $this->manpowerDistribution($workbook, $user),
+            'staff-strength' => $this->staffStrength($workbook, $user),
         };
     }
 
-    protected function recurrentExpenditure(BudgetWorkbook $workbook): array
+    protected function recurrentExpenditure(BudgetWorkbook $workbook, ?User $user = null): array
     {
-        $lines = $workbook->lines()
+        $lines = $this->budgetLines($workbook, $user)
             ->with(['department', 'salaryScale'])
             ->orderBy('department_id')
             ->orderBy('salary_scale_id')
@@ -55,6 +56,7 @@ class BudgetReportService
             ->whereIn('status', ['approved', 'locked'])
             ->orderByDesc('approved_at')->orderByDesc('id')->first();
         $previousBudgetLines = $previousWorkbook?->lines()->get() ?? collect();
+        $previousBudgetLines = $this->filterBudgetLines($previousBudgetLines, $user);
         $previousLines = $previousBudgetLines
             ->keyBy(fn (BudgetLine $line): string => $this->lineKey($line->department_id, $line->salary_scale_id, $line->level));
         $allowances = $this->allowanceSummaryService->forWorkbook($workbook, $lines);
@@ -63,7 +65,7 @@ class BudgetReportService
             : collect();
         $centralized = $allowances !== null && $previousAllowances !== null;
         $zeroTotals = ['approved_staff' => 0, 'actual_staff' => 0, 'approved_estimate' => 0, 'actual_expense' => 0, 'required_staff' => 0, 'proposed_estimate' => 0];
-        $movementRows = $this->movementBudgetRows($workbook);
+        $movementRows = $this->movementBudgetRows($workbook, $user);
         $notes = $centralized || $lines->isEmpty() ? [] : [
             'Allowances remain included in the grade-level figures because the saved salary breakdown is unavailable or does not match this budget. No separate allowance amount has been added.',
         ];
@@ -182,9 +184,9 @@ class BudgetReportService
         ];
     }
 
-    protected function staffList(BudgetWorkbook $workbook): array
+    protected function staffList(BudgetWorkbook $workbook, ?User $user = null): array
     {
-        $lines = $this->movementLines($workbook)
+        $lines = $this->movementLines($workbook, $user)
             ->filter(fn (MovementLine $line): bool => $line->countsAsCurrentStaff())
             ->sortBy([
                 fn (MovementLine $line): string => $line->currentEmployment?->department?->name ?? '',
@@ -213,9 +215,9 @@ class BudgetReportService
         ];
     }
 
-    protected function qualificationDistribution(BudgetWorkbook $workbook): array
+    protected function qualificationDistribution(BudgetWorkbook $workbook, ?User $user = null): array
     {
-        $lines = $this->movementLines($workbook)
+        $lines = $this->movementLines($workbook, $user)
             ->filter(fn (MovementLine $line): bool => $line->countsAsRequiredStaff())
             ->values();
 
@@ -270,9 +272,9 @@ class BudgetReportService
         ];
     }
 
-    protected function manpowerDistribution(BudgetWorkbook $workbook): array
+    protected function manpowerDistribution(BudgetWorkbook $workbook, ?User $user = null): array
     {
-        $lines = $this->movementLines($workbook)
+        $lines = $this->movementLines($workbook, $user)
             ->filter(fn (MovementLine $line): bool => $line->countsAsRequiredStaff())
             ->values();
 
@@ -345,9 +347,9 @@ class BudgetReportService
         ];
     }
 
-    protected function staffStrength(BudgetWorkbook $workbook): array
+    protected function staffStrength(BudgetWorkbook $workbook, ?User $user = null): array
     {
-        $groups = $workbook->lines()
+        $groups = $this->budgetLines($workbook, $user)
             ->with(['department', 'salaryScale'])
             ->get()
             ->groupBy(fn (BudgetLine $line): string => $this->departmentLabel($line))
@@ -377,7 +379,24 @@ class BudgetReportService
         ];
     }
 
-    protected function movementLines(BudgetWorkbook $workbook): Collection
+    protected function budgetLines(BudgetWorkbook $workbook, ?User $user = null)
+    {
+        return $workbook->lines()
+            ->when($user?->hasDepartmentRestrictedAccess(), fn ($query) => $query->whereIn('department_id', $user->accessibleDepartmentIds()->all()));
+    }
+
+    protected function filterBudgetLines(Collection $lines, ?User $user = null): Collection
+    {
+        if (! $user?->hasDepartmentRestrictedAccess()) {
+            return $lines;
+        }
+
+        return $lines
+            ->filter(fn (BudgetLine $line): bool => $line->department_id !== null && $user->canAccessDepartment((int) $line->department_id))
+            ->values();
+    }
+
+    protected function movementLines(BudgetWorkbook $workbook, ?User $user = null): Collection
     {
         return $workbook->movementWorkbook
             ?->lines()
@@ -390,14 +409,20 @@ class BudgetReportService
                 'currentSalaryScale',
                 'proposedSalaryScale',
             ])
+            ->when($user?->hasDepartmentRestrictedAccess(), function ($query) use ($user): void {
+                $query->whereHas('currentEmployment', fn ($employmentQuery) => $user->scopeToAccessibleDepartments($employmentQuery, 'department_id'));
+            })
             ->get() ?? collect();
     }
 
-    protected function movementBudgetRows(BudgetWorkbook $workbook): Collection
+    protected function movementBudgetRows(BudgetWorkbook $workbook, ?User $user = null): Collection
     {
         $lines = $workbook->movementWorkbook
             ?->lines()
             ->with(['staff', 'currentEmployment.department', 'currentSalaryScale', 'proposedSalaryScale'])
+            ->when($user?->hasDepartmentRestrictedAccess(), function ($query) use ($user): void {
+                $query->whereHas('currentEmployment', fn ($employmentQuery) => $user->scopeToAccessibleDepartments($employmentQuery, 'department_id'));
+            })
             ->get() ?? collect();
 
         $rows = [];

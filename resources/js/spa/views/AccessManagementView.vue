@@ -29,6 +29,7 @@ const selectedUser = computed(() => data.value?.users.find((user) => user.id ===
 const manageableRoles = computed(() => data.value?.roles.filter((role) => role.can_manage_definition) ?? []);
 const selectedRole = computed(() => manageableRoles.value.find((role) => role.id === selectedRoleId.value) ?? null);
 const canManageAccessScopes = computed(() => Boolean(data.value?.can_manage_access_scopes));
+const canManageUserScopes = computed(() => Boolean(data.value?.can_manage_user_scopes));
 const canCreateRole = computed(() => (data.value?.role_scope_options?.length ?? 0) > 0);
 const canCreateUsers = computed(() => Boolean(data.value?.can_create_users));
 const canManageUserStatus = computed(() => Boolean(data.value?.can_manage_user_status));
@@ -311,13 +312,13 @@ const buildUserPayload = (form) => {
         payload.password_confirmation = form.password_confirmation;
     }
 
-    if (canManageAccessScopes.value) {
+    if (canManageUserScopes.value) {
         payload.scope_type = form.scope_type;
-        payload.state_code = form.scope_type === 'state' ? form.state_code : null;
+        payload.state_code = canManageAccessScopes.value && form.scope_type === 'state' ? form.state_code : null;
         payload.mda_id = ['mda', 'department'].includes(form.scope_type) ? form.mda_id : null;
         payload.department_ids = form.scope_type === 'department' ? form.department_ids : [];
         payload.station_id = form.scope_type === 'mda' ? (form.station_id || null) : null;
-        payload.mda_ids = form.scope_type === 'mda' ? form.mda_ids : [];
+        payload.mda_ids = canManageAccessScopes.value && form.scope_type === 'mda' ? form.mda_ids : [];
     } else {
         payload.station_id = form.station_id || null;
     }
@@ -721,19 +722,19 @@ onMounted(load);
                         <option v-for="status in userStatuses" :key="status" :value="status">{{ status }}</option>
                     </select>
                 </label>
-                <label v-if="canManageAccessScopes" class="civic-field">
+                <label v-if="canManageUserScopes" class="civic-field">
                     <span>Access scope</span>
                     <select v-model="activeUserForm.scope_type" :disabled="busy">
                         <option v-for="scope in scopeTypes" :key="scope" :value="scope">{{ scopeLabel(scope) }}</option>
                     </select>
                 </label>
-                <label v-if="!canManageAccessScopes || ['mda', 'department'].includes(activeUserForm.scope_type)" class="civic-field">
+                <label v-if="!canManageUserScopes || ['mda', 'department'].includes(activeUserForm.scope_type)" class="civic-field">
                     <span>Primary MDA</span>
-                    <select v-model="activeUserForm.mda_id" :disabled="busy || (!canManageAccessScopes && mdas.length <= 1)">
+                    <select v-model="activeUserForm.mda_id" :disabled="busy || !canManageAccessScopes">
                         <option v-for="mda in mdas" :key="mda.id" :value="mda.id">{{ mda.code }} - {{ mda.name }}</option>
                     </select>
                 </label>
-                <label v-if="!canManageAccessScopes || activeUserForm.scope_type === 'mda'" class="civic-field">
+                <label v-if="!canManageUserScopes || activeUserForm.scope_type === 'mda'" class="civic-field">
                     <span>Reporting station</span>
                     <select v-model="activeUserForm.station_id" :disabled="busy || availableStations.length === 0">
                         <option :value="null">No station assignment</option>
@@ -750,7 +751,7 @@ onMounted(load);
                     <span>State code</span>
                     <input v-model="activeUserForm.state_code" type="text" :disabled="busy">
                 </label>
-                <label v-if="canManageAccessScopes && activeUserForm.scope_type === 'department'" class="civic-field civic-field-wide">
+                <label v-if="canManageUserScopes && activeUserForm.scope_type === 'department'" class="civic-field civic-field-wide">
                     <span>Departments</span>
                     <select v-model="activeUserForm.department_ids" multiple size="5" :disabled="busy || !activeUserForm.mda_id">
                         <option v-for="department in departmentOptionsFor(activeUserForm)" :key="department.id" :value="department.id">

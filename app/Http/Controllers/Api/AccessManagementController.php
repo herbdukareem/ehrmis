@@ -11,6 +11,7 @@ use App\Enums\RecordStatus;
 use App\Http\Controllers\Controller;
 use App\Models\Role;
 use App\Models\User;
+use App\Scopes\MdaScope;
 use App\Support\AccessManagementRules;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -67,9 +68,13 @@ class AccessManagementController extends Controller
                 'can_manage_all_roles' => AccessManagementRules::canManageAllRoles($user),
                 'can_manage_own_mda_roles' => AccessManagementRules::canManageOwnMdaRoles($user),
                 'can_manage_users_in_own_mda' => AccessManagementRules::canManageUsersInOwnMda($user),
+                'can_manage_user_scopes' => AccessManagementRules::canManageAccessScopes($user)
+                    || AccessManagementRules::canManageUsersInOwnMda($user),
                 'can_create_users' => AccessManagementRules::canCreateUser($user),
                 'can_manage_user_status' => AccessManagementRules::canManageUserStatus($user),
-                'scope_types' => ['platform', 'state', 'mda', 'department'],
+                'scope_types' => AccessManagementRules::canManageAccessScopes($user)
+                    ? ['platform', 'state', 'mda', 'department']
+                    : ['mda', 'department'],
                 'user_statuses' => array_map(fn (RecordStatus $status): string => $status->value, RecordStatus::cases()),
             ],
         ]);
@@ -97,11 +102,8 @@ class AccessManagementController extends Controller
             'station_id' => ['nullable', 'integer', 'exists:stations,id'],
         ]);
 
-        if (! AccessManagementRules::canManageAccessScopes($actor)) {
+        if (! AccessManagementRules::canManageAccessScopes($actor) && ! AccessManagementRules::canManageUsersInOwnMda($actor)) {
             $this->rejectUnauthorizedScopeMutation($request);
-            $validated['scope_type'] = 'mda';
-            $validated['mda_id'] = (int) $actor->mda_id;
-            $validated['mda_ids'] = [];
         }
 
         $selectedRoles = Role::query()
@@ -233,7 +235,7 @@ class AccessManagementController extends Controller
             'station_id' => ['nullable', 'integer', 'exists:stations,id'],
         ]);
 
-        if (! AccessManagementRules::canManageAccessScopes($actor)) {
+        if (! AccessManagementRules::canManageAccessScopes($actor) && ! AccessManagementRules::canManageUsersInOwnMda($actor)) {
             $this->rejectUnauthorizedScopeMutation($request);
         }
 
@@ -258,7 +260,9 @@ class AccessManagementController extends Controller
 
         $scopeState = AccessManagementRules::canManageAccessScopes($actor)
             ? $this->resolveSubmittedScopeState($validated, $managedUser)
-            : $this->currentScopeState($managedUser);
+            : (AccessManagementRules::canManageUsersInOwnMda($actor)
+                ? $this->resolveOwnMdaScopeState($validated, $actor, $managedUser)
+                : $this->currentScopeState($managedUser));
         $stationId = $this->resolveReportingStationId($validated, $scopeState, $managedUser);
 
         $this->assertRolesAssignable($actor, $managedUser, $selectedRoles, $scopeState['primary_mda_id']);
@@ -292,7 +296,7 @@ class AccessManagementController extends Controller
                 $managedUser->fill($attributes);
             }
 
-            if (! AccessManagementRules::canManageAccessScopes($actor)) {
+            if (! AccessManagementRules::canManageAccessScopes($actor) && ! AccessManagementRules::canManageUsersInOwnMda($actor)) {
                 $managedUser->forceFill([
                     'user_type' => $this->inferUserType($selectedRoles, $managedUser->user_type?->value),
                 ])->save();
@@ -576,7 +580,7 @@ class AccessManagementController extends Controller
                 ]);
             }
 
-            $invalidDepartmentIds = Department::query()
+            $invalidDepartmentIds = Department::withoutGlobalScope(MdaScope::class)
                 ->whereIn('id', $departmentIds->all())
                 ->where('mda_id', '!=', $primaryMdaId)
                 ->pluck('id')
@@ -652,18 +656,83 @@ class AccessManagementController extends Controller
     protected function resolveScopeStateForCreate(array $validated, User $actor): array
     {
         if (! AccessManagementRules::canManageAccessScopes($actor)) {
-            return [
-                'scope_type' => 'mda',
-                'state_code' => null,
-                'primary_mda_id' => (int) $actor->mda_id,
-                'accessible_mda_ids' => [(int) $actor->mda_id],
-                'accessible_department_ids' => [],
-            ];
+            return $this->resolveOwnMdaScopeState($validated, $actor);
         }
 
         return $this->resolveSubmittedScopeState($validated, new User([
             'mda_id' => $validated['mda_id'] ?? null,
         ]));
+    }
+
+    /**
+     * @param  array<string, mixed>  $validated
+     * @return array{scope_type:string,state_code:?string,primary_mda_id:?int,accessible_mda_ids:array<int,int>,accessible_department_ids:array<int,int>}
+     */
+    protected function resolveOwnMdaScopeState(array $validated, User $actor, ?User $managedUser = null): array
+    {
+        $currentState = $managedUser ? $this->currentScopeState($managedUser) : null;
+        $actorMdaId = (int) $actor->mda_id;
+        $scopeType = $validated['scope_type'] ?? $currentState['scope_type'] ?? 'mda';
+
+        if (! in_array($scopeType, ['mda', 'department'], true)) {
+            throw ValidationException::withMessages([
+                'scope_type' => 'You may only assign MDA or department access within your own MDA.',
+            ]);
+        }
+
+        if (array_key_exists('mda_id', $validated) && (int) ($validated['mda_id'] ?? 0) !== $actorMdaId) {
+            throw ValidationException::withMessages([
+                'mda_id' => 'You may only assign users to your own MDA.',
+            ]);
+        }
+
+        if (array_key_exists('mda_ids', $validated) && collect($validated['mda_ids'])->filter()->isNotEmpty()) {
+            throw ValidationException::withMessages([
+                'mda_ids' => 'Additional MDA access can only be assigned by platform administrators.',
+            ]);
+        }
+
+        if ($scopeType === 'mda') {
+            return [
+                'scope_type' => 'mda',
+                'state_code' => null,
+                'primary_mda_id' => $actorMdaId,
+                'accessible_mda_ids' => [$actorMdaId],
+                'accessible_department_ids' => [],
+            ];
+        }
+
+        $departmentIds = collect($validated['department_ids'] ?? $currentState['accessible_department_ids'] ?? [])
+            ->filter()
+            ->map(fn ($departmentId): int => (int) $departmentId)
+            ->unique()
+            ->values();
+
+        if ($departmentIds->isEmpty()) {
+            throw ValidationException::withMessages([
+                'department_ids' => 'At least one department must be assigned.',
+            ]);
+        }
+
+        $invalidDepartmentIds = Department::withoutGlobalScope(MdaScope::class)
+            ->whereIn('id', $departmentIds->all())
+            ->where('mda_id', '!=', $actorMdaId)
+            ->pluck('id')
+            ->all();
+
+        if ($invalidDepartmentIds !== []) {
+            throw ValidationException::withMessages([
+                'department_ids' => 'All selected departments must belong to your own MDA.',
+            ]);
+        }
+
+        return [
+            'scope_type' => 'department',
+            'state_code' => null,
+            'primary_mda_id' => $actorMdaId,
+            'accessible_mda_ids' => [$actorMdaId],
+            'accessible_department_ids' => $departmentIds->all(),
+        ];
     }
 
     /**

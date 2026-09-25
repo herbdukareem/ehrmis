@@ -10,6 +10,7 @@ use App\Domain\Organization\Models\Mda;
 use App\Domain\Staff\Models\SalaryScale;
 use App\Domain\Staff\Models\Staff;
 use App\Models\User;
+use App\Models\UserAccessScope;
 use Database\Seeders\RolesAndPermissionsSeeder;
 use Dompdf\Dompdf;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -286,6 +287,71 @@ class BudgetReportExportTest extends TestCase
         $this->user->revokePermissionTo('view-budgets');
         foreach (['recurrent-expenditure', 'staff-list', 'qualification-distribution', 'manpower-distribution'] as $report) {
             $this->get($this->url($report).'/export')->assertForbidden();
+        }
+    }
+
+    public function test_department_scoped_user_exports_only_assigned_department_budget_reports(): void
+    {
+        $admin = $this->department('Administration');
+        $medical = $this->department('Medical');
+
+        $this->line($this->workbook, $admin, 'GL', 8);
+        $this->line($this->workbook, $medical, 'CM', 3);
+        $this->reportStaff($admin, 'GL', staffAttributes: ['full_name' => 'Visible Admin Staff']);
+        $this->reportStaff($medical, 'CM', staffAttributes: ['full_name' => 'Hidden Medical Staff']);
+
+        UserAccessScope::query()->create([
+            'user_id' => $this->user->id,
+            'scope_type' => 'department',
+            'mda_id' => $this->mda->id,
+            'department_id' => $admin->id,
+        ]);
+
+        $recurrent = $this->download('recurrent-expenditure');
+        try {
+            $this->assertSame(['Administration GL', 'Grand Total'], $recurrent->getSheetNames());
+            $this->assertStringNotContainsString('Medical', json_encode($recurrent->getActiveSheet()->toArray()));
+        } finally {
+            $recurrent->disconnectWorksheets();
+        }
+
+        foreach (['staff-list', 'qualification-distribution', 'manpower-distribution'] as $report) {
+            $book = $this->download($report);
+            try {
+                $this->assertSame(['Administration'], $book->getSheetNames());
+                $payload = json_encode($book->getActiveSheet()->toArray());
+                $this->assertStringContainsString('Administration', $payload);
+                $this->assertStringNotContainsString('Medical', $payload);
+                $this->assertStringNotContainsString('Hidden Medical Staff', $payload);
+            } finally {
+                $book->disconnectWorksheets();
+            }
+        }
+
+        $this->get($this->url('staff-list'))->assertOk()
+            ->assertSee('Visible Admin Staff')
+            ->assertDontSee('Hidden Medical Staff')
+            ->assertDontSee('Medical');
+
+        $adminUser = User::factory()->mdaUser($this->mda)->create();
+        $adminUser->givePermissionTo('view-budgets');
+        $this->user = $adminUser;
+
+        $adminRecurrent = $this->download('recurrent-expenditure');
+        try {
+            $this->assertSame(['Administration GL', 'Medical CM', 'Grand Total'], $adminRecurrent->getSheetNames());
+        } finally {
+            $adminRecurrent->disconnectWorksheets();
+        }
+
+        $adminStaffList = $this->download('staff-list');
+        try {
+            $this->assertEqualsCanonicalizing(['Administration', 'Medical'], $adminStaffList->getSheetNames());
+            $payload = json_encode(collect($adminStaffList->getAllSheets())->map->toArray()->all());
+            $this->assertStringContainsString('Visible Admin Staff', $payload);
+            $this->assertStringContainsString('Hidden Medical Staff', $payload);
+        } finally {
+            $adminStaffList->disconnectWorksheets();
         }
     }
 

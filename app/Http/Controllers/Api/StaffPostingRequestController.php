@@ -242,11 +242,12 @@ class StaffPostingRequestController extends Controller
             'staff_count' => $items->count(),
             'items' => $items->values()->map(function ($item): array {
                 $snapshot = $item->staff_snapshot ?? [];
+                $staff = $item->staff ?? null;
 
                 return [
                     'staff_id' => $item->staff_id,
-                    'staff_number' => $snapshot['staff_number'] ?? $item->staff?->staff_number,
-                    'full_name' => $snapshot['full_name'] ?? $item->staff?->full_name,
+                    'staff_number' => $snapshot['staff_number'] ?? $staff?->staff_number,
+                    'full_name' => $snapshot['full_name'] ?? $staff?->full_name,
                     'mda' => $snapshot['mda'] ?? null,
                     'department' => $snapshot['department'] ?? null,
                     'station' => $snapshot['station'] ?? null,

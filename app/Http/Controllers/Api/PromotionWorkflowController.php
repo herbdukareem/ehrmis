@@ -125,7 +125,7 @@ class PromotionWorkflowController extends Controller
             'data' => [
                 ...$this->cyclePayload($cycle),
                 'applications' => $cycle->applications
-                    ->filter(fn (PromotionApplication $application): bool => $request->user()->canAccessMda($application->mda_id))
+                    ->filter(fn (PromotionApplication $application): bool => $request->user()->can('view', $application))
                     ->map(fn (PromotionApplication $application): array => $this->applicationPayload($application))
                     ->values(),
                 'sittings' => $cycle->sittings
@@ -185,7 +185,7 @@ class PromotionWorkflowController extends Controller
         return response()->json(['message' => 'Promotion sitting created.', 'data' => $this->sittingPayload($sitting)], 201);
     }
 
-    public function showSitting(PromotionSitting $sitting): JsonResponse
+    public function showSitting(Request $request, PromotionSitting $sitting): JsonResponse
     {
         $this->authorize('view', $sitting);
 
@@ -201,7 +201,10 @@ class PromotionWorkflowController extends Controller
         ]);
 
         return response()->json(['data' => $this->sittingPayload($sitting) + [
-            'applications' => $sitting->applications->map(fn (PromotionApplication $application): array => $this->applicationPayload($application))->values(),
+            'applications' => $sitting->applications
+                ->filter(fn (PromotionApplication $application): bool => $request->user()->can('view', $application))
+                ->map(fn (PromotionApplication $application): array => $this->applicationPayload($application))
+                ->values(),
         ]]);
     }
 
@@ -296,6 +299,7 @@ class PromotionWorkflowController extends Controller
             'mdas' => Mda::query()->visibleToUser($request->user())->orderBy('name')->get(['id', 'code', 'name']),
             'ranks' => Rank::query()
                 ->visibleToUser($request->user())
+                ->whereHas('cadre.department', fn ($query) => $request->user()->scopeToAccessibleDepartments($query, 'id'))
                 ->with(['cadre.department:id,mda_id', 'salaryScale:id,code,name'])
                 ->orderBy('name')
                 ->get(['id', 'cadre_id', 'salary_scale_id', 'name', 'level'])

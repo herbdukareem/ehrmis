@@ -15,7 +15,7 @@ class AccessManagementAuthorizationTest extends TestCase
 {
     use RefreshDatabase;
 
-    public function test_mda_admin_cannot_change_access_scope(): void
+    public function test_mda_admin_cannot_assign_additional_mda_access(): void
     {
         [$mdaAdmin, $managedUser, $mdaA, $mdaB] = $this->setUpMdaAdminScenario();
 
@@ -27,7 +27,9 @@ class AccessManagementAuthorizationTest extends TestCase
                 'mda_ids' => [$mdaB->id],
             ]);
 
-        $response->assertForbidden();
+        $response
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors('mda_ids');
         $this->assertDatabaseMissing('user_access_scopes', [
             'user_id' => $managedUser->id,
             'scope_type' => 'mda',
@@ -81,7 +83,8 @@ class AccessManagementAuthorizationTest extends TestCase
                 'status' => 'active',
                 'mda_id' => $mdaB->id,
             ])
-            ->assertForbidden();
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors('mda_id');
 
         $this->actingAs($mdaAdmin)
             ->postJson(route('api.access-management.users.store'), [
@@ -92,7 +95,8 @@ class AccessManagementAuthorizationTest extends TestCase
                 'status' => 'active',
                 'scope_type' => 'platform',
             ])
-            ->assertForbidden();
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors('scope_type');
     }
 
     public function test_mda_admin_cannot_assign_privileged_roles_when_creating_user(): void
@@ -121,7 +125,8 @@ class AccessManagementAuthorizationTest extends TestCase
                 'role_ids' => [],
                 'scope_type' => 'platform',
             ])
-            ->assertForbidden();
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors('scope_type');
 
         $this->actingAs($mdaAdmin)
             ->putJson(route('api.access-management.users.update', $managedUser), [
@@ -129,7 +134,8 @@ class AccessManagementAuthorizationTest extends TestCase
                 'scope_type' => 'state',
                 'state_code' => 'NG-KD',
             ])
-            ->assertForbidden();
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors('scope_type');
 
         $this->actingAs($mdaAdmin)
             ->putJson(route('api.access-management.users.update', $managedUser), [
@@ -138,7 +144,8 @@ class AccessManagementAuthorizationTest extends TestCase
                 'mda_id' => $mdaA->id,
                 'mda_ids' => [$mdaB->id],
             ])
-            ->assertForbidden();
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors('mda_ids');
     }
 
     public function test_mda_admin_cannot_edit_global_roles(): void

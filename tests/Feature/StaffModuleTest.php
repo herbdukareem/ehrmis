@@ -275,6 +275,26 @@ class StaffModuleTest extends TestCase
         $this->actingAs($user)
             ->getJson('/api/staff/'.$otherStaff->id)
             ->assertForbidden();
+
+        $filteredResponse = $this->actingAs($user)
+            ->getJson('/api/staff?department_id='.$otherDepartment->id)
+            ->assertOk();
+        $this->assertSame([], array_column($filteredResponse->json('data'), 'id'));
+
+        $departmentResponse = $this->actingAs($user)
+            ->getJson('/api/departments')
+            ->assertOk();
+        $this->assertSame([$this->staffA->currentEmployment->department_id], array_column($departmentResponse->json('data'), 'id'));
+
+        $adminIndexResponse = $this->actingAs($this->mdaUser)
+            ->getJson('/api/staff')
+            ->assertOk();
+        $this->assertContains($otherStaff->id, array_column($adminIndexResponse->json('data'), 'id'));
+
+        $adminOptionsResponse = $this->actingAs($this->mdaUser)
+            ->getJson('/api/staff/options')
+            ->assertOk();
+        $this->assertContains($otherDepartment->id, array_column($adminOptionsResponse->json('data.departments'), 'id'));
     }
 
     public function test_department_scoped_user_cannot_move_staff_outside_assigned_departments(): void

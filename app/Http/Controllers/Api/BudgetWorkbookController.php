@@ -109,7 +109,7 @@ class BudgetWorkbookController extends Controller
         ]);
     }
 
-    public function exportReport(BudgetWorkbook $budgetWorkbook, string $report, BudgetReportService $service): BinaryFileResponse
+    public function exportReport(Request $request, BudgetWorkbook $budgetWorkbook, string $report, BudgetReportService $service): BinaryFileResponse
     {
         $this->authorize('print', $budgetWorkbook);
         abort_unless(in_array($report, BudgetReportService::EXCEL_REPORTS, true), 404, 'Unsupported budget Excel report.');
@@ -122,7 +122,7 @@ class BudgetWorkbookController extends Controller
         if ((int) ini_get('max_execution_time') > 0) {
             set_time_limit(max((int) ini_get('max_execution_time'), (int) config('reports.budget_export_timeout', 120)));
         }
-        $reportData = $service->build($budgetWorkbook, $report);
+        $reportData = $service->build($budgetWorkbook, $report, $request->user());
         $export = $report === 'recurrent-expenditure'
             ? new RecurrentExpenditureExport($budgetWorkbook, $reportData)
             : new BudgetDepartmentReportExport($budgetWorkbook, $reportData);
@@ -133,14 +133,14 @@ class BudgetWorkbookController extends Controller
         );
     }
 
-    public function report(BudgetWorkbook $budgetWorkbook, string $report, BudgetReportService $service): Response
+    public function report(Request $request, BudgetWorkbook $budgetWorkbook, string $report, BudgetReportService $service): Response
     {
         $this->authorize('print', $budgetWorkbook);
 
         abort_unless(in_array($budgetWorkbook->status, ['approved', 'locked'], true), 403, 'Budget reports are available after approval.');
 
         try {
-            $reportData = $service->build($budgetWorkbook, $report);
+            $reportData = $service->build($budgetWorkbook, $report, $request->user());
         } catch (InvalidArgumentException $exception) {
             abort(404, $exception->getMessage());
         }

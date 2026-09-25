@@ -379,11 +379,16 @@ class StaffController extends Controller
             ->orderBy('name')
             ->get(['id', 'department_id', 'salary_scale_id', 'name']);
 
+        $stations = Station::query()
+            ->tap(fn ($query) => $user->scopeToAccessibleMdas($query, 'mda_id'))
+            ->orderBy('name')
+            ->get(['id', 'mda_id', 'name']);
+
         return response()->json([
             'data' => [
                 'mdas' => Mda::query()->visibleToUser($user)->orderBy('name')->get(['id', 'code', 'name']),
                 'departments' => $departments,
-                'stations' => Station::query()->orderBy('name')->get(['id', 'mda_id', 'name']),
+                'stations' => $stations,
                 'cadres' => $cadres,
                 'ranks' => Rank::query()->whereIn('cadre_id', $cadres->pluck('id'))->orderBy('name')->get(['id', 'cadre_id', 'salary_scale_id', 'name', 'level']),
                 'salary_scales' => SalaryScale::query()->orderBy('code')->get(['id', 'code', 'name']),

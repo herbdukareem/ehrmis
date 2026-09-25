@@ -4,6 +4,7 @@ namespace App\Domain\Movement\Exports;
 
 use App\Domain\Movement\Models\MovementWorkbook;
 use App\Domain\Movement\Services\MovementDepartmentSummaryService;
+use App\Models\User;
 use Maatwebsite\Excel\Concerns\WithMultipleSheets;
 
 class MovementSummaryExport implements WithMultipleSheets
@@ -12,12 +13,17 @@ class MovementSummaryExport implements WithMultipleSheets
         protected MovementWorkbook $workbook,
         protected MovementDepartmentSummaryService $summaryService,
         protected ?int $departmentId = null,
+        protected ?User $user = null,
     ) {}
 
     public function sheets(): array
     {
         $this->workbook->loadMissing('mda');
         $departments = $this->summaryService->summarize($this->workbook)
+            ->when($this->user?->hasDepartmentRestrictedAccess(), fn ($summaries) => $summaries->filter(
+                fn (array $department): bool => $department['department_id'] !== null
+                    && $this->user->canAccessDepartment((int) $department['department_id'])
+            ))
             ->filter(fn (array $department): bool => $this->departmentId === null || $department['department_id'] === $this->departmentId);
         if ($departments->isEmpty()) {
             $departments = collect([['department' => 'No records', 'rows' => []]]);

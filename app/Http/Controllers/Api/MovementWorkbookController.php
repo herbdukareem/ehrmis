@@ -13,6 +13,7 @@ use App\Domain\Organization\Models\Mda;
 use App\Domain\Staff\Services\SalaryCalculationService;
 use App\Http\Controllers\Controller;
 use App\Jobs\GenerateMovementWorkbook;
+use App\Models\User;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
@@ -78,7 +79,7 @@ class MovementWorkbookController extends Controller
                 'budget_minimum_step' => $workbook->budget_minimum_step,
                 'status' => $workbook->status,
                 'summary' => $workbook->summary ?? [],
-                'line_count' => $this->visibleMovementLineCount($workbook),
+                'line_count' => $this->visibleMovementLineCount($workbook, $request->user()),
                 'approval_status' => $workbook->approvalWorkflow?->status,
             ]),
             'options' => [
@@ -87,7 +88,7 @@ class MovementWorkbookController extends Controller
         ]);
     }
 
-    public function show(MovementWorkbook $workbook, MovementDepartmentSummaryService $departmentSummaryService): JsonResponse
+    public function show(Request $request, MovementWorkbook $workbook, MovementDepartmentSummaryService $departmentSummaryService): JsonResponse
     {
         $this->authorize('view', $workbook);
 
@@ -102,6 +103,12 @@ class MovementWorkbookController extends Controller
             'lines.proposedSalaryScale',
         ]);
 
+        $departmentSummaries = $this->visibleDepartmentSummaries(
+            $departmentSummaryService->summarize($workbook),
+            $request->user(),
+        );
+        $movementSummaries = $this->visibleMovementSummaries($workbook->summaries, $request->user());
+
         return response()->json([
             'data' => [
                 'id' => $workbook->id,
@@ -113,13 +120,13 @@ class MovementWorkbookController extends Controller
                 'status' => $workbook->status,
                 'summary' => $workbook->summary ?? [],
                 'approval_workflow' => $workbook->approvalWorkflow,
-                'department_summaries' => $departmentSummaryService->summarize($workbook),
+                'department_summaries' => $departmentSummaries,
                 'lines' => $workbook->lines
-                    ->filter(fn (MovementLine $line): bool => $this->shouldShowMovementLine($line))
+                    ->filter(fn (MovementLine $line): bool => $this->shouldShowMovementLine($line, $request->user()))
                     ->map(fn (MovementLine $line): array => $this->movementLinePayload($line))
                     ->sortBy(fn (array $line): string => strtolower(($line['department'] ?? '').'|'.($line['full_name'] ?? '')))
                     ->values(),
-                'summaries' => $workbook->summaries->map(fn ($summary): array => [
+                'summaries' => $movementSummaries->map(fn ($summary): array => [
                     'department' => $summary->department?->name ?? 'Unassigned',
                     'scale' => $summary->salaryScale?->code,
                     'level' => $summary->level,
@@ -132,15 +139,21 @@ class MovementWorkbookController extends Controller
         ]);
     }
 
-    protected function shouldShowMovementLine(MovementLine $line): bool
+    protected function shouldShowMovementLine(MovementLine $line, User $user): bool
     {
-        return in_array($line->retirement_status, ['active', 'retiring'], true)
-            || $this->effectiveContractStaff($line);
+        return $this->canAccessMovementLine($line, $user)
+            && (
+                in_array($line->retirement_status, ['active', 'retiring'], true)
+                || $this->effectiveContractStaff($line)
+            );
     }
 
-    protected function visibleMovementLineCount(MovementWorkbook $workbook): int
+    protected function visibleMovementLineCount(MovementWorkbook $workbook, User $user): int
     {
         return $workbook->lines()
+            ->when($user->hasDepartmentRestrictedAccess(), function ($query) use ($user): void {
+                $query->whereHas('currentEmployment', fn ($employmentQuery) => $user->scopeToAccessibleDepartments($employmentQuery, 'department_id'));
+            })
             ->where(function ($query): void {
                 $query
                     ->whereIn('retirement_status', ['active', 'retiring'])
@@ -148,6 +161,39 @@ class MovementWorkbookController extends Controller
                     ->orWhereHas('staff', fn ($staffQuery) => $staffQuery->where('is_contract_staff', true));
             })
             ->count();
+    }
+
+    protected function canAccessMovementLine(MovementLine $line, User $user): bool
+    {
+        if (! $user->hasDepartmentRestrictedAccess()) {
+            return true;
+        }
+
+        $line->loadMissing('currentEmployment');
+
+        return $user->canAccessDepartment($line->currentEmployment?->department_id);
+    }
+
+    protected function visibleDepartmentSummaries($summaries, User $user)
+    {
+        if (! $user->hasDepartmentRestrictedAccess()) {
+            return $summaries->values();
+        }
+
+        return $summaries
+            ->filter(fn (array $summary): bool => $summary['department_id'] !== null && $user->canAccessDepartment((int) $summary['department_id']))
+            ->values();
+    }
+
+    protected function visibleMovementSummaries($summaries, User $user)
+    {
+        if (! $user->hasDepartmentRestrictedAccess()) {
+            return $summaries->values();
+        }
+
+        return $summaries
+            ->filter(fn ($summary): bool => $summary->department_id !== null && $user->canAccessDepartment((int) $summary->department_id))
+            ->values();
     }
 
     protected function effectiveContractStaff(MovementLine $line): bool
@@ -203,6 +249,8 @@ class MovementWorkbookController extends Controller
     ): JsonResponse {
         $this->authorize('review', $workbook);
         abort_unless((int) $line->workbook_id === (int) $workbook->id, 404);
+        $line->loadMissing('currentEmployment');
+        abort_unless($this->canAccessMovementLine($line, $request->user()), 403);
         abort_if(in_array($workbook->status, ['approved', 'locked'], true), 422, 'Reopen this movement workbook before changing staff movement flags.');
 
         $validated = $request->validate([
@@ -357,9 +405,10 @@ class MovementWorkbookController extends Controller
     ): BinaryFileResponse {
         $this->authorize('view', $workbook);
         $validated = $request->validate([
-            'department_id' => ['nullable', 'integer'],
+            'department_id' => ['nullable', 'integer', 'exists:departments,id'],
         ]);
         $departmentId = isset($validated['department_id']) ? (int) $validated['department_id'] : null;
+        abort_unless($departmentId === null || $request->user()->canAccessDepartment($departmentId), 403);
         $department = $departmentId !== null
             ? $departmentSummaryService->summarize($workbook)->firstWhere('department_id', $departmentId)
             : null;
@@ -369,7 +418,7 @@ class MovementWorkbookController extends Controller
         $filename = Str::slug($workbook->name ?? "{$workbook->year}-movement-sheet").$suffix.'-summary.xlsx';
 
         return Excel::download(
-            new MovementSummaryExport($workbook, $departmentSummaryService, $departmentId),
+            new MovementSummaryExport($workbook, $departmentSummaryService, $departmentId, $request->user()),
             $filename,
         );
     }
@@ -378,15 +427,16 @@ class MovementWorkbookController extends Controller
     {
         $this->authorize('view', $workbook);
         $validated = $request->validate([
-            'department_id' => ['nullable', 'integer'],
+            'department_id' => ['nullable', 'integer', 'exists:departments,id'],
         ]);
         $departmentId = isset($validated['department_id']) ? (int) $validated['department_id'] : null;
+        abort_unless($departmentId === null || $request->user()->canAccessDepartment($departmentId), 403);
         $department = $departmentId !== null
             ? $workbook->lines()->with('currentEmployment.department')->get()->first(fn ($line) => $line->currentEmployment?->department_id === $departmentId)?->currentEmployment?->department
             : null;
         $suffix = $department ? '-'.Str::slug($department->name) : '';
         $filename = Str::slug($workbook->name ?? "{$workbook->year}-movement-sheet").$suffix.'-detail.xlsx';
 
-        return Excel::download(new MovementDetailExport($workbook, $departmentId), $filename);
+        return Excel::download(new MovementDetailExport($workbook, $departmentId, $request->user()), $filename);
     }
 }

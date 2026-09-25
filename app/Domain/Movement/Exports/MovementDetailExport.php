@@ -3,6 +3,7 @@
 namespace App\Domain\Movement\Exports;
 
 use App\Domain\Movement\Models\MovementWorkbook;
+use App\Models\User;
 use App\Support\ReportFormatter;
 use Maatwebsite\Excel\Concerns\FromArray;
 use Maatwebsite\Excel\Concerns\ShouldAutoSize;
@@ -20,6 +21,7 @@ class MovementDetailExport extends DefaultValueBinder implements FromArray, Shou
     public function __construct(
         protected MovementWorkbook $workbook,
         protected ?int $departmentId = null,
+        protected ?User $user = null,
     ) {
     }
 
@@ -32,6 +34,9 @@ class MovementDetailExport extends DefaultValueBinder implements FromArray, Shou
         ];
         $lines = $this->workbook->lines()
             ->with(['staff.qualifications', 'currentEmployment.department', 'currentSalaryScale', 'proposedSalaryScale'])
+            ->when($this->user?->hasDepartmentRestrictedAccess(), function ($query): void {
+                $query->whereHas('currentEmployment', fn ($employmentQuery) => $this->user->scopeToAccessibleDepartments($employmentQuery, 'department_id'));
+            })
             ->when($this->departmentId !== null, fn ($query) => $query->whereHas('currentEmployment', fn ($employmentQuery) => $employmentQuery->where('department_id', $this->departmentId)))
             ->get()
             ->filter(fn ($line): bool => $this->shouldExportLine($line))
