@@ -110,14 +110,19 @@ class ServiceReportingSeeder extends Seeder
                 'indicators' => [
                     $this->sexIndicator('new_outpatient_attendance', 'New Outpatient Attendance', true, 10),
                     $this->sexIndicator('old_outpatient_attendance', 'Old Outpatient Attendance', true, 20),
-                    $this->sexIndicator('paediatric_outpatient_attendance', 'Paediatric Outpatient Attendance', false, 30),
-                    $this->sexIndicator('dental_attendance_new', 'Dental Attendance New', false, 40),
-                    $this->sexIndicator('dental_attendance_old', 'Dental Attendance Old', false, 50),
-                    $this->sexIndicator('eye_attendance_new', 'Eye Attendance New', false, 60),
-                    $this->sexIndicator('eye_attendance_old', 'Eye Attendance Old', false, 70),
-                    $this->indicator('road_traffic_accident_cases', 'Road Traffic Accident Cases', 'integer', false, 80),
-                    $this->indicator('xray_cases', 'X-ray Cases', 'integer', false, 90),
-                    $this->indicator('scanning_cases', 'Scanning Cases', 'integer', false, 100),
+                    $this->sexIndicator('general_outpatient_attendance', 'General Out Patient Attendance', false, 30),
+                    $this->sexIndicator('gopd_outpatient_attendance', 'GoPD Out Patient Attendance', false, 40),
+                    $this->sexIndicator('new_adult_outpatient_attendance', 'New Adult Out Patient Attendance', false, 50),
+                    $this->sexIndicator('old_adult_outpatient_attendance', 'Old Adult Out Patient Attendance', false, 60),
+                    $this->sexIndicator('new_pediatric_outpatient_attendance', 'New Pediatric Out Patient Attendance', false, 70),
+                    $this->sexIndicator('old_pediatric_outpatient_attendance', 'Old Pediatric Out Patient Attendance', false, 80),
+                    $this->sexIndicator('dental_attendance_new', 'Dental Attendance New', false, 90),
+                    $this->sexIndicator('dental_attendance_old', 'Dental Attendance Old', false, 100),
+                    $this->sexIndicator('eye_attendance_new', 'Eye Attendance New', false, 110),
+                    $this->sexIndicator('eye_attendance_old', 'Eye Attendance Old', false, 120),
+                    $this->sexIndicator('road_traffic_accident_cases', 'RTA', false, 130),
+                    $this->sexIndicator('xray_cases', 'X-ray', false, 140),
+                    $this->sexIndicator('scanning_cases', 'Scanning', false, 150),
                 ],
             ],
             [
@@ -125,15 +130,15 @@ class ServiceReportingSeeder extends Seeder
                 'code' => 'INPATIENT_STATISTICS',
                 'sort_order' => 30,
                 'indicators' => [
-                    $this->indicator('inpatient_admission', 'Inpatient Admission', 'integer', false, 10),
-                    $this->indicator('inpatient_discharge', 'Inpatient Discharge', 'integer', false, 20),
-                    $this->indicator('inpatient_death', 'Inpatient Death', 'integer', false, 30),
-                    $this->indicator('bed_complement', 'Bed Complement', 'integer', false, 40),
-                    $this->indicator('patient_days', 'Patient Days', 'integer', false, 50),
-                    $this->indicator('bed_occupancy_rate', 'Bed Occupancy Rate', 'percentage', false, 60),
-                    $this->indicator('average_length_of_stay', 'Average Length of Stay', 'decimal', false, 70),
-                    $this->indicator('turnover_interval', 'Turnover Interval', 'decimal', false, 80),
-                    $this->indicator('vacant_bed_days', 'Vacant Bed Days', 'integer', false, 90),
+                    $this->sexIndicator('inpatient_admission', 'Admission', false, 10),
+                    $this->sexIndicator('inpatient_discharge', 'Discharge', false, 20),
+                    $this->sexIndicator('inpatient_death', 'Death', false, 30),
+                    $this->sexIndicator('bed_complement', 'Bed Compliment', false, 40),
+                    $this->sexIndicator('patient_days', 'Patient Days', false, 50),
+                    $this->sexIndicator('bed_occupancy_rate', '% Occupancy', false, 60, 'percentage'),
+                    $this->sexIndicator('average_length_of_stay', 'Average Length of Stay', false, 70, 'decimal'),
+                    $this->sexIndicator('turnover_interval', 'Turn Over Interval', false, 80, 'decimal'),
+                    $this->sexIndicator('vacant_bed_days', 'Vacant Bed Days', false, 90),
                 ],
             ],
             [
@@ -141,12 +146,22 @@ class ServiceReportingSeeder extends Seeder
                 'code' => 'MATERNAL_STATISTICS',
                 'sort_order' => 40,
                 'indicators' => [
-                    $this->indicator('maternal_attendance', 'Maternal Attendance', 'integer', false, 10),
-                    $this->indicator('maternal_admission', 'Maternal Admission', 'integer', false, 20),
-                    $this->indicator('maternal_discharge', 'Maternal Discharge', 'integer', false, 30),
-                    $this->indicator('maternal_death', 'Maternal Death', 'integer', false, 40),
-                    $this->indicator('antenatal_attendance_new', 'Antenatal Attendance New', 'integer', false, 50),
-                    $this->indicator('antenatal_attendance_old', 'Antenatal Attendance Old', 'integer', false, 60),
+                    $this->indicator('normal_delivery', 'ND', 'integer', false, 10),
+                    $this->indicator('maternal_caesarean_section', 'C/S', 'integer', false, 20),
+                    $this->sexIndicator('maternal_live_births', 'Live Birth', false, 30),
+                    $this->indicator('maternal_still_births', 'Still Birth', 'integer', false, 40),
+                    $this->indicator('triplet_deliveries', 'Triplets +++', 'integer', false, 50),
+                    $this->indicator('antepartum_haemorrhage', 'APH +++', 'integer', false, 60),
+                    $this->indicator('breech_delivery', 'Breach Delivery ++', 'integer', false, 70),
+                    $this->indicator('premature_delivery', 'Premature +++', 'integer', false, 80),
+                    $this->indicator('ruptured_uterus', 'Ruptured Uterus ++', 'integer', false, 90),
+                    $this->indicator('twin_delivery', 'Twin Delivery +++', 'integer', false, 100),
+                    $this->indicator('maternal_death', 'Maternal Death', 'integer', false, 110),
+                    $this->indicator('postpartum_haemorrhage', 'PPH +++', 'integer', false, 120),
+                    $this->indicator('abortion', 'Abortion ++', 'integer', false, 130),
+                    $this->indicator('pregnancy_induced_hypertension', 'PIH +++', 'integer', false, 140),
+                    $this->indicator('eclampsia', 'Eclapsia +++', 'integer', false, 150),
+                    $this->indicator('born_before_arrival', 'BBA ++++', 'integer', false, 160),
                 ],
             ],
             [
@@ -155,16 +170,11 @@ class ServiceReportingSeeder extends Seeder
                 'sort_order' => 50,
                 'indicators' => [
                     $this->indicator('total_deliveries', 'Total Deliveries', 'integer', false, 10),
-                    $this->indicator('spontaneous_vaginal_delivery', 'Spontaneous Vaginal Delivery', 'integer', false, 20),
-                    $this->indicator('assisted_delivery', 'Assisted Delivery', 'integer', false, 30),
-                    $this->indicator('caesarean_section', 'Caesarean Section', 'integer', false, 40),
-                    $this->indicator('live_births', 'Live Births', 'integer', false, 50),
-                    $this->indicator('still_births', 'Still Births', 'integer', false, 60),
-                    $this->indicator('total_hiv_tested', 'Total HIV Tested', 'integer', false, 70),
-                    $this->indicator('hiv_positive', 'HIV Positive', 'integer', false, 80),
-                    $this->indicator('hiv_negative', 'HIV Negative', 'integer', false, 90),
-                    $this->indicator('hiv_counselling', 'HIV Counselling', 'integer', false, 100),
-                    $this->indicator('gynaecology_attendance', 'Gynaecology Attendance', 'integer', false, 110),
+                    $this->indicator('total_hiv_tested', 'Total HIV Tested', 'integer', false, 20),
+                    $this->indicator('hiv_positive', 'HIV Positive', 'integer', false, 30),
+                    $this->indicator('hiv_negative', 'HIV Negative', 'integer', false, 40),
+                    $this->indicator('hiv_counselling', 'HIV Counseling', 'integer', false, 50),
+                    $this->indicator('gynaecology_attendance', 'Gynaecology Attendance', 'integer', false, 60),
                 ],
             ],
             [
@@ -172,8 +182,28 @@ class ServiceReportingSeeder extends Seeder
                 'code' => 'MEDICAL_OUTPATIENT_ATTENDANCE',
                 'sort_order' => 60,
                 'indicators' => [
-                    $this->sexIndicator('medical_outpatient_new', 'Medical Outpatient New', false, 10),
-                    $this->sexIndicator('medical_outpatient_old', 'Medical Outpatient Old', false, 20),
+                    $this->indicator('antenatal_attendance', 'Ante-Natal Attendance', 'integer', false, 10),
+                    $this->sexIndicator('medical_outpatient_new', 'Medical Out Patient ATT, N', false, 20),
+                    $this->sexIndicator('medical_outpatient_old', 'Medical Out Patient ATT, O', false, 30),
+                    $this->sexIndicator('hypertension_new', 'Hypertension New', false, 40),
+                    $this->sexIndicator('hypertension_old', 'Hypertension Old', false, 50),
+                    $this->sexIndicator('hypertension_treated', 'Hypertension Treated', false, 60),
+                    $this->sexIndicator('diabetes_new', 'Diabetes New', false, 70),
+                    $this->sexIndicator('diabetes_old', 'Diabetes Old', false, 80),
+                    $this->sexIndicator('diabetes_treated', 'Diabetes Treated', false, 90),
+                    $this->sexIndicator('prostate_cancer_new', 'Prostate Cancer New', false, 100),
+                    $this->sexIndicator('prostate_cancer_old', 'Prostate Cancer Old', false, 110),
+                    $this->sexIndicator('prostate_cancer_treated', 'Prostate Cancer Treated', false, 120),
+                    $this->sexIndicator('breast_cancer_new', 'Breast Cancer New', false, 130),
+                    $this->sexIndicator('breast_cancer_old', 'Breast Cancer Old', false, 140),
+                    $this->sexIndicator('breast_cancer_treated', 'Breast Cancer Treated', false, 150),
+                    $this->indicator('cervical_cancer_new', 'Cervical Cancer New', 'integer', false, 160),
+                    $this->indicator('cervical_cancer_old', 'Cervical Cancer Old', 'integer', false, 170),
+                    $this->indicator('cervical_cancer_treated', 'Cervical Cancer Treated', 'integer', false, 180),
+                    $this->indicator('cervical_cancer_deaths', 'No. of Death from Cervical Cancer', 'integer', false, 190),
+                    $this->sexIndicator('sickle_cell_diseases_new', 'Sickle Cell Diseases New', false, 200),
+                    $this->sexIndicator('sickle_cell_diseases_old', 'Sickle Cell Diseases Old', false, 210),
+                    $this->sexIndicator('sickle_cell_diseases_death', 'Sickle Cell Diseases Death', false, 220),
                 ],
             ],
             [
@@ -181,8 +211,8 @@ class ServiceReportingSeeder extends Seeder
                 'code' => 'SURGICAL_OUTPATIENT_ATTENDANCE',
                 'sort_order' => 70,
                 'indicators' => [
-                    $this->sexIndicator('surgical_outpatient_new', 'Surgical Outpatient New', false, 10),
-                    $this->sexIndicator('surgical_outpatient_old', 'Surgical Outpatient Old', false, 20),
+                    $this->sexIndicator('surgical_outpatient_new', 'Surgical Out Patient ATT, N', false, 10),
+                    $this->sexIndicator('surgical_outpatient_old', 'Surgical Out Patient ATT, O', false, 20),
                 ],
             ],
             [
@@ -190,8 +220,66 @@ class ServiceReportingSeeder extends Seeder
                 'code' => 'ENT_ATTENDANCE',
                 'sort_order' => 80,
                 'indicators' => [
-                    $this->sexIndicator('ent_attendance_new', 'ENT Attendance New', false, 10),
-                    $this->sexIndicator('ent_attendance_old', 'ENT Attendance Old', false, 20),
+                    $this->sexIndicator('ent_attendance_new', 'Ear, Nose and Throat, N', false, 10),
+                    $this->sexIndicator('ent_attendance_old', 'Ear, Nose and Throat, O', false, 20),
+                ],
+            ],
+            [
+                'title' => 'Family Planning Attendance',
+                'code' => 'FAMILY_PLANNING_ATTENDANCE',
+                'sort_order' => 90,
+                'indicators' => [
+                    $this->newOldIndicator('family_planning_acceptor', 'Acceptor', false, 10),
+                    $this->newOldIndicator('family_planning_oral_pill', 'Oral Pill', false, 20),
+                    $this->newOldIndicator('family_planning_injection', 'Injection', false, 30),
+                    $this->newOldIndicator('family_planning_implants', 'Implants', false, 40),
+                    $this->newOldIndicator('family_planning_iucds', 'IUCDs', false, 50),
+                    $this->newOldIndicator('family_planning_barriers', 'Barriers', false, 60),
+                    $this->newOldIndicator('family_planning_sterilization', 'Sterilization', false, 70),
+                    $this->newOldIndicator('family_planning_other', 'Other', false, 80),
+                ],
+            ],
+            [
+                'title' => 'Laboratory Services',
+                'code' => 'LABORATORY_SERVICES',
+                'sort_order' => 100,
+                'indicators' => [
+                    $this->indicator('fbs_fasting_blood_sugar', 'FBS (Fasting Blood Sugar)', 'integer', false, 10),
+                    $this->indicator('rs_random_sugar', 'RS (Random Sugar)', 'integer', false, 20),
+                    $this->indicator('stool_microscopy', 'Stool Microscopy', 'integer', false, 30),
+                    $this->indicator('urea', 'Urea', 'integer', false, 40),
+                    $this->indicator('cholesterol', 'Cholesterol', 'integer', false, 50),
+                    $this->indicator('electrolysis', 'Electrolysis', 'integer', false, 60),
+                    $this->indicator('creaturine', 'Creaturine', 'integer', false, 70),
+                    $this->indicator('total_protein', 'Total Protein', 'integer', false, 80),
+                    $this->indicator('alkaline_phosphate', 'Alkaline Phosphate', 'integer', false, 90),
+                    $this->indicator('urine_microscopy', 'Urine Microscopy', 'integer', false, 100),
+                    $this->indicator('blood_grouping', 'Blood Grouping', 'integer', false, 110),
+                    $this->indicator('urine_culture', 'Urine Culture', 'integer', false, 120),
+                    $this->indicator('west_film', 'West Film', 'integer', false, 130),
+                    $this->indicator('stool_culture', 'Stool Culture', 'integer', false, 140),
+                    $this->indicator('genotype', 'Genotype', 'integer', false, 150),
+                    $this->indicator('sputum_afb', 'Sputum AFB', 'integer', false, 160),
+                    $this->indicator('wound_culture', 'Wound Culture', 'integer', false, 170),
+                    $this->indicator('semen_analysis', 'Semen Analysis', 'integer', false, 180),
+                    $this->indicator('blood_culture', 'Blood Culture', 'integer', false, 190),
+                    $this->indicator('hb_pcv', 'HB (PCV)', 'integer', false, 200),
+                    $this->indicator('wbc', 'WBC', 'integer', false, 210),
+                    $this->indicator('skin_snip', 'Skin Snip', 'integer', false, 220),
+                    $this->indicator('sickling_test', 'Sickling Test', 'integer', false, 230),
+                    $this->indicator('mp', 'MP', 'integer', false, 240),
+                    $this->indicator('pregnancy_test', 'Pregnancy Test', 'integer', false, 250),
+                    $this->indicator('esr', 'ESR', 'integer', false, 260),
+                ],
+            ],
+            [
+                'title' => 'Operations',
+                'code' => 'OPERATIONS',
+                'sort_order' => 110,
+                'indicators' => [
+                    $this->indicator('major_operations', 'Major', 'integer', false, 10),
+                    $this->indicator('minor_operations', 'Minor', 'integer', false, 20),
+                    $this->indicator('nhis_attendance', 'NHIS Attendance', 'integer', false, 30),
                 ],
             ],
         ];
@@ -209,15 +297,37 @@ class ServiceReportingSeeder extends Seeder
         ];
     }
 
-    protected function sexIndicator(string $code, string $label, bool $required, int $sortOrder): array
+    protected function sexIndicator(string $code, string $label, bool $required, int $sortOrder, string $type = 'integer'): array
+    {
+        return $this->dimensionIndicator($code, $label, $type, $required, $sortOrder, 'sex', 'Sex', ['male', 'female']);
+    }
+
+    protected function newOldIndicator(string $code, string $label, bool $required, int $sortOrder): array
+    {
+        return $this->dimensionIndicator($code, $label, 'integer', $required, $sortOrder, 'attendance_status', 'Attendance Status', ['new', 'old']);
+    }
+
+    /**
+     * @param list<string> $dimensionValues
+     */
+    protected function dimensionIndicator(
+        string $code,
+        string $label,
+        string $type,
+        bool $required,
+        int $sortOrder,
+        string $dimensionKey,
+        string $dimensionLabel,
+        array $dimensionValues,
+    ): array
     {
         return [
-            ...$this->indicator($code, $label, 'integer', $required, $sortOrder),
+            ...$this->indicator($code, $label, $type, $required, $sortOrder),
             'dimensions' => [
                 [
-                    'dimension_key' => 'sex',
-                    'dimension_label' => 'Sex',
-                    'dimension_values' => ['male', 'female'],
+                    'dimension_key' => $dimensionKey,
+                    'dimension_label' => $dimensionLabel,
+                    'dimension_values' => $dimensionValues,
                     'is_required' => $required,
                     'total_strategy' => 'sum_values',
                     'sort_order' => 10,
