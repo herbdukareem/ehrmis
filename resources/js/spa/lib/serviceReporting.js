@@ -38,8 +38,49 @@ export function valueKey(indicatorOrCode, dimensionKey = '', dimensionValue = ''
     return [code, dimensionKey, dimensionValue].join(':');
 }
 
+export function matrixSignature(dimensions = {}) {
+    return Object.keys(dimensions)
+        .sort()
+        .map((key) => `${encodeURIComponent(key)}=${encodeURIComponent(dimensions[key] ?? '')}`)
+        .join('|');
+}
+
+export function matrixValueKey(indicatorOrCode, dimensions = {}) {
+    const code = typeof indicatorOrCode === 'string' ? indicatorOrCode : indicatorOrCode.code;
+
+    return [code, 'matrix', matrixSignature(dimensions)].join(':');
+}
+
 export function primaryDimension(indicator) {
     return indicator?.dimensions?.[0] ?? null;
+}
+
+export function hasMatrixDimensions(indicator) {
+    return (indicator?.dimensions?.length ?? 0) > 1;
+}
+
+export function matrixRowDimension(indicator) {
+    return indicator?.dimensions?.[0] ?? null;
+}
+
+export function matrixColumnDimension(indicator) {
+    return indicator?.dimensions?.[1] ?? null;
+}
+
+export function matrixCellDimensions(indicator, rowValue, columnValue) {
+    const rowDimension = matrixRowDimension(indicator);
+    const columnDimension = matrixColumnDimension(indicator);
+
+    if (!rowDimension || !columnDimension) return {};
+
+    return {
+        [rowDimension.dimension_key]: rowValue,
+        [columnDimension.dimension_key]: columnValue,
+    };
+}
+
+export function matrixCellKey(indicator, rowValue, columnValue) {
+    return matrixValueKey(indicator, matrixCellDimensions(indicator, rowValue, columnValue));
 }
 
 export function sectionPrimaryDimension(section) {
@@ -55,4 +96,18 @@ export function dimensionTotal(indicator, values) {
     if (!dimension) return '';
 
     return dimension.dimension_values.reduce((sum, dimensionValue) => sum + Number(values[valueKey(indicator, dimension.dimension_key, dimensionValue)] ?? 0), 0);
+}
+
+export function matrixRowTotal(indicator, rowValue, values) {
+    const columnDimension = matrixColumnDimension(indicator);
+    if (!columnDimension) return 0;
+
+    return columnDimension.dimension_values.reduce((sum, columnValue) => sum + Number(values[matrixCellKey(indicator, rowValue, columnValue)] ?? 0), 0);
+}
+
+export function matrixGrandTotal(indicator, values) {
+    const rowDimension = matrixRowDimension(indicator);
+    if (!rowDimension) return 0;
+
+    return rowDimension.dimension_values.reduce((sum, rowValue) => sum + matrixRowTotal(indicator, rowValue, values), 0);
 }

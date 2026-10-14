@@ -3,6 +3,12 @@ import StatusPill from '../StatusPill.vue';
 import {
     dimensionTotal,
     formatNumber,
+    hasMatrixDimensions,
+    matrixCellKey,
+    matrixColumnDimension,
+    matrixGrandTotal,
+    matrixRowDimension,
+    matrixRowTotal,
     primaryDimension,
     valueKey,
 } from '../../lib/serviceReporting';
@@ -25,6 +31,46 @@ defineEmits(['save-draft', 'submit-return', 'select-template']);
 
 function showFieldErrors(name) {
     return props.formErrors[name] ?? [];
+}
+
+function scalarInputType(indicator) {
+    if (indicator.field_type === 'date') return 'date';
+    if (['text', 'select', 'radio', 'multi_select'].includes(indicator.field_type)) return 'text';
+
+    return 'number';
+}
+
+function isInputDisabled(indicator) {
+    return !props.draftCanEdit || Boolean(indicator.is_read_only);
+}
+
+function toggleMultiOption(indicator, optionValue) {
+    const key = valueKey(indicator);
+    const values = Array.isArray(props.draftForm.values[key]) ? [...props.draftForm.values[key]] : [];
+
+    props.draftForm.values[key] = values.includes(optionValue)
+        ? values.filter((value) => value !== optionValue)
+        : [...values, optionValue];
+}
+
+function multiOptionChecked(indicator, optionValue) {
+    const values = props.draftForm.values[valueKey(indicator)];
+
+    return Array.isArray(values) && values.includes(optionValue);
+}
+
+function ruleMatches(rule) {
+    if (!rule?.indicator_code || rule.value === undefined || rule.value === null) return true;
+
+    return String(props.draftForm.values[valueKey(rule.indicator_code)] ?? '') === String(rule.value);
+}
+
+function indicatorVisible(indicator) {
+    return !indicator.display_rules?.indicator_code || ruleMatches(indicator.display_rules);
+}
+
+function indicatorRequired(indicator) {
+    return Boolean(indicator.is_required) || (indicator.required_rules?.indicator_code && ruleMatches(indicator.required_rules));
 }
 
 </script>
@@ -108,19 +154,58 @@ function showFieldErrors(name) {
                             </tr>
                         </thead>
                         <tbody>
-                            <tr v-for="indicator in section.indicators" :key="indicator.id">
+                            <tr v-for="indicator in section.indicators" v-show="indicatorVisible(indicator)" :key="indicator.id">
                                 <td class="civic-primary-cell">
                                     {{ indicator.label }}
-                                    <span v-if="indicator.is_required" class="civic-required">*</span>
+                                    <span v-if="indicatorRequired(indicator)" class="civic-required">*</span>
                                     <small v-if="indicator.unit">{{ indicator.unit }}</small>
+                                    <small v-if="indicator.help_text">{{ indicator.help_text }}</small>
                                 </td>
 
-                                <template v-if="primaryDimension(indicator)">
+                                <template v-if="hasMatrixDimensions(indicator)">
+                                    <td colspan="2">
+                                        <div class="civic-reporting-matrix-wrap">
+                                            <table class="civic-reporting-matrix-table">
+                                                <thead>
+                                                    <tr>
+                                                        <th>{{ matrixRowDimension(indicator).dimension_label }}</th>
+                                                        <th v-for="columnValue in matrixColumnDimension(indicator).dimension_values" :key="columnValue">{{ columnValue }}</th>
+                                                        <th>Total</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody>
+                                                    <tr v-for="rowValue in matrixRowDimension(indicator).dimension_values" :key="rowValue">
+                                                        <th>{{ rowValue }}</th>
+                                                        <td v-for="columnValue in matrixColumnDimension(indicator).dimension_values" :key="columnValue">
+                                                            <input
+                                                                v-model="draftForm.values[matrixCellKey(indicator, rowValue, columnValue)]"
+                                                                class="civic-reporting-value-input"
+                                                                type="number"
+                                                                min="0"
+                                                                :disabled="isInputDisabled(indicator)"
+                                                            >
+                                                        </td>
+                                                        <td><strong>{{ formatNumber(matrixRowTotal(indicator, rowValue, draftForm.values)) }}</strong></td>
+                                                    </tr>
+                                                </tbody>
+                                                <tfoot>
+                                                    <tr>
+                                                        <th>Total</th>
+                                                        <td :colspan="matrixColumnDimension(indicator).dimension_values.length"></td>
+                                                        <td><strong>{{ formatNumber(matrixGrandTotal(indicator, draftForm.values)) }}</strong></td>
+                                                    </tr>
+                                                </tfoot>
+                                            </table>
+                                        </div>
+                                    </td>
+                                </template>
+
+                                <template v-else-if="primaryDimension(indicator)">
                                     <td>
                                         <div class="civic-reporting-dimension-inputs">
                                             <label v-for="dimensionValue in primaryDimension(indicator).dimension_values" :key="dimensionValue" class="civic-field">
                                                 <span>{{ dimensionValue }}</span>
-                                                <input v-model="draftForm.values[valueKey(indicator, primaryDimension(indicator).dimension_key, dimensionValue)]" class="civic-reporting-value-input" type="number" min="0" :disabled="!draftCanEdit">
+                                                <input v-model="draftForm.values[valueKey(indicator, primaryDimension(indicator).dimension_key, dimensionValue)]" class="civic-reporting-value-input" type="number" min="0" :disabled="isInputDisabled(indicator)">
                                             </label>
                                         </div>
                                     </td>
@@ -129,7 +214,31 @@ function showFieldErrors(name) {
 
                                 <template v-else>
                                     <td>
-                                        <input v-model="draftForm.values[valueKey(indicator)]" class="civic-reporting-value-input civic-reporting-value-input-wide" :type="indicator.value_type === 'text' ? 'text' : 'number'" min="0" :disabled="!draftCanEdit">
+                                        <select v-if="indicator.field_type === 'select'" v-model="draftForm.values[valueKey(indicator)]" class="civic-reporting-value-input civic-reporting-value-input-wide" :disabled="isInputDisabled(indicator)">
+                                            <option value="">Choose option</option>
+                                            <option v-for="option in indicator.options" :key="option.value" :value="option.value">{{ option.label }}</option>
+                                        </select>
+
+                                        <div v-else-if="indicator.field_type === 'radio'" class="civic-reporting-choice-list">
+                                            <label v-for="option in indicator.options" :key="option.value" class="civic-check">
+                                                <input v-model="draftForm.values[valueKey(indicator)]" type="radio" :value="option.value" :disabled="isInputDisabled(indicator)">
+                                                <span>{{ option.label }}</span>
+                                            </label>
+                                        </div>
+
+                                        <div v-else-if="indicator.field_type === 'multi_select'" class="civic-reporting-choice-list">
+                                            <label v-for="option in indicator.options" :key="option.value" class="civic-check">
+                                                <input type="checkbox" :checked="multiOptionChecked(indicator, option.value)" :disabled="isInputDisabled(indicator)" @change="toggleMultiOption(indicator, option.value)">
+                                                <span>{{ option.label }}</span>
+                                            </label>
+                                        </div>
+
+                                        <label v-else-if="['boolean', 'checkbox'].includes(indicator.field_type)" class="civic-check">
+                                            <input v-model="draftForm.values[valueKey(indicator)]" type="checkbox" :disabled="isInputDisabled(indicator)">
+                                            <span>{{ indicator.placeholder || 'Checked' }}</span>
+                                        </label>
+
+                                        <input v-else v-model="draftForm.values[valueKey(indicator)]" class="civic-reporting-value-input civic-reporting-value-input-wide" :type="scalarInputType(indicator)" min="0" :placeholder="indicator.placeholder" :disabled="isInputDisabled(indicator)">
                                     </td>
                                     <td>—</td>
                                 </template>

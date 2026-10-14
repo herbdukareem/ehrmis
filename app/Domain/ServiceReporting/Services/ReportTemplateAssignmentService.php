@@ -27,7 +27,7 @@ class ReportTemplateAssignmentService
 
         return ReportTemplate::query()
             ->active()
-            ->with(['ownerMda', 'sections.indicators.dimensions', 'assignments.mda', 'assignments.station', 'assignments.department'])
+            ->with(['ownerMda', 'sections.indicators.dimensions', 'sections.indicators.options', 'assignments.mda', 'assignments.station', 'assignments.department'])
             ->whereHas('assignments', function (Builder $query) use ($user, $mdaId): void {
                 $this->scopeAssignmentsVisibleToUser($query, $user, $mdaId);
             })

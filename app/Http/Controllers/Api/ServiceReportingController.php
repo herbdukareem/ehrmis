@@ -98,7 +98,7 @@ class ServiceReportingController extends Controller
             $visibleMdaIds = $this->visibleMdaIds($request);
 
             $templates = ReportTemplate::query()
-                ->with(['ownerMda', 'sections.indicators.dimensions', 'assignments.mda', 'assignments.station'])
+                ->with(['ownerMda', 'sections.indicators.dimensions', 'sections.indicators.options', 'assignments.mda', 'assignments.station'])
                 ->when($mdaId, function ($query) use ($mdaId): void {
                     $query->where(function ($templateQuery) use ($mdaId): void {
                         $templateQuery
@@ -146,7 +146,7 @@ class ServiceReportingController extends Controller
             || $this->userCanManageTemplate($request, $template)
         ), 403);
 
-        $template->load(['sections.indicators.dimensions', 'assignments.mda', 'assignments.station', 'ownerMda']);
+        $template->load(['sections.indicators.dimensions', 'sections.indicators.options', 'assignments.mda', 'assignments.station', 'ownerMda']);
 
         if (! $this->userCanManageTemplate($request, $template)) {
             $template->setRelation('assignments', $this->assignments->visibleAssignmentsFor($user, $template));
@@ -290,7 +290,7 @@ class ServiceReportingController extends Controller
     {
         abort_unless($this->canViewSubmission($request, $submission), 403);
 
-        return response()->json(['data' => $this->submissionPayload($submission->load(['template.sections.indicators.dimensions', 'period', 'mda', 'station', 'values', 'reviews.actor']), true)]);
+        return response()->json(['data' => $this->submissionPayload($submission->load(['template.sections.indicators.dimensions', 'template.sections.indicators.options', 'period', 'mda', 'station', 'values', 'reviews.actor']), true)]);
     }
 
     public function saveDraft(SaveReportDraftRequest $request, ReportSubmission $submission): JsonResponse
@@ -452,7 +452,7 @@ class ServiceReportingController extends Controller
     {
         $template->loadMissing(['ownerMda', 'assignments.mda', 'assignments.station', 'assignments.department']);
         if ($deep) {
-            $template->loadMissing('sections.indicators.dimensions');
+            $template->loadMissing('sections.indicators.dimensions', 'sections.indicators.options');
         }
 
         return [
@@ -474,7 +474,7 @@ class ServiceReportingController extends Controller
 
     protected function sectionPayload(ReportTemplateSection $section): array
     {
-        $section->loadMissing('indicators.dimensions');
+        $section->loadMissing('indicators.dimensions', 'indicators.options');
 
         return [
             'id' => $section->id,
@@ -488,19 +488,27 @@ class ServiceReportingController extends Controller
 
     protected function indicatorResponse(ReportTemplateIndicator $indicator): array
     {
-        $indicator->loadMissing('dimensions');
+        $indicator->loadMissing('dimensions', 'options');
 
         return [
             'id' => $indicator->id,
             'code' => $indicator->code,
             'label' => $indicator->label,
             'description' => $indicator->description,
+            'placeholder' => $indicator->placeholder,
+            'help_text' => $indicator->help_text,
             'value_type' => $indicator->value_type,
+            'field_type' => $indicator->field_type,
             'unit' => $indicator->unit,
+            'default_value' => $indicator->default_value,
             'is_required' => $indicator->is_required,
             'is_computed' => $indicator->is_computed,
+            'is_read_only' => $indicator->is_read_only,
+            'contributes_to_score' => $indicator->contributes_to_score,
             'compute_formula' => $indicator->compute_formula,
             'validation_rules' => $indicator->validation_rules,
+            'display_rules' => $indicator->display_rules,
+            'required_rules' => $indicator->required_rules,
             'sort_order' => $indicator->sort_order,
             'status' => $indicator->status,
             'dimensions' => $indicator->dimensions->map(fn ($dimension): array => [
@@ -511,6 +519,14 @@ class ServiceReportingController extends Controller
                 'is_required' => $dimension->is_required,
                 'total_strategy' => $dimension->total_strategy,
                 'sort_order' => $dimension->sort_order,
+            ])->values(),
+            'options' => $indicator->options->map(fn ($option): array => [
+                'id' => $option->id,
+                'label' => $option->label,
+                'value' => $option->value,
+                'score' => $option->score !== null ? (float) $option->score : null,
+                'requires_review' => $option->requires_review,
+                'sort_order' => $option->sort_order,
             ])->values(),
         ];
     }
@@ -537,7 +553,7 @@ class ServiceReportingController extends Controller
     {
         $submission->loadMissing(['template', 'period', 'mda', 'station', 'submitter', 'creator', 'reviewer', 'approver', 'locker']);
         if ($deep) {
-            $submission->loadMissing(['template.sections.indicators.dimensions', 'values', 'reviews.actor']);
+            $submission->loadMissing(['template.sections.indicators.dimensions', 'template.sections.indicators.options', 'values', 'reviews.actor']);
         }
 
         return [
@@ -564,14 +580,7 @@ class ServiceReportingController extends Controller
             'approved_at' => $submission->approved_at,
             'locked_at' => $submission->locked_at,
             'template_detail' => $deep && $submission->template ? $this->templatePayload($submission->template) : null,
-            'values' => $deep ? $submission->values->map(fn ($value): array => [
-                'id' => $value->id,
-                'indicator_id' => $value->report_template_indicator_id,
-                'indicator_code' => $value->indicator_code,
-                'dimension_key' => $value->dimension_key,
-                'dimension_value' => $value->dimension_value,
-                'value' => $value->value_integer ?? $value->value_decimal ?? $value->value_text ?? $value->value_boolean,
-            ])->values() : [],
+            'values' => $deep ? $submission->values->map(fn ($value): array => $this->submissionValuePayload($value))->values() : [],
             'reviews' => $deep ? $submission->reviews->map(fn ($review): array => [
                 'id' => $review->id,
                 'action' => $review->action,
@@ -584,18 +593,43 @@ class ServiceReportingController extends Controller
         ];
     }
 
+    protected function submissionValuePayload($value): array
+    {
+        $rawValue = $value->value_integer ?? $value->value_decimal ?? $value->value_text ?? $value->value_boolean;
+        $selectedValues = $value->metadata['option']['selected_values'] ?? null;
+
+        return [
+            'id' => $value->id,
+            'indicator_id' => $value->report_template_indicator_id,
+            'indicator_code' => $value->indicator_code,
+            'dimension_key' => $value->dimension_key,
+            'dimension_value' => $value->dimension_value,
+            'dimensions' => $value->metadata['dimensions'] ?? ($value->dimension_key && $value->dimension_key !== 'matrix' ? [$value->dimension_key => $value->dimension_value] : []),
+            'value' => is_array($selectedValues) && count($selectedValues) > 1 ? $selectedValues : $rawValue,
+            'metadata' => $value->metadata,
+        ];
+    }
+
     protected function indicatorPayload(Request $request): array
     {
         return $request->validate([
             'code' => ['required', 'string', 'max:100', 'alpha_dash'],
             'label' => ['required', 'string', 'max:255'],
             'description' => ['nullable', 'string'],
+            'placeholder' => ['nullable', 'string', 'max:255'],
+            'help_text' => ['nullable', 'string'],
             'value_type' => ['required', 'in:integer,decimal,percentage,text,boolean'],
+            'field_type' => ['nullable', 'in:number,whole_number,decimal,percentage,text,date,boolean,checkbox,select,radio,multi_select'],
             'unit' => ['nullable', 'string', 'max:50'],
+            'default_value' => ['nullable'],
             'is_required' => ['boolean'],
             'is_computed' => ['boolean'],
+            'is_read_only' => ['boolean'],
+            'contributes_to_score' => ['boolean'],
             'compute_formula' => ['nullable', 'array'],
             'validation_rules' => ['nullable', 'array'],
+            'display_rules' => ['nullable', 'array'],
+            'required_rules' => ['nullable', 'array'],
             'sort_order' => ['nullable', 'integer', 'min:0'],
             'status' => ['sometimes', 'in:active,inactive'],
             'dimensions' => ['sometimes', 'array'],
@@ -605,6 +639,12 @@ class ServiceReportingController extends Controller
             'dimensions.*.is_required' => ['boolean'],
             'dimensions.*.total_strategy' => ['nullable', 'in:none,sum_values,manual'],
             'dimensions.*.sort_order' => ['nullable', 'integer', 'min:0'],
+            'options' => ['sometimes', 'array'],
+            'options.*.label' => ['required', 'string', 'max:255'],
+            'options.*.value' => ['required', 'string', 'max:100'],
+            'options.*.score' => ['nullable', 'numeric'],
+            'options.*.requires_review' => ['boolean'],
+            'options.*.sort_order' => ['nullable', 'integer', 'min:0'],
         ]);
     }
 }

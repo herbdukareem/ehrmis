@@ -1731,6 +1731,9 @@ details.civic-detail > :not(summary) {
 .civic-reporting-builder-empty { padding: 18px 14px; color: var(--civic-muted); font-size: 12px; border-bottom: 0; }
 .civic-reporting-dimensions { display: grid; gap: 10px; overflow-x: auto; }
 .civic-reporting-dimension-row { display: grid; grid-template-columns: repeat(4, minmax(160px, 1fr)) auto; gap: 10px; align-items: end; min-width: 820px; padding: 12px; background: #fff; border: 1px solid var(--civic-line); }
+.civic-reporting-config-panel { display: grid; gap: 12px; padding: 14px; background: #fbfaf6; border: 1px solid var(--civic-line); }
+.civic-reporting-rule-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; align-items: end; }
+.civic-reporting-option-row { display: grid; grid-template-columns: minmax(160px, 1fr) minmax(150px, 1fr) 100px auto auto; gap: 10px; align-items: end; padding: 12px; background: #fff; border: 1px solid var(--civic-line); }
 .civic-reporting-assignment-list { display: grid; gap: 12px; padding: 22px 24px; }
 .civic-reporting-assignment-row { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; align-items: end; padding: 14px; background: #f6f4ee; border: 1px solid var(--civic-line); }
 .civic-reporting-panel-actions { justify-content: flex-end; }
@@ -1746,9 +1749,19 @@ details.civic-detail > :not(summary) {
 .civic-reporting-dimension-inputs { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 10px; }
 .civic-reporting-dimension-inputs .civic-field { gap: 5px; }
 .civic-reporting-dimension-inputs .civic-field > span { font-size: 10px; }
+.civic-reporting-choice-list { display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: center; }
 .civic-reporting-value-input { min-height: 36px; padding: 0 10px; color: var(--civic-ink); background: #fff; border: 1px solid #c8c4b9; border-radius: 2px; outline: none; }
 .civic-reporting-value-input:focus { border-color: var(--civic-blue); box-shadow: 0 0 0 2px rgb(15 118 110 / .15); }
 .civic-reporting-value-input-wide { width: min(280px, 100%); }
+.civic-reporting-matrix-wrap { width: 100%; overflow-x: auto; }
+.civic-reporting-matrix-table { min-width: 720px; width: 100%; border-collapse: collapse; table-layout: fixed; background: #fff; border: 1px solid var(--civic-line); }
+.civic-reporting-matrix-table th,
+.civic-reporting-matrix-table td { padding: 8px; border: 1px solid #e2ded5; vertical-align: middle; }
+.civic-reporting-matrix-table thead th,
+.civic-reporting-matrix-table tfoot th,
+.civic-reporting-matrix-table tfoot td { background: #f4f2ec; color: var(--civic-ink); font-size: 10px; font-weight: 800; text-transform: uppercase; }
+.civic-reporting-matrix-table tbody th { width: 120px; background: #fbfaf6; color: var(--civic-ink); font-size: 11px; font-weight: 800; text-align: left; }
+.civic-reporting-matrix-table td:last-child { width: 90px; background: #fbfaf6; text-align: right; }
 .civic-required { color: var(--civic-danger); font-weight: 800; }
 .civic-reporting-form-actions { justify-content: flex-end; padding: 18px 0 0; }
 .civic-value-token { display: inline-flex; margin: 0 8px 6px 0; padding: 5px 8px; background: #eef1f5; border: 1px solid #d9dfe8; font-size: 11px; font-weight: 700; }
@@ -1760,7 +1773,9 @@ details.civic-detail > :not(summary) {
     .civic-reporting-step-grid,
     .civic-reporting-template-detail,
     .civic-inline-builder-form,
+    .civic-reporting-rule-grid,
     .civic-reporting-dimension-row,
+    .civic-reporting-option-row,
     .civic-reporting-assignment-row { grid-template-columns: 1fr 1fr; }
     .civic-reporting-chart-grid { grid-template-columns: 1fr; }
     .civic-facility-dashboard-grid { grid-template-columns: 1fr; }
@@ -1774,7 +1789,9 @@ details.civic-detail > :not(summary) {
     .civic-reporting-step-grid,
     .civic-reporting-template-detail,
     .civic-inline-builder-form,
+    .civic-reporting-rule-grid,
     .civic-reporting-dimension-row,
+    .civic-reporting-option-row,
     .civic-reporting-assignment-row { grid-template-columns: 1fr; }
     .civic-reporting-intro { align-items: stretch; flex-direction: column; }
     .civic-facility-banner { align-items: stretch; flex-direction: column; }

@@ -42,7 +42,7 @@ class ReportTemplateService
             $this->syncStructure($template, $data['sections'] ?? []);
             $this->audit('service_reporting.template.created', $template, [], $template->toArray(), $actor);
 
-            return $template->fresh(['sections.indicators.dimensions', 'ownerMda']);
+            return $template->fresh(['sections.indicators.dimensions', 'sections.indicators.options', 'ownerMda']);
         });
     }
 
@@ -71,7 +71,7 @@ class ReportTemplateService
 
             $this->audit('service_reporting.template.updated', $template, $before, $template->fresh()->toArray(), $actor);
 
-            return $template->fresh(['sections.indicators.dimensions', 'ownerMda']);
+            return $template->fresh(['sections.indicators.dimensions', 'sections.indicators.options', 'ownerMda']);
         });
     }
 
@@ -105,12 +105,20 @@ class ReportTemplateService
                     [
                         'label' => $indicatorData['label'],
                         'description' => $indicatorData['description'] ?? null,
+                        'placeholder' => $indicatorData['placeholder'] ?? null,
+                        'help_text' => $indicatorData['help_text'] ?? null,
                         'value_type' => $indicatorData['value_type'] ?? 'integer',
+                        'field_type' => $indicatorData['field_type'] ?? $this->fieldTypeForValueType($indicatorData['value_type'] ?? 'integer'),
                         'unit' => $indicatorData['unit'] ?? null,
+                        'default_value' => $indicatorData['default_value'] ?? null,
                         'is_required' => $indicatorData['is_required'] ?? false,
                         'is_computed' => $indicatorData['is_computed'] ?? false,
+                        'is_read_only' => $indicatorData['is_read_only'] ?? false,
+                        'contributes_to_score' => $indicatorData['contributes_to_score'] ?? false,
                         'compute_formula' => $indicatorData['compute_formula'] ?? null,
                         'validation_rules' => $indicatorData['validation_rules'] ?? null,
+                        'display_rules' => $indicatorData['display_rules'] ?? null,
+                        'required_rules' => $indicatorData['required_rules'] ?? null,
                         'sort_order' => $indicatorData['sort_order'] ?? (($indicatorIndex + 1) * 10),
                         'status' => $indicatorData['status'] ?? 'active',
                     ],
@@ -129,36 +137,45 @@ class ReportTemplateService
                         ]);
                     }
                 }
+
+                if (array_key_exists('options', $indicatorData)) {
+                    $this->syncOptions($indicator, $indicatorData['options'] ?? []);
+                }
             }
         }
     }
 
     public function addSection(ReportTemplate $template, array $data): ReportTemplateSection
     {
-        return $template->sections()->create($data)->fresh('indicators.dimensions');
+        return $template->sections()->create($data)->fresh(['indicators.dimensions', 'indicators.options']);
     }
 
     public function updateSection(ReportTemplateSection $section, array $data): ReportTemplateSection
     {
         $section->fill($data)->save();
 
-        return $section->fresh('indicators.dimensions');
+        return $section->fresh(['indicators.dimensions', 'indicators.options']);
     }
 
     public function addIndicator(ReportTemplateSection $section, array $data): ReportTemplateIndicator
     {
-        $indicator = $section->indicators()->create(Arr::except($data, ['dimensions']));
+        $indicator = $section->indicators()->create([
+            ...Arr::except($data, ['dimensions', 'options']),
+            'field_type' => $data['field_type'] ?? $this->fieldTypeForValueType($data['value_type'] ?? 'integer'),
+        ]);
 
         foreach ($data['dimensions'] ?? [] as $dimension) {
             $indicator->dimensions()->create($dimension);
         }
 
-        return $indicator->fresh('dimensions');
+        $this->syncOptions($indicator, $data['options'] ?? []);
+
+        return $indicator->fresh(['dimensions', 'options']);
     }
 
     public function updateIndicator(ReportTemplateIndicator $indicator, array $data): ReportTemplateIndicator
     {
-        $indicator->fill(Arr::except($data, ['dimensions']))->save();
+        $indicator->fill(Arr::except($data, ['dimensions', 'options']))->save();
 
         if (array_key_exists('dimensions', $data)) {
             $indicator->dimensions()->delete();
@@ -167,7 +184,37 @@ class ReportTemplateService
             }
         }
 
-        return $indicator->fresh('dimensions');
+        if (array_key_exists('options', $data)) {
+            $this->syncOptions($indicator, $data['options'] ?? []);
+        }
+
+        return $indicator->fresh(['dimensions', 'options']);
+    }
+
+    protected function syncOptions(ReportTemplateIndicator $indicator, array $options): void
+    {
+        $indicator->options()->delete();
+
+        foreach ($options as $optionIndex => $optionData) {
+            $indicator->options()->create([
+                'label' => $optionData['label'],
+                'value' => $optionData['value'],
+                'score' => $optionData['score'] ?? null,
+                'requires_review' => $optionData['requires_review'] ?? false,
+                'sort_order' => $optionData['sort_order'] ?? (($optionIndex + 1) * 10),
+            ]);
+        }
+    }
+
+    protected function fieldTypeForValueType(string $valueType): string
+    {
+        return match ($valueType) {
+            'integer' => 'whole_number',
+            'decimal' => 'number',
+            'percentage' => 'percentage',
+            'boolean' => 'boolean',
+            default => 'text',
+        };
     }
 
     protected function assertCanActivate(ReportTemplate $template): void
@@ -187,7 +234,7 @@ class ReportTemplateService
         $template->forceFill(['status' => $status, 'updated_by' => $actor->id])->save();
         $this->audit("service_reporting.template.{$status}", $template, $before, $template->fresh()->toArray(), $actor);
 
-        return $template->fresh(['sections.indicators.dimensions', 'ownerMda']);
+        return $template->fresh(['sections.indicators.dimensions', 'sections.indicators.options', 'ownerMda']);
     }
 
     protected function audit(string $event, ReportTemplate $template, array $before, array $after, User $actor): void
