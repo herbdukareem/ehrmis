@@ -44,13 +44,53 @@ class PurchaseOrder extends Model
         ];
     }
 
-    public function mda(): BelongsTo { return $this->belongsTo(Mda::class); }
-    public function award(): BelongsTo { return $this->belongsTo(ProcurementAward::class, 'procurement_award_id'); }
-    public function solicitation(): BelongsTo { return $this->belongsTo(ProcurementSolicitation::class, 'procurement_solicitation_id'); }
-    public function requisition(): BelongsTo { return $this->belongsTo(ProcurementRequisition::class, 'procurement_requisition_id'); }
-    public function vendor(): BelongsTo { return $this->belongsTo(Vendor::class); }
-    public function preparedBy(): BelongsTo { return $this->belongsTo(User::class, 'prepared_by'); }
-    public function approvedBy(): BelongsTo { return $this->belongsTo(User::class, 'approved_by'); }
-    public function items(): HasMany { return $this->hasMany(PurchaseOrderItem::class); }
-    public function receipts(): HasMany { return $this->hasMany(ProcurementReceipt::class); }
+    public function mda(): BelongsTo
+    {
+        return $this->belongsTo(Mda::class);
+    }
+
+    public function award(): BelongsTo
+    {
+        return $this->belongsTo(ProcurementAward::class, 'procurement_award_id');
+    }
+
+    public function solicitation(): BelongsTo
+    {
+        return $this->belongsTo(ProcurementSolicitation::class, 'procurement_solicitation_id');
+    }
+
+    public function requisition(): BelongsTo
+    {
+        return $this->belongsTo(ProcurementRequisition::class, 'procurement_requisition_id');
+    }
+
+    public function vendor(): BelongsTo
+    {
+        return $this->belongsTo(Vendor::class);
+    }
+
+    public function preparedBy(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'prepared_by');
+    }
+
+    public function approvedBy(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'approved_by');
+    }
+
+    public function items(): HasMany
+    {
+        return $this->hasMany(PurchaseOrderItem::class);
+    }
+
+    public function receipts(): HasMany
+    {
+        return $this->hasMany(ProcurementReceipt::class);
+    }
+
+    public function supplierInvoices(): HasMany
+    {
+        return $this->hasMany(SupplierInvoice::class);
+    }
 }

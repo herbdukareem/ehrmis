@@ -1,14 +1,14 @@
 <script setup>
-import { computed, ref, watch } from 'vue';
+import { computed, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import AppIcon from '../../Components/AppIcon.vue';
+import ProcurementNotificationBell from './budget-procurement/ProcurementNotificationBell.vue';
 import { auth, hasAnyAccess, hasAnyPermission, signOut } from '../stores/auth';
 import { appState } from '../stores/app';
 
 const route = useRoute();
 const router = useRouter();
 const mobileOpen = ref(false);
-const openStorageKey = 'ehrmis.civic-nav.open-groups';
 
 const navBlueprint = [
     {
@@ -65,6 +65,25 @@ const navBlueprint = [
                     { label: 'Recurrent budget', to: '/budget-workbooks', module: 'movement_budget', permissionAny: ['view-budgets', 'create-budgets', 'approve-budgets'] },
                 ],
             },
+            {
+                id: 'budget-procurement',
+                label: 'Budget & procurement',
+                icon: 'wallet',
+                children: [
+                    { label: 'Budget management', to: '/budget-procurement/cycles', activePaths: ['/budget-procurement/allocations', '/budget-procurement/accounts', '/budget-procurement/releases', '/budget-procurement/adjustments', '/budget-procurement/commitments', '/budget-procurement/transactions'], module: 'budget_procurement', permissionAny: ['view-budget-cycles'] },
+                    { label: 'Procurement plans', to: '/budget-procurement/plans', module: 'budget_procurement', permissionAny: ['view-procurement'] },
+                    { label: 'Requisitions', to: '/budget-procurement/requisitions', module: 'budget_procurement', permissionAny: ['view-procurement'] },
+                    { label: 'Vendors', to: '/budget-procurement/vendors', module: 'budget_procurement', permissionAny: ['view-procurement'] },
+                    { label: 'Sourcing', to: '/budget-procurement/solicitations', activePaths: ['/budget-procurement/bids'], module: 'budget_procurement', permissionAny: ['view-procurement'] },
+                    { label: 'Awards', to: '/budget-procurement/awards', module: 'budget_procurement', permissionAny: ['view-procurement'] },
+                    { label: 'Purchase orders', to: '/budget-procurement/purchase-orders', module: 'budget_procurement', permissionAny: ['view-procurement'] },
+                    { label: 'Receipts', to: '/budget-procurement/receipts', module: 'budget_procurement', permissionAny: ['view-procurement'] },
+                    { label: 'Supplier invoices', to: '/budget-procurement/supplier-invoices', module: 'budget_procurement', permissionAny: ['view-supplier-payables'] },
+                    { label: 'Supplier payments', to: '/budget-procurement/supplier-payments', module: 'budget_procurement', permissionAny: ['view-supplier-payables'] },
+                    { label: 'Reports & dashboard', to: '/budget-procurement/reports', module: 'budget_procurement', permissionAny: ['view-budget-cycles', 'view-procurement', 'view-supplier-payables'] },
+                    { label: 'Notifications', to: '/budget-procurement/notifications', module: 'budget_procurement', permissionAny: ['view-budget-cycles', 'view-procurement', 'view-supplier-payables'] },
+                ],
+            },
         ],
     },
     {
@@ -113,15 +132,7 @@ const navBlueprint = [
     },
 ];
 
-const readOpenGroups = () => {
-    try {
-        return JSON.parse(window.localStorage.getItem(openStorageKey) ?? '{}');
-    } catch {
-        return {};
-    }
-};
-
-const openGroups = ref(readOpenGroups());
+const openGroups = ref({});
 
 const itemIsVisible = (item) => (!item.facilityOnly || auth.user?.assigned_station)
     && (!item.hideForFacilityUsers || !auth.user?.assigned_station)
@@ -160,15 +171,16 @@ const navSections = computed(() => {
 });
 
 const navItems = computed(() => navSections.value.flatMap((section) => section.items.flatMap((group) => group.children)));
-const currentItem = computed(() => navItems.value.find((item) => route.path === item.to || route.path.startsWith(`${item.to}/`)) ?? null);
+const matchesRoute = (item) => [item.to, ...(item.activePaths ?? [])].some((path) => route.path === path || route.path.startsWith(`${path}/`));
+const currentItem = computed(() => navItems.value.find(matchesRoute) ?? null);
 const currentSection = computed(() => currentItem.value?.label ?? 'Workspace');
 const currentGroup = computed(() => navSections.value
     .flatMap((section) => section.items)
     .find((group) => group.children.some((item) => item === currentItem.value)) ?? null);
 
-const isGroupOpen = (group) => openGroups.value[group.id] ?? group.id === currentGroup.value?.id;
+const isGroupOpen = (group) => openGroups.value[group.id] ?? false;
 const isGroupActive = (group) => group.id === currentGroup.value?.id;
-const isActiveItem = (item) => route.path === item.to || route.path.startsWith(`${item.to}/`);
+const isActiveItem = matchesRoute;
 
 const toggleGroup = (group) => {
     openGroups.value = {
@@ -176,25 +188,6 @@ const toggleGroup = (group) => {
         [group.id]: !isGroupOpen(group),
     };
 };
-
-watch(currentGroup, (group) => {
-    if (!group || isGroupOpen(group)) {
-        return;
-    }
-
-    openGroups.value = {
-        ...openGroups.value,
-        [group.id]: true,
-    };
-}, { immediate: true });
-
-watch(openGroups, (value) => {
-    try {
-        window.localStorage.setItem(openStorageKey, JSON.stringify(value));
-    } catch {
-        // Navigation state persistence is a convenience; the menu still works without it.
-    }
-}, { deep: true });
 
 const logout = async () => {
     await signOut();
@@ -263,7 +256,7 @@ const logout = async () => {
                     <div class="civic-eyebrow">{{ currentSection }}</div>
                     <div class="civic-topbar-title">{{ appState.branding.acronym }} Operations Console</div>
                 </div>
-                <div class="civic-user-chip">{{ auth.user?.roles?.[0] ?? auth.user?.user_type }}</div>
+                <div class="bp-topbar-actions"><ProcurementNotificationBell /><div class="civic-user-chip">{{ auth.user?.roles?.[0] ?? auth.user?.user_type }}</div></div>
             </header>
 
             <div class="civic-page">

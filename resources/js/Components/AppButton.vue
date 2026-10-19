@@ -1,6 +1,7 @@
 <script setup>
 import { Link } from '@inertiajs/vue3';
 import { computed } from 'vue';
+import { RouterLink } from 'vue-router';
 
 const props = defineProps({
     variant: {
@@ -15,6 +16,8 @@ const props = defineProps({
         type: String,
         default: null,
     },
+    to: { type: [String, Object], default: null },
+    external: { type: Boolean, default: false },
     type: {
         type: String,
         default: 'button',
@@ -42,8 +45,10 @@ const sizeClass = computed(() => ({
 </script>
 
 <template>
+    <RouterLink v-if="to && !disabled" :to="to" :class="[variantClass, sizeClass]"><slot /></RouterLink>
+    <a v-else-if="href && external && !disabled" :href="href" :class="[variantClass, sizeClass]"><slot /></a>
     <Link
-        v-if="href"
+        v-else-if="href && !disabled"
         :href="href"
         :class="[variantClass, sizeClass]"
     >

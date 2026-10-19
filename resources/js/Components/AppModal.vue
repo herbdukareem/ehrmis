@@ -3,6 +3,7 @@ import AppIcon from '@/Components/AppIcon.vue';
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 
 const props = defineProps({
+    overflowVisible: { type: Boolean, default: false },
     show: {
         type: Boolean,
         default: false,
@@ -106,8 +107,8 @@ const maxWidthClass = computed(() => ({
             >
                 <div
                     v-show="show"
-                    class="mb-6 transform overflow-hidden rounded-ehrmis bg-white shadow-ehrmis-pop transition-all sm:mx-auto sm:w-full"
-                    :class="maxWidthClass"
+                    class="mb-6 transform rounded-ehrmis bg-white shadow-ehrmis-pop transition-all sm:mx-auto sm:w-full"
+                    :class="[maxWidthClass, overflowVisible ? 'overflow-visible' : 'overflow-hidden']"
                 >
                     <template v-if="showSlot">
                         <div

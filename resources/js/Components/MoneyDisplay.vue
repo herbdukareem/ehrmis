@@ -2,6 +2,7 @@
 import { computed } from 'vue';
 
 const props = defineProps({
+    currency: { type: String, default: 'NGN' },
     amount: {
         type: [Number, String],
         default: 0,
@@ -17,7 +18,7 @@ const formattedAmount = computed(() => {
 
     return new Intl.NumberFormat('en-NG', {
         style: 'currency',
-        currency: 'NGN',
+        currency: props.currency || 'NGN',
         maximumFractionDigits: 2,
     }).format(numericAmount);
 });

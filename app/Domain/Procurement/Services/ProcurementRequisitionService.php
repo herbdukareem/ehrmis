@@ -5,6 +5,7 @@ namespace App\Domain\Procurement\Services;
 use App\Domain\Budget\Models\BudgetAllocation;
 use App\Domain\Budget\Models\BudgetCommitment;
 use App\Domain\Budget\Services\BudgetLedgerService;
+use App\Domain\Procurement\Models\ProcurementPlan;
 use App\Domain\Procurement\Models\ProcurementPlanLine;
 use App\Domain\Procurement\Models\ProcurementRequisition;
 use App\Domain\Procurement\Models\ProcurementRequisitionLine;
@@ -23,6 +24,12 @@ class ProcurementRequisitionService
     public function createRequisition(array $data, ?User $actor = null): ProcurementRequisition
     {
         return DB::transaction(function () use ($data, $actor): ProcurementRequisition {
+            if (! empty($data['procurement_plan_id'])) {
+                $plan = ProcurementPlan::query()->where('mda_id', $data['mda_id'])->whereKey($data['procurement_plan_id'])->lockForUpdate()->firstOrFail();
+                if (! in_array($plan->status, ['draft', 'approved'], true)) {
+                    throw ValidationException::withMessages(['procurement_plan_id' => 'This procurement plan is closed.']);
+                }
+            }
             $requisition = ProcurementRequisition::query()->create([
                 'mda_id' => $data['mda_id'],
                 'procurement_plan_id' => $data['procurement_plan_id'] ?? null,
@@ -56,6 +63,10 @@ class ProcurementRequisitionService
                     ->where('mda_id', $requisition->mda_id)
                     ->whereKey($data['procurement_plan_line_id'])
                     ->firstOrFail();
+                $plan = $planLine->plan()->lockForUpdate()->firstOrFail();
+                if (! in_array($plan->status, ['draft', 'approved'], true)) {
+                    throw ValidationException::withMessages(['procurement_plan_line_id' => 'This plan is closed.']);
+                }
                 $allocation = $planLine->budgetAllocation;
             }
 
@@ -153,6 +164,7 @@ class ProcurementRequisitionService
                 if (! $line->budgetAllocation) {
                     $unmappedLines++;
                     $this->markLineBudgetCheck($line, 'unmapped', $amount, 0.0, []);
+
                     continue;
                 }
 

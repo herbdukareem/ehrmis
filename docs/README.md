@@ -29,6 +29,10 @@ repository root:
 6. **[06-frontend-spa.md](06-frontend-spa.md)** — the Vue SPA: routing, state, API client,
    views, components.
 
+The current Budget & Procurement API is documented in
+**[07-budget-procurement-api.md](07-budget-procurement-api.md)**, including permissions,
+request fields, MDA boundaries, and workflow actions.
+
 There is also **[flagged-issues-resolution.md](flagged-issues-resolution.md)**, a narrower
 feature-level doc covering one specific change (the staff flagged-issues review/edit workflow)
 in more implementation depth than the domain docs below go into.

@@ -37,6 +37,8 @@ Route::post('/public/promotion/applications', [PromotionWorkflowController::clas
 Route::post('/login', [SpaAuthController::class, 'login'])->middleware('guest')->name('api.login');
 
 Route::middleware('auth')->group(function (): void {
+    require __DIR__.'/budget-procurement.php';
+
     Route::post('/logout', [SpaAuthController::class, 'logout'])->name('api.logout');
     Route::get('/me', [CurrentUserContextController::class, 'show'])->name('api.me');
     Route::get('/modules', [ModuleController::class, 'index'])->name('api.modules.index');

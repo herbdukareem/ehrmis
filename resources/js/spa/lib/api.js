@@ -30,7 +30,7 @@ api.interceptors.response.use(
             return api.request(error.config);
         }
 
-        if (error?.response?.status === 403 && error?.config?.method?.toLowerCase() === 'get') {
+        if (error?.response?.status === 403 && error?.config?.method?.toLowerCase() === 'get' && !error?.config?.background) {
             setPageError(apiMessage(error, 'This action is unauthorized.'));
         }
 

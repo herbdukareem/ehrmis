@@ -54,6 +54,7 @@ class ProcurementReceiptService
     public function addItem(ProcurementReceipt $receipt, PurchaseOrderItem $purchaseOrderItem, array $data = [], ?User $actor = null): ProcurementReceiptItem
     {
         return DB::transaction(function () use ($receipt, $purchaseOrderItem, $data, $actor): ProcurementReceiptItem {
+            $this->lockOpenOrder($receipt);
             $receipt = ProcurementReceipt::query()->with('purchaseOrder')->whereKey($receipt->id)->lockForUpdate()->firstOrFail();
             $purchaseOrderItem = PurchaseOrderItem::query()->whereKey($purchaseOrderItem->id)->lockForUpdate()->firstOrFail();
 
@@ -125,6 +126,8 @@ class ProcurementReceiptService
     public function postReceipt(ProcurementReceipt $receipt, ?User $actor = null): ProcurementReceipt
     {
         return DB::transaction(function () use ($receipt, $actor): ProcurementReceipt {
+            // Serialize posting against amendments, cancellation and other receipts.
+            $order = PurchaseOrder::query()->whereKey($receipt->purchase_order_id)->lockForUpdate()->firstOrFail();
             $receipt = ProcurementReceipt::query()
                 ->with(['items.purchaseOrderItem', 'items.budgetAllocation', 'items.budgetCommitment', 'purchaseOrder.items'])
                 ->whereKey($receipt->id)
@@ -136,6 +139,7 @@ class ProcurementReceiptService
             }
 
             $this->assertDraft($receipt);
+            $this->assertOpenOrder($order);
 
             if ($receipt->items->isEmpty()) {
                 throw ValidationException::withMessages(['receipt' => 'A receipt must have at least one line item before posting.']);
@@ -187,6 +191,18 @@ class ProcurementReceiptService
     {
         if ($receipt->status !== 'draft') {
             throw ValidationException::withMessages(['receipt' => 'Only draft receipts can be changed.']);
+        }
+    }
+
+    private function lockOpenOrder(ProcurementReceipt $receipt): void
+    {
+        $this->assertOpenOrder(PurchaseOrder::query()->whereKey($receipt->purchase_order_id)->lockForUpdate()->firstOrFail());
+    }
+
+    private function assertOpenOrder(PurchaseOrder $order): void
+    {
+        if (! in_array($order->status, ['issued', 'partially_received', 'received'], true)) {
+            throw ValidationException::withMessages(['purchase_order' => 'This order is cancelled or closed.']);
         }
     }
 

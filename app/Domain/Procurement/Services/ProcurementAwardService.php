@@ -5,6 +5,7 @@ namespace App\Domain\Procurement\Services;
 use App\Domain\Procurement\Models\ProcurementAward;
 use App\Domain\Procurement\Models\ProcurementBid;
 use App\Domain\Procurement\Models\ProcurementEvaluation;
+use App\Domain\Procurement\Models\ProcurementRequisition;
 use App\Domain\Procurement\Models\ProcurementSolicitation;
 use App\Domain\Procurement\Models\PurchaseOrder;
 use App\Domain\Procurement\Models\PurchaseOrderItem;
@@ -86,6 +87,9 @@ class ProcurementAwardService
     public function recommendAward(ProcurementEvaluation $evaluation, ?User $actor = null, ?string $summary = null): ProcurementAward
     {
         return DB::transaction(function () use ($evaluation, $actor, $summary): ProcurementAward {
+            $source = $evaluation->solicitation;
+            ProcurementRequisition::query()->whereKey($source->procurement_requisition_id)->lockForUpdate()->firstOrFail();
+            $source = ProcurementSolicitation::query()->whereKey($source->id)->lockForUpdate()->firstOrFail();
             $evaluation = ProcurementEvaluation::query()
                 ->with(['bid', 'solicitation'])
                 ->whereKey($evaluation->id)
@@ -94,6 +98,11 @@ class ProcurementAwardService
 
             if (! in_array($evaluation->status, ['evaluated', 'recommended'], true)) {
                 throw ValidationException::withMessages(['evaluation' => 'Only evaluated bids can be recommended for award.']);
+            }
+
+            if (! in_array($source->status, ['published', 'closed'], true)
+                || $source->requisition?->status !== 'approved') {
+                throw ValidationException::withMessages(['solicitation' => 'This sourcing record is no longer open for recommendations.']);
             }
 
             $this->clearPreviousRecommendations($evaluation);
@@ -124,6 +133,9 @@ class ProcurementAwardService
                 'recommendation_summary' => $summary ?? $evaluation->recommendation_notes,
                 'recommended_by' => $actor?->id ?? $award->recommended_by,
                 'recommended_at' => now(),
+                'rejected_by' => null,
+                'rejected_at' => null,
+                'rejection_reason' => null,
             ]);
             $award->save();
 
@@ -144,6 +156,7 @@ class ProcurementAwardService
     public function approveAward(ProcurementAward $award, ?User $actor = null): ProcurementAward
     {
         return DB::transaction(function () use ($award, $actor): ProcurementAward {
+            ProcurementRequisition::query()->whereKey($award->solicitation->procurement_requisition_id)->lockForUpdate()->firstOrFail();
             $award = ProcurementAward::query()->with('solicitation')->whereKey($award->id)->lockForUpdate()->firstOrFail();
 
             if ($award->status === 'approved') {
@@ -152,6 +165,10 @@ class ProcurementAwardService
 
             if ($award->status !== 'recommended') {
                 throw ValidationException::withMessages(['award' => 'Only recommended awards can be approved.']);
+            }
+
+            if ($award->solicitation->requisition?->status !== 'approved') {
+                throw ValidationException::withMessages(['requisition' => 'The requisition is no longer approved.']);
             }
 
             $before = $award->toArray();
@@ -177,6 +194,7 @@ class ProcurementAwardService
     public function generatePurchaseOrder(ProcurementAward $award, ?User $actor = null, array $data = []): PurchaseOrder
     {
         return DB::transaction(function () use ($award, $actor, $data): PurchaseOrder {
+            ProcurementRequisition::query()->whereKey($award->solicitation->procurement_requisition_id)->lockForUpdate()->firstOrFail();
             $award = ProcurementAward::query()
                 ->with(['solicitation.requisition.lines', 'vendor'])
                 ->whereKey($award->id)
@@ -188,6 +206,12 @@ class ProcurementAwardService
             }
 
             $po = PurchaseOrder::query()->firstOrNew(['procurement_award_id' => $award->id]);
+            if ($po->exists) {
+                return $po->load(['items', 'vendor', 'award']);
+            }
+            if ($award->solicitation->requisition?->status !== 'approved') {
+                throw ValidationException::withMessages(['requisition' => 'The requisition is no longer approved.']);
+            }
             $before = $po->exists ? $po->toArray() : [];
             $requisition = $award->solicitation->requisition;
             $po->fill([

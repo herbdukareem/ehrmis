@@ -1,5 +1,6 @@
 <script setup>
 defineProps({
+    flat: { type: Boolean, default: false },
     title: {
         type: String,
         default: null,
@@ -16,7 +17,7 @@ defineProps({
 </script>
 
 <template>
-    <section class="ehrmis-card" :class="padding">
+    <section :class="[flat ? 'min-w-0' : 'ehrmis-card', padding]">
         <div v-if="title || $slots.actions" class="mb-4 flex items-start justify-between gap-4">
             <div>
                 <h2 v-if="title" class="text-base font-semibold text-ehrmis-text">{{ title }}</h2>

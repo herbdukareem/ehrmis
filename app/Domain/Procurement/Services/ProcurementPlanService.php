@@ -6,6 +6,7 @@ use App\Domain\Budget\Models\BudgetAllocation;
 use App\Domain\Budget\Models\BudgetCycle;
 use App\Domain\Procurement\Models\ProcurementPlan;
 use App\Domain\Procurement\Models\ProcurementPlanLine;
+use App\Domain\Procurement\Models\ProcurementRequisitionLine;
 use App\Domain\Workplan\Models\Workplan;
 use App\Domain\Workplan\Models\WorkplanActivity;
 use App\Enums\WorkplanStatus;
@@ -60,6 +61,7 @@ class ProcurementPlanService
         }
 
         return DB::transaction(function () use ($plan, $workplan, $actor): array {
+            $plan = $this->lockEditable($plan);
             $count = 0;
             $amount = 0.0;
 
@@ -121,6 +123,7 @@ class ProcurementPlanService
         }
 
         return DB::transaction(function () use ($plan, $cycle, $actor): array {
+            $plan = $this->lockEditable($plan);
             $count = 0;
             $amount = 0.0;
 
@@ -182,6 +185,7 @@ class ProcurementPlanService
     public function addManualLine(ProcurementPlan $plan, array $data, ?User $actor = null): ProcurementPlanLine
     {
         return DB::transaction(function () use ($plan, $data, $actor): ProcurementPlanLine {
+            $plan = $this->lockEditable($plan);
             $allocation = null;
 
             if (! empty($data['budget_allocation_id'])) {
@@ -245,6 +249,10 @@ class ProcurementPlanService
             'mda_id' => $plan->mda_id,
             ...$data,
         ]);
+        if ($line->exists && $line->isDirty(array_diff(array_keys($data), ['metadata']))
+            && ProcurementRequisitionLine::query()->where('mda_id', $plan->mda_id)->where('procurement_plan_line_id', $line->id)->exists()) {
+            throw ValidationException::withMessages(['plan' => 'An imported line is already used by a requisition. Add a new plan line instead.']);
+        }
         $line->save();
 
         if ($before === []) {
@@ -260,6 +268,16 @@ class ProcurementPlanService
         }
 
         return $line->fresh();
+    }
+
+    private function lockEditable(ProcurementPlan $plan): ProcurementPlan
+    {
+        $plan = ProcurementPlan::query()->whereKey($plan->id)->lockForUpdate()->firstOrFail();
+        if (! in_array($plan->status, ['draft', 'approved'], true)) {
+            throw ValidationException::withMessages(['plan' => 'This plan is no longer editable.']);
+        }
+
+        return $plan;
     }
 
     protected function refreshSummary(ProcurementPlan $plan): void

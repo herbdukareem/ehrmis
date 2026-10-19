@@ -112,14 +112,21 @@ const searchStyle = computed(() => (isCivic.value ? {
 const optionsClass = computed(() => (isCivic.value ? 'max-h-60 overflow-auto py-1 text-sm' : 'max-h-60 overflow-auto py-1 text-sm'));
 
 const refreshSlotItems = () => {
-    if (!slotHost.value) {
+    if (!slotHost.value || props.options.length) {
         return;
     }
 
-    slotItems.value = Array.from(slotHost.value.querySelectorAll('option')).map((el) => ({
+    const nextItems = Array.from(slotHost.value.querySelectorAll('option')).map((el) => ({
         value: '_value' in el ? el._value : el.value,
         label: el.textContent.trim(),
     }));
+
+    // Reassigning an unchanged array from onUpdated keeps an open empty menu rendering forever.
+    if (nextItems.length !== slotItems.value.length || nextItems.some((item, index) => (
+        !Object.is(item.value, slotItems.value[index].value) || item.label !== slotItems.value[index].label
+    ))) {
+        slotItems.value = nextItems;
+    }
 };
 
 onMounted(() => nextTick(refreshSlotItems));
@@ -391,7 +398,7 @@ onBeforeUnmount(() => document.removeEventListener('click', onClickOutside));
                     </button>
                 </li>
 
-                <li v-if="!displayItems.length" class="px-3 py-2" :style="isCivic ? { color: 'var(--civic-muted)' } : null" :class="!isCivic ? 'text-ehrmis-muted' : ''">
+                <li v-if="!filteredItems.length" class="px-3 py-2" :style="isCivic ? { color: 'var(--civic-muted)' } : null" :class="!isCivic ? 'text-ehrmis-muted' : ''">
                     {{ emptyText }}
                 </li>
             </ul>

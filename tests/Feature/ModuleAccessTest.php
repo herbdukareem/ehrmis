@@ -7,7 +7,6 @@ use App\Domain\Module\Models\MdaModule;
 use App\Domain\Module\Models\Module;
 use App\Domain\Module\Models\ModuleRoleTemplate;
 use App\Domain\Organization\Models\Mda;
-use App\Models\Role;
 use App\Models\User;
 use App\Models\UserAccessScope;
 use Database\Seeders\ModuleSeeder;
@@ -173,6 +172,11 @@ class ModuleAccessTest extends TestCase
             'approve-awards',
             'manage-purchase-orders',
             'record-procurement-receipts',
+            'view-supplier-payables',
+            'manage-supplier-invoices',
+            'approve-supplier-invoices',
+            'record-supplier-payments',
+            'approve-supplier-payments',
             'manage-vendors',
             'export-procurement-reports',
         ], $module->permissions->pluck('permission_name')->all());
@@ -192,6 +196,8 @@ class ModuleAccessTest extends TestCase
         $this->assertContains('review-budget-availability', $officerTemplate->permissions->pluck('permission_name'));
         $this->assertContains('record-procurement-receipts', $officerTemplate->permissions->pluck('permission_name'));
         $this->assertNotContains('approve-awards', $officerTemplate->permissions->pluck('permission_name'));
+        $this->assertContains('record-supplier-payments', $officerTemplate->permissions->pluck('permission_name'));
+        $this->assertNotContains('approve-supplier-payments', $officerTemplate->permissions->pluck('permission_name'));
     }
 
     /**
