@@ -395,7 +395,7 @@ class ServiceReportingSeeder extends Seeder
     protected function hctAgeServicePointIndicator(string $code, string $label, bool $required, int $sortOrder): array
     {
         return [
-            ...$this->indicator($code, $label, $type, $required, $sortOrder),
+            ...$this->indicator($code, $label, 'integer', $required, $sortOrder),
             'dimensions' => [
                 [
                     'dimension_key' => 'age_group',
