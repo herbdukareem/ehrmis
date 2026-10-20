@@ -1,16 +1,21 @@
 <script setup>
 import { computed, onMounted, reactive, ref, watch } from 'vue';
+import AppButton from '@/Components/AppButton.vue';
+import AppIcon from '@/Components/AppIcon.vue';
+import StaffCreateModal from '../components/staff/StaffCreateModal.vue';
 import DataTable from '../components/DataTable.vue';
 import LoadingBlock from '../components/LoadingBlock.vue';
 import PageHeading from '../components/PageHeading.vue';
 import StatusPill from '../components/StatusPill.vue';
 import { api, apiMessage } from '../lib/api';
 import { can } from '../stores/auth';
+import { pushToast } from '../stores/app';
 
 const rows = ref([]);
 const meta = ref(null);
 const options = ref(null);
 const busy = ref(true);
+const showCreateModal = ref(false);
 const bulkBusy = ref('');
 const bulkProgress = reactive({ processed: 0, changed: 0, skipped: 0 });
 const flaggedStaff = ref([]);
@@ -84,6 +89,13 @@ const resetFilters = () => {
 
 const loadFlagged = async () => {
     flaggedStaff.value = (await api.get('/staff/flagged-issues')).data.data;
+};
+
+const staffCreated = async () => {
+    showCreateModal.value = false;
+    pushToast('Staff record created.');
+    filters.page = 1;
+    await load();
 };
 
 const openEditModal = async (staffSummary) => {
@@ -181,6 +193,9 @@ onMounted(async () => {
 
 <template>
     <PageHeading eyebrow="Establishment record" title="Staff registry" description="Search and inspect the authoritative workforce register.">
+        <AppButton v-if="can('create-staff')" :disabled="busy || Boolean(bulkBusy)" @click="showCreateModal = true">
+            <AppIcon name="plus" class="h-4 w-4" />New staff
+        </AppButton>
         <button
             v-if="can('update-staff-allowances')"
             class="civic-button"
@@ -228,6 +243,8 @@ onMounted(async () => {
             <button :disabled="meta.current_page === meta.last_page" @click="filters.page++; load()">Next</button>
         </div>
     </section>
+
+    <StaffCreateModal v-if="can('create-staff')" :show="showCreateModal" :options="options ?? {}" @close="showCreateModal = false" @created="staffCreated" />
 
     <div v-if="showFlaggedModal" class="civic-preview-overlay" @click.self="showFlaggedModal = false">
         <section class="civic-camera-modal">

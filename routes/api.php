@@ -166,6 +166,7 @@ Route::middleware('auth')->group(function (): void {
         Route::post('/staff/recompute-salaries', [StaffController::class, 'recomputeAllSalaries'])->name('api.staff.recompute-salaries');
         Route::post('/staff/recompute-retirement-dates', [StaffController::class, 'recomputeAllRetirementDates'])->name('api.staff.recompute-retirement-dates');
         Route::get('/staff', [StaffController::class, 'index'])->name('api.staff.index');
+        Route::post('/staff', [StaffController::class, 'store'])->name('api.staff.store');
         Route::get('/staff/{staff}', [StaffController::class, 'show'])->name('api.staff.show');
         Route::get('/staff/{staff}/record-slip', [StaffController::class, 'recordSlip'])->name('api.staff.record-slip.show');
         Route::put('/staff/{staff}', [StaffController::class, 'update'])->name('api.staff.update');

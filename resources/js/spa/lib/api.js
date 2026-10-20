@@ -12,17 +12,17 @@ export const api = axios.create({
 });
 
 api.interceptors.request.use((config) => {
-    appState.pendingRequests += 1;
+    if (!config.background) appState.pendingRequests += 1;
     return config;
 });
 
 api.interceptors.response.use(
     (response) => {
-        appState.pendingRequests = Math.max(0, appState.pendingRequests - 1);
+        if (!response.config.background) appState.pendingRequests = Math.max(0, appState.pendingRequests - 1);
         return response;
     },
     async (error) => {
-        appState.pendingRequests = Math.max(0, appState.pendingRequests - 1);
+        if (!error?.config?.background) appState.pendingRequests = Math.max(0, appState.pendingRequests - 1);
 
         if (error?.response?.status === 419 && !isReadOnlyRequest(error?.config) && !error?.config?._retriedWithFreshCsrf) {
             error.config._retriedWithFreshCsrf = true;

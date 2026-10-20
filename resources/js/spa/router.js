@@ -1,6 +1,6 @@
 import { createRouter, createWebHistory } from 'vue-router';
 import { auth, defaultAuthenticatedPath, hasAnyAccess, loadSession } from './stores/auth';
-import { appState, clearPageError } from './stores/app';
+import { appState, clearPageError, clearNavigationError, setNavigationError } from './stores/app';
 import { bpAreas } from './lib/budgetProcurement';
 
 const routes = [
@@ -65,6 +65,17 @@ const router = createRouter({
     history: createWebHistory(),
     routes,
     scrollBehavior: () => ({ top: 0 }),
+});
+
+router.onError((error, to) => {
+    const unavailableAssets = /dynamically imported module|module script|loading chunk|css chunk/i.test(error.message);
+    setNavigationError(to.fullPath, unavailableAssets
+        ? 'The page files are unavailable. Your current page has been kept open.'
+        : 'The page could not be opened. Please try again.');
+});
+
+router.afterEach((_to, _from, failure) => {
+    if (!failure) clearNavigationError();
 });
 
 router.beforeEach(async (to) => {

@@ -77,6 +77,7 @@ const maxWidthClass = computed(() => ({
 <template>
     <dialog
         ref="dialog"
+        :aria-label="title || undefined"
         class="z-50 m-0 min-h-full min-w-full overflow-y-auto bg-transparent backdrop:bg-transparent"
     >
         <div class="fixed inset-0 z-50 overflow-y-auto px-4 py-6 sm:px-0" scroll-region>
@@ -119,6 +120,7 @@ const maxWidthClass = computed(() => ({
                             <button
                                 v-if="closeable"
                                 type="button"
+                                aria-label="Close dialog"
                                 class="rounded-lg p-1 text-ehrmis-muted transition hover:bg-slate-100 hover:text-ehrmis-text"
                                 @click="close"
                             >

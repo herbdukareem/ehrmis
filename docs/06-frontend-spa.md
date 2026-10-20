@@ -20,6 +20,12 @@
 
 ## State: plain `reactive()`, not Pinia
 
+Route-load failures are handled by `router.onError`: the current view stays mounted and
+a QDS recovery panel offers an explicit reload of the requested URL. The SPA does not
+automatically reload after a failed import. If Vite is stopped while a tab is open,
+reload that tab once to switch back to built assets from `public/build`.
+
+
 There is **no Pinia or Vuex dependency** in `package.json` — `resources/js/spa/stores/*.js` are
 just Vue 3 `reactive()` objects exported as singletons and imported wherever needed. There are two:
 
@@ -37,6 +43,12 @@ just Vue 3 `reactive()` objects exported as singletons and imported wherever nee
   incremented/decremented by the Axios interceptors below.
 
 ## API client (`lib/api.js`)
+
+Requests marked `background: true`, such as notification polls, do not increment or
+decrement the global loader counter. Background failures also do not replace the page
+with the authorization error view. Foreground requests keep their normal loading and
+authorization behavior, even when a background request finishes at the same time.
+
 
 A single Axios instance, `baseURL: '/api'`, `withXSRFToken: true` (Laravel's CSRF cookie handling
 — no manual token plumbing needed), `Accept: application/json`. A request interceptor increments

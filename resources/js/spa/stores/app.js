@@ -7,6 +7,7 @@ const initialCsrfToken = document.querySelector('meta[name="csrf-token"]')?.cont
 export const appState = reactive({
     pendingRequests: 0,
     pageError: '',
+    navigationError: null,
     toastSeed: 0,
     toasts: [],
     csrfToken: initialCsrfToken,
@@ -120,4 +121,12 @@ export function setPageError(message) {
 
 export function clearPageError() {
     appState.pageError = '';
+}
+
+export function setNavigationError(path, message) {
+    appState.navigationError = { path, message };
+}
+
+export function clearNavigationError() {
+    appState.navigationError = null;
 }

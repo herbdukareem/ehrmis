@@ -5,6 +5,7 @@ import InputLabel from '@/Components/InputLabel.vue';
 import { computed, nextTick, onBeforeUnmount, onMounted, onUpdated, ref, useId, watch } from 'vue';
 
 const props = defineProps({
+    disabled: { type: Boolean, default: false },
     label: {
         type: String,
         default: null,
@@ -168,6 +169,7 @@ const selectedLabel = computed(() => {
 });
 
 const selectItem = (item) => {
+    if (props.disabled) return;
     model.value = item.value;
     closePanel();
 };
@@ -190,7 +192,7 @@ const syncHighlightToValue = () => {
 };
 
 const openPanel = () => {
-    if (open.value) {
+    if (open.value || props.disabled) {
         return;
     }
 
@@ -313,6 +315,7 @@ watch(displayItems, () => {
 });
 
 onMounted(() => document.addEventListener('click', onClickOutside));
+watch(() => props.disabled, disabled => { if (disabled) open.value = false; });
 onBeforeUnmount(() => document.removeEventListener('click', onClickOutside));
 </script>
 
@@ -331,6 +334,7 @@ onBeforeUnmount(() => document.removeEventListener('click', onClickOutside));
             :id="id"
             data-combobox-trigger
             type="button"
+            :disabled="disabled"
             :class="triggerClass"
             :style="triggerStyle"
             @click="togglePanel"

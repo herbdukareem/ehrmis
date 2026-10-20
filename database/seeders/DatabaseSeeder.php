@@ -16,6 +16,7 @@ class DatabaseSeeder extends Seeder
             OrganizationSeeder::class,
             ModuleSeeder::class,
             ServiceReportingSeeder::class,
+            DiseaseReportingSeeder::class,
             AllowanceTypeSeeder::class,
             SalaryScaleSeeder::class,
             November2024SalaryStructureSeeder::class,
