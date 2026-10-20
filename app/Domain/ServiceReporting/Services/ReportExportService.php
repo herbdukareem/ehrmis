@@ -37,10 +37,15 @@ class ReportExportService
                 }
 
                 foreach ($values as $value) {
+                    $dimensions = $value->metadata['dimensions'] ?? null;
+                    $dimensionLabel = $dimensions
+                        ? collect($dimensions)->map(fn (string $dimensionValue, string $dimensionKey): string => "{$dimensionKey}: {$dimensionValue}")->implode(', ')
+                        : ($value->dimension_value ? "{$value->dimension_key}: {$value->dimension_value}" : '');
+
                     $rows[] = [
                         $section->title,
                         $indicator->label,
-                        $value->dimension_value ? "{$value->dimension_key}: {$value->dimension_value}" : '',
+                        $dimensionLabel,
                         $value->value_integer ?? $value->value_decimal ?? $value->value_text ?? $value->value_boolean,
                     ];
                 }

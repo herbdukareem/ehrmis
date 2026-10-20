@@ -40,7 +40,7 @@ const id = useId();
             v-model="model"
             :rows="rows"
             :placeholder="placeholder"
-            class="ehrmis-textarea"
+            class="ehrmis-textarea ehrmis-input"
             :class="{ 'border-red-300 focus:border-red-500 focus:ring-red-500': error }"
             v-bind="$attrs"
         />

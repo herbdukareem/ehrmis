@@ -37,6 +37,8 @@ Route::post('/public/promotion/applications', [PromotionWorkflowController::clas
 Route::post('/login', [SpaAuthController::class, 'login'])->middleware('guest')->name('api.login');
 
 Route::middleware('auth')->group(function (): void {
+    require __DIR__.'/budget-procurement.php';
+
     Route::post('/logout', [SpaAuthController::class, 'logout'])->name('api.logout');
     Route::get('/me', [CurrentUserContextController::class, 'show'])->name('api.me');
     Route::get('/modules', [ModuleController::class, 'index'])->name('api.modules.index');
@@ -164,6 +166,7 @@ Route::middleware('auth')->group(function (): void {
         Route::post('/staff/recompute-salaries', [StaffController::class, 'recomputeAllSalaries'])->name('api.staff.recompute-salaries');
         Route::post('/staff/recompute-retirement-dates', [StaffController::class, 'recomputeAllRetirementDates'])->name('api.staff.recompute-retirement-dates');
         Route::get('/staff', [StaffController::class, 'index'])->name('api.staff.index');
+        Route::post('/staff', [StaffController::class, 'store'])->name('api.staff.store');
         Route::get('/staff/{staff}', [StaffController::class, 'show'])->name('api.staff.show');
         Route::get('/staff/{staff}/record-slip', [StaffController::class, 'recordSlip'])->name('api.staff.record-slip.show');
         Route::put('/staff/{staff}', [StaffController::class, 'update'])->name('api.staff.update');

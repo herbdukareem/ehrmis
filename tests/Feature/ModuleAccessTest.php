@@ -5,8 +5,8 @@ namespace Tests\Feature;
 use App\Domain\Audit\Models\AuditLog;
 use App\Domain\Module\Models\MdaModule;
 use App\Domain\Module\Models\Module;
+use App\Domain\Module\Models\ModuleRoleTemplate;
 use App\Domain\Organization\Models\Mda;
-use App\Models\Role;
 use App\Models\User;
 use App\Models\UserAccessScope;
 use Database\Seeders\ModuleSeeder;
@@ -142,6 +142,62 @@ class ModuleAccessTest extends TestCase
             ->assertJsonFragment(['code' => 'service_reporting'])
             ->assertJsonFragment(['name' => 'view-service-reports'])
             ->assertJsonPath('data.can_manage_modules', true);
+    }
+
+    public function test_budget_procurement_module_permissions_and_templates_are_seeded(): void
+    {
+        [$moh] = $this->seedModuleFixtures();
+
+        $module = Module::query()
+            ->with(['permissions', 'roleTemplates.permissions'])
+            ->where('code', 'budget_procurement')
+            ->firstOrFail();
+
+        $this->assertTrue($this->mdaHasModule($moh, 'budget_procurement'));
+        $this->assertSame('Budget & Procurement', $module->name);
+        $this->assertEqualsCanonicalizing([
+            'view-budget-cycles',
+            'create-budget-cycles',
+            'approve-budget-cycles',
+            'manage-budget-allocations',
+            'manage-budget-releases',
+            'manage-budget-adjustments',
+            'view-procurement',
+            'manage-procurement-plans',
+            'create-requisitions',
+            'approve-requisitions',
+            'review-budget-availability',
+            'manage-sourcing',
+            'evaluate-bids',
+            'approve-awards',
+            'manage-purchase-orders',
+            'record-procurement-receipts',
+            'view-supplier-payables',
+            'manage-supplier-invoices',
+            'approve-supplier-invoices',
+            'record-supplier-payments',
+            'approve-supplier-payments',
+            'manage-vendors',
+            'export-procurement-reports',
+        ], $module->permissions->pluck('permission_name')->all());
+
+        $this->assertEqualsCanonicalizing([
+            'budget_procurement_viewer',
+            'budget_procurement_officer',
+            'budget_procurement_admin',
+        ], $module->roleTemplates->pluck('code')->all());
+
+        $officerTemplate = ModuleRoleTemplate::query()
+            ->with('permissions')
+            ->where('code', 'budget_procurement_officer')
+            ->firstOrFail();
+
+        $this->assertContains('manage-procurement-plans', $officerTemplate->permissions->pluck('permission_name'));
+        $this->assertContains('review-budget-availability', $officerTemplate->permissions->pluck('permission_name'));
+        $this->assertContains('record-procurement-receipts', $officerTemplate->permissions->pluck('permission_name'));
+        $this->assertNotContains('approve-awards', $officerTemplate->permissions->pluck('permission_name'));
+        $this->assertContains('record-supplier-payments', $officerTemplate->permissions->pluck('permission_name'));
+        $this->assertNotContains('approve-supplier-payments', $officerTemplate->permissions->pluck('permission_name'));
     }
 
     /**

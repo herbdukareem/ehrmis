@@ -18,6 +18,9 @@ class SaveReportDraftRequest extends FormRequest
             'values.*.indicator_code' => ['required', 'string'],
             'values.*.value' => ['nullable'],
             'values.*.dimensions' => ['nullable', 'array'],
+            'values.*.cells' => ['nullable', 'array'],
+            'values.*.cells.*.dimensions' => ['required_with:values.*.cells', 'array'],
+            'values.*.cells.*.value' => ['nullable'],
         ];
     }
 }

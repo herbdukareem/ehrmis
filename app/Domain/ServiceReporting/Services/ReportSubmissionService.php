@@ -66,7 +66,7 @@ class ReportSubmissionService
                 $this->audit('service_reporting.submission.draft_created', $submission, [], $submission->toArray(), $actor);
             }
 
-            $fresh = $submission->fresh(['template.sections.indicators.dimensions', 'period', 'mda', 'station', 'values', 'reviews']);
+            $fresh = $submission->fresh(['template.sections.indicators.dimensions', 'template.sections.indicators.options', 'period', 'mda', 'station', 'values', 'reviews']);
             $fresh->wasRecentlyCreated = $submission->wasRecentlyCreated;
 
             return $fresh;
@@ -80,7 +80,7 @@ class ReportSubmissionService
 
         return DB::transaction(function () use ($submission, $values, $actor): ReportSubmission {
             $before = $submission->values()->get()->toArray();
-            $submission->loadMissing('template.sections.indicators.dimensions');
+            $submission->loadMissing('template.sections.indicators.dimensions', 'template.sections.indicators.options');
             $submission->values()->delete();
 
             foreach ($this->normalizeValues($submission->template->sections->flatMap->indicators, $values) as $row) {
@@ -94,7 +94,7 @@ class ReportSubmissionService
 
             $this->audit('service_reporting.submission.values_updated', $submission, $before, $submission->values()->get()->toArray(), $actor);
 
-            return $submission->fresh(['template.sections.indicators.dimensions', 'period', 'mda', 'station', 'values', 'reviews']);
+            return $submission->fresh(['template.sections.indicators.dimensions', 'template.sections.indicators.options', 'period', 'mda', 'station', 'values', 'reviews']);
         });
     }
 
@@ -175,7 +175,7 @@ class ReportSubmissionService
             $this->recordAction($submission, $action, $actor, $beforeStatus, $status, $comment);
             $this->audit("service_reporting.submission.{$action}", $submission, $before, $submission->fresh()->toArray(), $actor);
 
-            return $submission->fresh(['template.sections.indicators.dimensions', 'period', 'mda', 'station', 'values', 'reviews']);
+            return $submission->fresh(['template.sections.indicators.dimensions', 'template.sections.indicators.options', 'period', 'mda', 'station', 'values', 'reviews']);
         });
     }
 
@@ -191,6 +191,21 @@ class ReportSubmissionService
             }
 
             $dimensions = $indicator->dimensions;
+            if ($dimensions->count() > 1 && array_key_exists('cells', $value)) {
+                foreach ($value['cells'] ?? [] as $cell) {
+                    $dimensionValues = $this->validateDimensionMap($indicator, $cell['dimensions'] ?? [], $dimensions);
+                    $rows[] = $this->valueRow(
+                        $indicator,
+                        $cell['value'] ?? null,
+                        'matrix',
+                        $this->dimensionSignature($dimensionValues),
+                        ['dimensions' => $dimensionValues],
+                    );
+                }
+
+                continue;
+            }
+
             if ($dimensions->isNotEmpty()) {
                 foreach ($dimensions as $dimension) {
                     $submittedDimensions = $value['dimensions'][$dimension->dimension_key] ?? [];
@@ -211,13 +226,20 @@ class ReportSubmissionService
         return $rows;
     }
 
-    protected function valueRow(ReportTemplateIndicator $indicator, mixed $rawValue, ?string $dimensionKey = null, ?string $dimensionValue = null): array
+    protected function valueRow(ReportTemplateIndicator $indicator, mixed $rawValue, ?string $dimensionKey = null, ?string $dimensionValue = null, ?array $metadata = null): array
     {
-        if ($rawValue === '' || $rawValue === null) {
+        if ($rawValue === [] || $rawValue === '' || $rawValue === null) {
             $rawValue = null;
         }
 
         $this->validateTypedValue($indicator, $rawValue);
+        $metadata = array_filter([
+            ...($metadata ?? []),
+            'option' => $this->optionMetadata($indicator, $rawValue),
+        ], fn ($value): bool => $value !== null && $value !== []);
+        $textValue = $indicator->value_type === 'text' && $rawValue !== null
+            ? (is_array($rawValue) ? json_encode(array_values($rawValue)) : (string) $rawValue)
+            : null;
 
         return [
             'report_template_indicator_id' => $indicator->id,
@@ -226,16 +248,79 @@ class ReportSubmissionService
             'dimension_value' => $dimensionValue,
             'value_integer' => $indicator->value_type === 'integer' && $rawValue !== null ? (int) $rawValue : null,
             'value_decimal' => in_array($indicator->value_type, ['decimal', 'percentage'], true) && $rawValue !== null ? (float) $rawValue : null,
-            'value_text' => $indicator->value_type === 'text' ? $rawValue : null,
+            'value_text' => $textValue,
             'value_boolean' => $indicator->value_type === 'boolean' && $rawValue !== null ? (bool) $rawValue : null,
             'computed_value_decimal' => null,
+            'metadata' => $metadata ?: null,
         ];
+    }
+
+    protected function validateDimensionMap(ReportTemplateIndicator $indicator, array $submittedDimensions, Collection $configuredDimensions): array
+    {
+        $validated = [];
+
+        foreach ($configuredDimensions as $dimension) {
+            $dimensionValue = $submittedDimensions[$dimension->dimension_key] ?? null;
+
+            if ($dimensionValue === null || ! in_array($dimensionValue, $dimension->dimension_values, true)) {
+                throw ValidationException::withMessages([
+                    'values' => "{$indicator->label} has an invalid {$dimension->dimension_label} value.",
+                ]);
+            }
+
+            $validated[$dimension->dimension_key] = $dimensionValue;
+        }
+
+        return $validated;
+    }
+
+    protected function dimensionSignature(array $dimensions): string
+    {
+        ksort($dimensions);
+
+        return collect($dimensions)
+            ->map(fn (string $value, string $key): string => rawurlencode($key).'='.rawurlencode($value))
+            ->implode('|');
     }
 
     protected function validateTypedValue(ReportTemplateIndicator $indicator, mixed $value): void
     {
         if ($value === null) {
             return;
+        }
+
+        if (in_array($indicator->field_type, ['select', 'radio'], true)) {
+            if (! is_string($value) && ! is_numeric($value)) {
+                throw ValidationException::withMessages(['values' => "{$indicator->label} must be one of the configured options."]);
+            }
+
+            if (! in_array((string) $value, $indicator->options->pluck('value')->all(), true)) {
+                throw ValidationException::withMessages(['values' => "{$indicator->label} must be one of the configured options."]);
+            }
+        }
+
+        if ($indicator->field_type === 'multi_select') {
+            if (! is_array($value)) {
+                throw ValidationException::withMessages(['values' => "{$indicator->label} must be a list of configured options."]);
+            }
+
+            $allowed = $indicator->options->pluck('value')->all();
+            foreach ($value as $selectedValue) {
+                if (! in_array((string) $selectedValue, $allowed, true)) {
+                    throw ValidationException::withMessages(['values' => "{$indicator->label} contains an option that is not configured."]);
+                }
+            }
+        }
+
+        if (in_array($indicator->field_type, ['boolean', 'checkbox'], true) && ! is_bool($value) && ! in_array($value, [0, 1, '0', '1'], true)) {
+            throw ValidationException::withMessages(['values' => "{$indicator->label} must be checked or unchecked."]);
+        }
+
+        if ($indicator->field_type === 'date') {
+            $date = \DateTimeImmutable::createFromFormat('Y-m-d', (string) $value);
+            if (! $date || $date->format('Y-m-d') !== (string) $value) {
+                throw ValidationException::withMessages(['values' => "{$indicator->label} must be a valid date."]);
+            }
         }
 
         if ($indicator->value_type === 'integer' && (! is_numeric($value) || (int) $value < 0)) {
@@ -249,22 +334,104 @@ class ReportSubmissionService
         if ($indicator->value_type === 'percentage' && (float) $value > 100) {
             throw ValidationException::withMessages(['values' => "{$indicator->label} must be between 0 and 100."]);
         }
+
+        $this->validateConfiguredRules($indicator, $value);
+    }
+
+    protected function validateConfiguredRules(ReportTemplateIndicator $indicator, mixed $value): void
+    {
+        $rules = $indicator->validation_rules ?? [];
+
+        if (($rules['today_or_earlier'] ?? false) && $value !== null) {
+            $date = \DateTimeImmutable::createFromFormat('Y-m-d', (string) $value);
+            if ($date && $date > new \DateTimeImmutable('today')) {
+                throw ValidationException::withMessages(['values' => "{$indicator->label} must be today or earlier."]);
+            }
+        }
+
+        if (array_key_exists('min', $rules) && $value !== null) {
+            if (is_numeric($value) && (float) $value < (float) $rules['min']) {
+                throw ValidationException::withMessages(['values' => "{$indicator->label} must be at least {$rules['min']}."]);
+            }
+
+            if (! is_numeric($value) && is_string($value) && strlen($value) < (int) $rules['min']) {
+                throw ValidationException::withMessages(['values' => "{$indicator->label} must be at least {$rules['min']} characters."]);
+            }
+        }
+
+        if (array_key_exists('max', $rules) && $value !== null) {
+            if (is_numeric($value) && (float) $value > (float) $rules['max']) {
+                throw ValidationException::withMessages(['values' => "{$indicator->label} must not exceed {$rules['max']}."]);
+            }
+
+            if (! is_numeric($value) && is_string($value) && strlen($value) > (int) $rules['max']) {
+                throw ValidationException::withMessages(['values' => "{$indicator->label} must not exceed {$rules['max']} characters."]);
+            }
+        }
+    }
+
+    protected function optionMetadata(ReportTemplateIndicator $indicator, mixed $value): array
+    {
+        if (! $indicator->contributes_to_score && ! in_array($indicator->field_type, ['select', 'radio', 'multi_select'], true)) {
+            return [];
+        }
+
+        $selectedValues = $indicator->field_type === 'multi_select'
+            ? collect(is_array($value) ? $value : [])->map(fn ($item): string => (string) $item)
+            : collect($value !== null ? [(string) $value] : []);
+
+        if ($selectedValues->isEmpty()) {
+            return [];
+        }
+
+        $options = $indicator->options->keyBy('value');
+        $selectedOptions = $selectedValues
+            ->map(fn (string $selectedValue) => $options->get($selectedValue))
+            ->filter()
+            ->values();
+
+        return [
+            'selected_values' => $selectedValues->values()->all(),
+            'score' => (float) $selectedOptions->sum(fn ($option): float => (float) ($option->score ?? 0)),
+            'requires_review' => $selectedOptions->contains(fn ($option): bool => (bool) $option->requires_review),
+        ];
     }
 
     protected function validateRequiredValues(ReportSubmission $submission): void
     {
-        $submission->loadMissing('template.sections.indicators.dimensions', 'values');
+        $submission->loadMissing('template.sections.indicators.dimensions', 'template.sections.indicators.options', 'values');
         $valueGroups = $submission->values->groupBy('indicator_code');
 
         foreach ($submission->template->sections->flatMap->indicators as $indicator) {
-            if (! $indicator->is_required) {
+            $isRequired = $indicator->is_required || $this->conditionalRuleMatches($indicator->required_rules, $valueGroups);
+            if (! $isRequired) {
                 continue;
             }
 
             $values = $valueGroups[$indicator->code] ?? collect();
 
-            if ($indicator->dimensions->isEmpty() && $values->isEmpty()) {
+            if ($indicator->dimensions->isEmpty() && ! $values->contains(fn ($row): bool => $this->rowHasValue($row))) {
                 throw ValidationException::withMessages(['values' => "{$indicator->label} is required before submission."]);
+            }
+
+            if ($indicator->dimensions->count() > 1) {
+                if (! $values->contains(fn ($row): bool => $this->rowHasValue($row))) {
+                    throw ValidationException::withMessages(['values' => "{$indicator->label} is required before submission."]);
+                }
+
+                foreach ($indicator->dimensions as $dimension) {
+                    if (! $dimension->is_required) {
+                        continue;
+                    }
+
+                    foreach ($dimension->dimension_values as $dimensionValue) {
+                        if (! $values->contains(fn ($row): bool => ($row->metadata['dimensions'][$dimension->dimension_key] ?? null) === $dimensionValue && $this->rowHasValue($row))) {
+                            throw ValidationException::withMessages(['values' => "{$indicator->label} requires {$dimension->dimension_label}: {$dimensionValue}."]);
+                        }
+                    }
+                }
+
+                continue;
             }
 
             foreach ($indicator->dimensions as $dimension) {
@@ -273,7 +440,7 @@ class ReportSubmissionService
                 }
 
                 foreach ($dimension->dimension_values as $dimensionValue) {
-                    if (! $values->contains(fn ($row): bool => $row->dimension_key === $dimension->dimension_key && $row->dimension_value === $dimensionValue)) {
+                    if (! $values->contains(fn ($row): bool => $row->dimension_key === $dimension->dimension_key && $row->dimension_value === $dimensionValue && $this->rowHasValue($row))) {
                         throw ValidationException::withMessages(['values' => "{$indicator->label} requires {$dimension->dimension_label}: {$dimensionValue}."]);
                     }
                 }
@@ -281,12 +448,44 @@ class ReportSubmissionService
         }
     }
 
+    protected function rowHasValue($row): bool
+    {
+        return $row->value_integer !== null
+            || $row->value_decimal !== null
+            || $row->value_text !== null
+            || $row->value_boolean !== null
+            || $row->computed_value_decimal !== null;
+    }
+
+    protected function conditionalRuleMatches(?array $rule, Collection $valueGroups): bool
+    {
+        if (empty($rule['indicator_code']) || ! array_key_exists('value', $rule)) {
+            return false;
+        }
+
+        $expected = (string) $rule['value'];
+        $values = $valueGroups[$rule['indicator_code']] ?? collect();
+
+        return $values->contains(fn ($row): bool => $this->rowHasValue($row)
+            && (string) ($row->value_integer ?? $row->value_decimal ?? $row->value_text ?? (int) $row->value_boolean) === $expected);
+    }
+
     protected function summary(ReportSubmission $submission): array
     {
-        return $submission->values
+        $summary = $submission->values
             ->groupBy('indicator_code')
             ->map(fn (Collection $values): float|int => $values->sum(fn ($value): float => (float) ($value->value_integer ?? $value->value_decimal ?? 0)))
             ->all();
+
+        $scoreValues = $submission->values->filter(fn ($value): bool => isset($value->metadata['option']));
+        if ($scoreValues->isNotEmpty()) {
+            $summary['_assessment'] = [
+                'score' => (float) $scoreValues->sum(fn ($value): float => (float) ($value->metadata['option']['score'] ?? 0)),
+                'requires_review' => $scoreValues->contains(fn ($value): bool => (bool) ($value->metadata['option']['requires_review'] ?? false)),
+            ];
+        }
+
+        return $summary;
     }
 
     protected function assertTemplateAssigned(ReportTemplate $template, int $mdaId, ?int $stationId, ?int $departmentId): void

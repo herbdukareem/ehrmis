@@ -30,11 +30,38 @@ const tones = {
     mda: 'ehrmis-badge-info',
     live: 'ehrmis-badge-success',
     planned: 'ehrmis-badge-neutral',
+    available: 'ehrmis-badge-success',
+    accepted: 'ehrmis-badge-success',
+    posted: 'ehrmis-badge-success',
+    paid: 'ehrmis-badge-success',
+    unpaid: 'ehrmis-badge-neutral',
+    partially_paid: 'ehrmis-badge-warning',
+    received: 'ehrmis-badge-success',
+    liquidated: 'ehrmis-badge-success',
+    issued: 'ehrmis-badge-info',
+    evaluated: 'ehrmis-badge-info',
+    recommended: 'ehrmis-badge-info',
+    committed: 'ehrmis-badge-info',
+    budget_reviewed: 'ehrmis-badge-info',
+    open: 'ehrmis-badge-info',
+    partially_received: 'ehrmis-badge-warning',
+    partially_liquidated: 'ehrmis-badge-warning',
+    returned: 'ehrmis-badge-warning',
+    partial: 'ehrmis-badge-warning',
+    insufficient: 'ehrmis-badge-danger',
+    unmapped: 'ehrmis-badge-warning',
+    pending: 'ehrmis-badge-neutral',
+    closed: 'ehrmis-badge-neutral',
+    completed: 'ehrmis-badge-success',
+    cancelled: 'ehrmis-badge-danger',
+    released: 'ehrmis-badge-neutral',
+    partially_released: 'ehrmis-badge-warning',
+    awarded: 'ehrmis-badge-success',
 };
 </script>
 
 <template>
     <span :class="tones[status] ?? tones.inactive">
-        {{ status }}
+        {{ (status ?? 'inactive').replaceAll('_', ' ') }}
     </span>
 </template>

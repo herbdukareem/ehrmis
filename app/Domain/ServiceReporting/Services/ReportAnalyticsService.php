@@ -163,6 +163,7 @@ class ReportAnalyticsService
                 'report_submission_values.computed_value_decimal',
                 'report_submission_values.value_text',
                 'report_submission_values.value_boolean',
+                'report_submission_values.metadata',
                 'reporting_periods.period_year',
                 'reporting_periods.period_month',
             ])
@@ -172,11 +173,12 @@ class ReportAnalyticsService
 
         $periods = $this->tablePeriods($filters, $values);
         $periodKeys = collect($periods)->pluck('key')->all();
-        $valuesByRow = $values->groupBy(fn ($value): string => implode('|', [
-            $value->report_template_indicator_id,
-            $value->dimension_key ?? '',
-            $value->dimension_value ?? '',
-        ]));
+        $valuesByRow = $values->groupBy(fn ($value): string => $this->tableRowKey(
+            (int) $value->report_template_indicator_id,
+            $value->dimension_key,
+            $value->dimension_value,
+            $value->metadata['dimensions'] ?? null,
+        ));
 
         return [
             'template' => $template->only(['id', 'code', 'name']),
@@ -187,23 +189,14 @@ class ReportAnalyticsService
                     'title' => $section->title,
                     'description' => $section->description,
                     'indicators' => $section->indicators->map(function (ReportTemplateIndicator $indicator) use ($periodKeys, $valuesByRow): array {
-                        $dimensionRows = $indicator->dimensions->flatMap(fn ($dimension) => collect($dimension->dimension_values)->map(fn ($value): array => [
-                            'dimension_key' => $dimension->dimension_key,
-                            'dimension_label' => "{$dimension->dimension_label}: {$value}",
-                            'dimension_value' => $value,
-                        ]));
-                        $dimensionRows = $dimensionRows->isNotEmpty() ? $dimensionRows : collect([[
-                            'dimension_key' => null,
-                            'dimension_label' => null,
-                            'dimension_value' => null,
-                        ]]);
+                        $dimensionRows = $this->templateTableRows($indicator);
 
                         return [
                             'id' => $indicator->id,
                             'label' => $indicator->label,
                             'unit' => $indicator->unit,
                             'rows' => $dimensionRows->map(function (array $row) use ($indicator, $periodKeys, $valuesByRow): array {
-                                $key = implode('|', [$indicator->id, $row['dimension_key'] ?? '', $row['dimension_value'] ?? '']);
+                                $key = $this->tableRowKey($indicator->id, $row['dimension_key'] ?? null, $row['dimension_value'] ?? null, $row['dimensions'] ?? null);
                                 $byPeriod = $valuesByRow->get($key, collect())->groupBy(fn ($value): string => sprintf('%04d-%02d', $value->period_year, $value->period_month));
 
                                 return [
@@ -272,6 +265,58 @@ class ReportAnalyticsService
                         });
                 });
             });
+    }
+
+    protected function templateTableRows(ReportTemplateIndicator $indicator): Collection
+    {
+        if ($indicator->dimensions->count() > 1) {
+            $dimensions = $indicator->dimensions->values();
+            $rows = collect([[]]);
+
+            foreach ($dimensions as $dimension) {
+                $rows = $rows->flatMap(fn (array $row): Collection => collect($dimension->dimension_values)->map(fn (string $value): array => [
+                    ...$row,
+                    $dimension->dimension_key => $value,
+                ]));
+            }
+
+            return $rows->map(fn (array $dimensionValues): array => [
+                'dimension_key' => 'matrix',
+                'dimension_label' => collect($dimensionValues)->map(fn (string $value, string $key): string => "{$key}: {$value}")->implode(', '),
+                'dimension_value' => $this->dimensionSignature($dimensionValues),
+                'dimensions' => $dimensionValues,
+            ])->values();
+        }
+
+        $dimensionRows = $indicator->dimensions->flatMap(fn ($dimension) => collect($dimension->dimension_values)->map(fn ($value): array => [
+            'dimension_key' => $dimension->dimension_key,
+            'dimension_label' => "{$dimension->dimension_label}: {$value}",
+            'dimension_value' => $value,
+        ]));
+
+        return $dimensionRows->isNotEmpty() ? $dimensionRows : collect([[
+            'dimension_key' => null,
+            'dimension_label' => null,
+            'dimension_value' => null,
+        ]]);
+    }
+
+    protected function tableRowKey(int $indicatorId, ?string $dimensionKey, ?string $dimensionValue, ?array $dimensions): string
+    {
+        if ($dimensions) {
+            return implode('|', [$indicatorId, 'matrix', $this->dimensionSignature($dimensions)]);
+        }
+
+        return implode('|', [$indicatorId, $dimensionKey ?? '', $dimensionValue ?? '']);
+    }
+
+    protected function dimensionSignature(array $dimensions): string
+    {
+        ksort($dimensions);
+
+        return collect($dimensions)
+            ->map(fn (string $value, string $key): string => rawurlencode($key).'='.rawurlencode($value))
+            ->implode('|');
     }
 
     protected function tablePeriods(array $filters, Collection $values): array

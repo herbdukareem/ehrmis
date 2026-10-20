@@ -16,6 +16,7 @@ class BudgetWorkbookWorkflowService
     public function __construct(
         protected ApprovalWorkflowService $approvalWorkflowService,
         protected AuditLogService $auditLogService,
+        protected RecurrentBudgetAllocationSyncService $recurrentBudgetAllocationSyncService,
     ) {}
 
     public function submit(BudgetWorkbook $workbook, ?User $actor = null): BudgetWorkbook
@@ -86,7 +87,12 @@ class BudgetWorkbookWorkflowService
                 'approved_at' => now(),
             ])->save();
 
-            $this->auditLogService->logUpdated($workbook, $before, ['source' => 'budget_workflow.approved']);
+            $syncSummary = $this->recurrentBudgetAllocationSyncService->syncApprovedWorkbook($workbook->fresh(), $actor);
+
+            $this->auditLogService->logUpdated($workbook, $before, [
+                'source' => 'budget_workflow.approved',
+                'recurrent_budget_allocation_sync' => $syncSummary,
+            ]);
 
             return $workbook->fresh(['lines', 'movementWorkbook', 'mda', 'approvalWorkflow.steps']);
         });

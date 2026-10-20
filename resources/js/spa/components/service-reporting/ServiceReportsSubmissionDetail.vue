@@ -12,6 +12,16 @@ defineProps({
 });
 
 defineEmits(['workflow', 'continue-draft']);
+
+function valueDimensionLabel(value) {
+    if (value.dimensions && Object.keys(value.dimensions).length) {
+        return Object.entries(value.dimensions)
+            .map(([key, dimensionValue]) => `${titleCase(key)}: ${dimensionValue}`)
+            .join(', ');
+    }
+
+    return value.dimension_value ? `${titleCase(value.dimension_value)}` : '';
+}
 </script>
 
 <template>
@@ -56,7 +66,7 @@ defineEmits(['workflow', 'continue-draft']);
                         <td class="civic-primary-cell">{{ indicator.label }}</td>
                         <td>
                             <span v-for="value in submission.values.filter((row) => row.indicator_code === indicator.code)" :key="`${value.indicator_code}-${value.dimension_value ?? 'value'}`" class="civic-value-token">
-                                {{ value.dimension_value ? `${titleCase(value.dimension_value)}: ` : '' }}{{ formatNumber(value.value) }}
+                                {{ valueDimensionLabel(value) ? `${valueDimensionLabel(value)}: ` : '' }}{{ formatNumber(value.value) }}
                             </span>
                         </td>
                     </tr>

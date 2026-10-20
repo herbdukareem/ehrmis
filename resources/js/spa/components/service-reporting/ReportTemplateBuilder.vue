@@ -1,5 +1,5 @@
 <script setup>
-import { reactive, ref } from 'vue';
+import { computed, reactive, ref } from 'vue';
 import AppModal from '../AppModal.vue';
 import { api, apiMessage } from '../../lib/api';
 import { titleCase } from '../../lib/serviceReporting';
@@ -29,14 +29,41 @@ const indicatorForm = reactive({
     label: '',
     code: '',
     description: '',
+    placeholder: '',
+    help_text: '',
     value_type: 'integer',
+    field_type: 'whole_number',
     unit: '',
+    default_value: '',
     is_required: true,
     is_computed: false,
+    is_read_only: false,
+    contributes_to_score: false,
     sort_order: 10,
     status: 'active',
+    validation_rules: {
+        min: '',
+        max: '',
+        today_or_earlier: false,
+    },
+    display_rules: {
+        enabled: false,
+        indicator_code: '',
+        operator: 'equals',
+        value: '',
+    },
+    required_rules: {
+        enabled: false,
+        indicator_code: '',
+        operator: 'equals',
+        value: '',
+    },
     dimensions: [],
+    options: [],
 });
+
+const optionFieldTypes = ['select', 'radio', 'multi_select'];
+const hasAnswerOptions = computed(() => optionFieldTypes.includes(indicatorForm.field_type));
 
 function resetSectionForm() {
     editingSection.value = null;
@@ -107,13 +134,37 @@ function resetIndicatorForm(section = null) {
         label: '',
         code: '',
         description: '',
+        placeholder: '',
+        help_text: '',
         value_type: 'integer',
+        field_type: 'whole_number',
         unit: '',
+        default_value: '',
         is_required: true,
         is_computed: false,
+        is_read_only: false,
+        contributes_to_score: false,
         sort_order: 10,
         status: 'active',
+        validation_rules: {
+            min: '',
+            max: '',
+            today_or_earlier: false,
+        },
+        display_rules: {
+            enabled: false,
+            indicator_code: '',
+            operator: 'equals',
+            value: '',
+        },
+        required_rules: {
+            enabled: false,
+            indicator_code: '',
+            operator: 'equals',
+            value: '',
+        },
         dimensions: [],
+        options: [],
     });
 }
 
@@ -138,12 +189,35 @@ function editIndicator(section, indicator) {
         label: indicator.label,
         code: indicator.code,
         description: indicator.description ?? '',
+        placeholder: indicator.placeholder ?? '',
+        help_text: indicator.help_text ?? '',
         value_type: indicator.value_type,
+        field_type: indicator.field_type ?? 'whole_number',
         unit: indicator.unit ?? '',
+        default_value: indicator.default_value ?? '',
         is_required: Boolean(indicator.is_required),
         is_computed: Boolean(indicator.is_computed),
+        is_read_only: Boolean(indicator.is_read_only),
+        contributes_to_score: Boolean(indicator.contributes_to_score),
         sort_order: indicator.sort_order ?? 10,
         status: indicator.status ?? 'active',
+        validation_rules: {
+            min: indicator.validation_rules?.min ?? '',
+            max: indicator.validation_rules?.max ?? '',
+            today_or_earlier: Boolean(indicator.validation_rules?.today_or_earlier),
+        },
+        display_rules: {
+            enabled: Boolean(indicator.display_rules?.indicator_code),
+            indicator_code: indicator.display_rules?.indicator_code ?? '',
+            operator: indicator.display_rules?.operator ?? 'equals',
+            value: indicator.display_rules?.value ?? '',
+        },
+        required_rules: {
+            enabled: Boolean(indicator.required_rules?.indicator_code),
+            indicator_code: indicator.required_rules?.indicator_code ?? '',
+            operator: indicator.required_rules?.operator ?? 'equals',
+            value: indicator.required_rules?.value ?? '',
+        },
         dimensions: indicator.dimensions.map((dimension) => ({
             dimension_key: dimension.dimension_key,
             dimension_label: dimension.dimension_label,
@@ -152,7 +226,38 @@ function editIndicator(section, indicator) {
             total_strategy: dimension.total_strategy ?? 'none',
             sort_order: dimension.sort_order ?? 10,
         })),
+        options: (indicator.options ?? []).map((option) => ({
+            label: option.label,
+            value: option.value,
+            score: option.score ?? '',
+            requires_review: Boolean(option.requires_review),
+            sort_order: option.sort_order ?? 10,
+        })),
     });
+}
+
+function applyFieldTypeDefaults() {
+    if (['number', 'decimal'].includes(indicatorForm.field_type)) {
+        indicatorForm.value_type = 'decimal';
+        return;
+    }
+
+    if (['whole_number'].includes(indicatorForm.field_type)) {
+        indicatorForm.value_type = 'integer';
+        return;
+    }
+
+    if (indicatorForm.field_type === 'percentage') {
+        indicatorForm.value_type = 'percentage';
+        return;
+    }
+
+    if (['boolean', 'checkbox'].includes(indicatorForm.field_type)) {
+        indicatorForm.value_type = 'boolean';
+        return;
+    }
+
+    indicatorForm.value_type = 'text';
 }
 
 function addDimension() {
@@ -170,15 +275,57 @@ function removeDimension(index) {
     indicatorForm.dimensions.splice(index, 1);
 }
 
+function addOption() {
+    indicatorForm.options.push({
+        label: '',
+        value: '',
+        score: '',
+        requires_review: false,
+        sort_order: (indicatorForm.options.length + 1) * 10,
+    });
+}
+
+function removeOption(index) {
+    indicatorForm.options.splice(index, 1);
+}
+
+function rulesPayload(rules) {
+    const payload = {};
+    if (rules.min !== '') payload.min = Number(rules.min);
+    if (rules.max !== '') payload.max = Number(rules.max);
+    if (rules.today_or_earlier) payload.today_or_earlier = true;
+
+    return Object.keys(payload).length ? payload : null;
+}
+
+function conditionalPayload(rules) {
+    if (!rules.enabled || !rules.indicator_code || rules.value === '') return null;
+
+    return {
+        indicator_code: rules.indicator_code,
+        operator: rules.operator,
+        value: rules.value,
+    };
+}
+
 function indicatorPayload() {
     return {
         label: indicatorForm.label,
         code: indicatorForm.code,
         description: indicatorForm.description || null,
+        placeholder: indicatorForm.placeholder || null,
+        help_text: indicatorForm.help_text || null,
         value_type: indicatorForm.value_type,
+        field_type: indicatorForm.field_type,
         unit: indicatorForm.unit || null,
+        default_value: indicatorForm.default_value || null,
         is_required: indicatorForm.is_required,
         is_computed: indicatorForm.is_computed,
+        is_read_only: indicatorForm.is_read_only,
+        contributes_to_score: indicatorForm.contributes_to_score,
+        validation_rules: rulesPayload(indicatorForm.validation_rules),
+        display_rules: conditionalPayload(indicatorForm.display_rules),
+        required_rules: conditionalPayload(indicatorForm.required_rules),
         sort_order: indicatorForm.sort_order || 10,
         status: indicatorForm.status,
         dimensions: indicatorForm.dimensions
@@ -190,6 +337,15 @@ function indicatorPayload() {
                 is_required: dimension.is_required,
                 total_strategy: dimension.total_strategy,
                 sort_order: dimension.sort_order || 10,
+            })),
+        options: indicatorForm.options
+            .filter((option) => option.label && option.value)
+            .map((option) => ({
+                label: option.label,
+                value: option.value,
+                score: option.score === '' ? null : Number(option.score),
+                requires_review: option.requires_review,
+                sort_order: option.sort_order || 10,
             })),
     };
 }
@@ -335,7 +491,25 @@ async function deleteIndicator(section, indicator) {
                     <option value="boolean">Boolean</option>
                 </select>
             </label>
+            <label class="civic-field">
+                <span>Field Type</span>
+                <select v-model="indicatorForm.field_type" @change="applyFieldTypeDefaults">
+                    <option value="whole_number">Whole number</option>
+                    <option value="number">Number</option>
+                    <option value="decimal">Decimal</option>
+                    <option value="percentage">Percentage</option>
+                    <option value="text">Text</option>
+                    <option value="date">Date</option>
+                    <option value="boolean">Yes / No</option>
+                    <option value="checkbox">Checkbox</option>
+                    <option value="select">Select</option>
+                    <option value="radio">Radio options</option>
+                    <option value="multi_select">Multi-select</option>
+                </select>
+            </label>
             <label class="civic-field"><span>Unit</span><input v-model="indicatorForm.unit" type="text"></label>
+            <label class="civic-field"><span>Placeholder</span><input v-model="indicatorForm.placeholder" type="text"></label>
+            <label class="civic-field"><span>Default Value</span><input v-model="indicatorForm.default_value" type="text"></label>
             <label class="civic-field"><span>Sort Order</span><input v-model="indicatorForm.sort_order" type="number" min="0"></label>
             <label class="civic-field">
                 <span>Status</span>
@@ -346,6 +520,64 @@ async function deleteIndicator(section, indicator) {
             </label>
             <label class="civic-check civic-check-card"><input v-model="indicatorForm.is_required" type="checkbox"><span class="civic-check-copy"><strong>Required</strong></span></label>
             <label class="civic-check civic-check-card"><input v-model="indicatorForm.is_computed" type="checkbox"><span class="civic-check-copy"><strong>Computed</strong></span></label>
+            <label class="civic-check civic-check-card"><input v-model="indicatorForm.is_read_only" type="checkbox"><span class="civic-check-copy"><strong>Read only</strong></span></label>
+            <label class="civic-check civic-check-card"><input v-model="indicatorForm.contributes_to_score" type="checkbox"><span class="civic-check-copy"><strong>Contributes to score</strong></span></label>
+            <label class="civic-field civic-field-wide"><span>Help Text</span><textarea v-model="indicatorForm.help_text" rows="2"></textarea></label>
+
+            <div class="civic-field-wide civic-reporting-config-panel">
+                <div class="civic-section-heading">
+                    <h2>Validation Rules</h2>
+                </div>
+                <div class="civic-reporting-rule-grid">
+                    <label class="civic-field"><span>Minimum</span><input v-model="indicatorForm.validation_rules.min" type="number"></label>
+                    <label class="civic-field"><span>Maximum</span><input v-model="indicatorForm.validation_rules.max" type="number"></label>
+                    <label class="civic-check civic-check-card"><input v-model="indicatorForm.validation_rules.today_or_earlier" type="checkbox"><span class="civic-check-copy"><strong>Today or earlier</strong></span></label>
+                </div>
+            </div>
+
+            <div v-if="hasAnswerOptions" class="civic-field-wide civic-reporting-config-panel">
+                <div class="civic-section-heading">
+                    <h2>Answer Options</h2>
+                    <button class="civic-button" type="button" @click="addOption">Add Option</button>
+                </div>
+                <div v-for="(option, index) in indicatorForm.options" :key="index" class="civic-reporting-option-row">
+                    <label class="civic-field"><span>Label</span><input v-model="option.label" type="text"></label>
+                    <label class="civic-field"><span>Stored Value</span><input v-model="option.value" type="text"></label>
+                    <label class="civic-field"><span>Score</span><input v-model="option.score" type="number" step="0.01"></label>
+                    <label class="civic-check"><input v-model="option.requires_review" type="checkbox"><span>Review</span></label>
+                    <button class="civic-button" type="button" @click="removeOption(index)">Remove</button>
+                </div>
+            </div>
+
+            <div class="civic-field-wide civic-reporting-config-panel">
+                <div class="civic-section-heading">
+                    <h2>Conditional Rules</h2>
+                </div>
+                <div class="civic-reporting-rule-grid">
+                    <label class="civic-check civic-check-card"><input v-model="indicatorForm.display_rules.enabled" type="checkbox"><span class="civic-check-copy"><strong>Show conditionally</strong></span></label>
+                    <label class="civic-field">
+                        <span>When Indicator</span>
+                        <select v-model="indicatorForm.display_rules.indicator_code">
+                            <option value="">Choose indicator</option>
+                            <optgroup v-for="section in template.sections" :key="section.id" :label="section.title">
+                                <option v-for="indicator in section.indicators" :key="indicator.id" :value="indicator.code">{{ indicator.label }}</option>
+                            </optgroup>
+                        </select>
+                    </label>
+                    <label class="civic-field"><span>Equals</span><input v-model="indicatorForm.display_rules.value" type="text"></label>
+                    <label class="civic-check civic-check-card"><input v-model="indicatorForm.required_rules.enabled" type="checkbox"><span class="civic-check-copy"><strong>Require conditionally</strong></span></label>
+                    <label class="civic-field">
+                        <span>When Indicator</span>
+                        <select v-model="indicatorForm.required_rules.indicator_code">
+                            <option value="">Choose indicator</option>
+                            <optgroup v-for="section in template.sections" :key="section.id" :label="section.title">
+                                <option v-for="indicator in section.indicators" :key="indicator.id" :value="indicator.code">{{ indicator.label }}</option>
+                            </optgroup>
+                        </select>
+                    </label>
+                    <label class="civic-field"><span>Equals</span><input v-model="indicatorForm.required_rules.value" type="text"></label>
+                </div>
+            </div>
 
             <div class="civic-field-wide civic-reporting-dimensions">
                 <div class="civic-section-heading">

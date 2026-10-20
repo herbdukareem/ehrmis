@@ -29,6 +29,7 @@ const fillMda = () => {
         head_staff_id: mda.setting?.head_staff_id ?? '', head_title: mda.setting?.head_title ?? '',
         posting_reference_prefix: mda.setting?.posting_reference_prefix ?? `${mda.code}/STA`,
         posting_reference_suffix: mda.setting?.posting_reference_suffix ?? 'VOL.1',
+        link_recurrent_budget_to_annual_allocations: Boolean(mda.setting?.link_recurrent_budget_to_annual_allocations),
     });
 };
 watch(selectedMdaId, fillMda);
@@ -52,7 +53,7 @@ const savePlatform = async () => {
 };
 const saveMda = async () => {
     const form = new FormData();
-    Object.entries(mdaForm).forEach(([key, value]) => value !== null && form.append(key, value));
+    Object.entries(mdaForm).forEach(([key, value]) => value !== null && form.append(key, value === true ? 1 : value === false ? 0 : value));
     if (mdaLogo.value) form.append('logo', mdaLogo.value);
     if (signature.value) form.append('signature', signature.value);
     try { feedback.value = (await api.post(`/settings/mdas/${selectedMdaId.value}`, form)).data.message; await load(); await loadPublicContext(); } catch (error) { feedback.value = apiMessage(error); }
@@ -96,6 +97,7 @@ onMounted(load);
             <label class="civic-field"><span>Signature image</span><input type="file" accept="image/*" @change="signature = $event.target.files[0]"></label>
             <label class="civic-field"><span>Posting reference prefix</span><input v-model="mdaForm.posting_reference_prefix" placeholder="HMB/STA"></label>
             <label class="civic-field"><span>Posting reference suffix</span><input v-model="mdaForm.posting_reference_suffix" placeholder="VOL.1"></label>
+            <label class="civic-check civic-field-wide"><input v-model="mdaForm.link_recurrent_budget_to_annual_allocations" type="checkbox"> Link approved recurrent personnel budget into annual budget allocations</label>
             <label class="civic-field civic-field-wide"><span>Vision</span><RichTextEditor v-model="mdaForm.vision_html" /></label>
             <label class="civic-field civic-field-wide"><span>Mission</span><RichTextEditor v-model="mdaForm.mission_html" /></label>
             <div class="civic-field-wide"><button class="civic-button civic-button-primary">Save MDA settings</button></div>

@@ -54,6 +54,26 @@ class ServiceReportingSeeder extends Seeder
 
         app(ReportTemplateService::class)->syncStructure($template, $this->hmbMonthlyStatisticsSections());
 
+        $hctTemplate = ReportTemplate::query()->updateOrCreate(
+            ['code' => 'HCT_MONTHLY_REPORT'],
+            [
+                'owner_mda_id' => $hmb->id,
+                'module_id' => $module?->id,
+                'module_code' => 'service_reporting',
+                'name' => 'HCT Monthly Report',
+                'description' => 'HIV counselling and testing return excluding women attending ANC.',
+                'frequency' => 'monthly',
+                'status' => 'active',
+                'requires_approval' => true,
+                'submission_deadline_day' => 7,
+                'allow_late_submission' => true,
+                'created_by' => $actor?->id,
+                'updated_by' => $actor?->id,
+            ],
+        );
+
+        app(ReportTemplateService::class)->syncStructure($hctTemplate, $this->hctMonthlyReportSections());
+
         $assignments = $hmb->stations()->exists()
             ? $hmb->stations()->get()->map(fn ($station): array => [
                 'mda_id' => $hmb->id,
@@ -69,20 +89,24 @@ class ServiceReportingSeeder extends Seeder
             ]];
 
         if ($actor) {
-            app(ReportTemplateAssignmentService::class)->syncAssignments($template->fresh(), $assignments, $actor);
+            foreach ([$template, $hctTemplate] as $reportTemplate) {
+                app(ReportTemplateAssignmentService::class)->syncAssignments($reportTemplate->fresh(), $assignments, $actor);
+            }
         } else {
-            foreach ($assignments as $assignment) {
-                $template->assignments()->updateOrCreate(
-                    [
-                        'mda_id' => $assignment['mda_id'],
-                        'station_id' => $assignment['station_id'],
-                    ],
-                    [
-                        'is_required' => true,
-                        'status' => 'active',
-                        'assigned_at' => now(),
-                    ],
-                );
+            foreach ([$template, $hctTemplate] as $reportTemplate) {
+                foreach ($assignments as $assignment) {
+                    $reportTemplate->assignments()->updateOrCreate(
+                        [
+                            'mda_id' => $assignment['mda_id'],
+                            'station_id' => $assignment['station_id'],
+                        ],
+                        [
+                            'is_required' => true,
+                            'status' => 'active',
+                            'assigned_at' => now(),
+                        ],
+                    );
+                }
             }
         }
     }
@@ -285,6 +309,62 @@ class ServiceReportingSeeder extends Seeder
         ];
     }
 
+    /**
+     * @return list<array<string, mixed>>
+     */
+    protected function hctMonthlyReportSections(): array
+    {
+        return [
+            [
+                'title' => 'HIV Testing by Age, Sex and Service Point',
+                'code' => 'HIV_TESTING_AGE_SEX_SERVICE_POINT',
+                'description' => 'All data elements exclude women attending ANC.',
+                'sort_order' => 10,
+                'indicators' => [
+                    $this->hctAgeServicePointIndicator('hct_negative_male', 'No. of ind. Tested HIV negative (male)', false, 10),
+                    $this->hctAgeServicePointIndicator('hct_negative_female', 'No. of ind. Tested HIV negative (female)', false, 20),
+                    $this->hctAgeServicePointIndicator('hct_positive_male', 'No. of ind. Tested HIV positive (male)', false, 30),
+                    $this->hctAgeServicePointIndicator('hct_positive_female', 'No. of ind. Tested HIV positive (female)', false, 40),
+                ],
+            ],
+            [
+                'title' => 'HCT Service Summary',
+                'code' => 'HCT_SERVICE_SUMMARY',
+                'sort_order' => 20,
+                'indicators' => [
+                    $this->hctServicePointIndicator('hct_negative_subtotal', 'Subtotal A: No. of ind. Tested HIV negative', false, 10),
+                    $this->hctServicePointIndicator('hct_positive_subtotal', 'Subtotal B: No. of ind. HIV positive', false, 20),
+                    $this->hctServicePointIndicator('hct_total_tested', 'Total no. of ind. HIV tested (Subtotal A + B)', false, 30),
+                    $this->hctServicePointIndicator('hct_counseled_tested_result_male', 'No. of ind. HIV counseled & test & result (male)', false, 40),
+                    $this->hctServicePointIndicator('hct_counseled_tested_result_female', 'No. of ind. HIV counseled & test & result (female)', false, 50),
+                    $this->hctServicePointIndicator('hct_counseled_tested_result_total', 'Total No. of ind. HIV counseled & test & result', false, 60),
+                    $this->hctServicePointIndicator('hct_couples_counseled_tested_result', 'Number of couples HIV counseled & test & result', false, 70),
+                    $this->hctServicePointIndicator('hct_couples_sero_discordant', 'Number of couples HIV counseled & test & result that are sero-discordant', false, 80),
+                    $this->hctServicePointIndicator('sti_clients_hiv_negative', 'No. of STI clients tested HIV negative', false, 90),
+                    $this->hctServicePointIndicator('sti_clients_hiv_positive', 'No. of STI clients tested HIV positive', false, 100),
+                    $this->hctServicePointIndicator('tbs_patients_hiv_negative', 'No. of TBS patients tested HIV negative', false, 110),
+                    $this->hctServicePointIndicator('tbs_patients_hiv_positive', 'No. of TBS patients tested HIV positive', false, 120),
+                    $this->hctServicePointIndicator('hiv_negative_tb_screen_score_0', 'No. of HIV neg. clients clinically screened for TB score 0', false, 130),
+                    $this->hctServicePointIndicator('hiv_positive_tb_screen_score_0', 'No. of HIV pos. clients clinically screened for TB score 0', false, 140),
+                    $this->hctServicePointIndicator('hiv_negative_tb_screen_score_1_plus', 'No. of HIV neg. clients clinically screened for TB score 1+', false, 150),
+                    $this->hctServicePointIndicator('hiv_positive_tb_screen_score_1_plus', 'No. of HIV pos. clients clinically screened for TB score 1+', false, 160),
+                ],
+            ],
+            [
+                'title' => 'Monitoring and HCT Training',
+                'code' => 'HCT_MONITORING_TRAINING',
+                'sort_order' => 30,
+                'indicators' => [
+                    $this->indicator('hct_government_monitoring_visits', 'No. of external onsite monitoring visit(s) conducted by government official(s) in-charge during reporting period using standard check list', 'integer', false, 10),
+                    $this->indicator('hct_ta_consultant_monitoring_visits', 'No. of external on site monitoring visit(s) conducted by TA/Consultants during reporting period using standard check list', 'integer', false, 20),
+                    $this->indicator('hct_counselors_newly_trained', 'No. of counselor(s) of facility newly trained on HCT (excluding PMTCT) during reporting period', 'integer', false, 30),
+                    $this->indicator('hct_counselors_retrained', 'No. of counselor(s) facility re-trained on HCT (excluding PMTCT) during reporting period', 'integer', false, 40),
+                    $this->indicator('hct_trained_counselors_provided_services', 'No. of trained counselor(s) who provided HCT services (excluding PMTCT) at the facility during the reporting period', 'integer', false, 50),
+                ],
+            ],
+        ];
+    }
+
     protected function indicator(string $code, string $label, string $type, bool $required, int $sortOrder): array
     {
         return [
@@ -305,6 +385,44 @@ class ServiceReportingSeeder extends Seeder
     protected function newOldIndicator(string $code, string $label, bool $required, int $sortOrder): array
     {
         return $this->dimensionIndicator($code, $label, 'integer', $required, $sortOrder, 'attendance_status', 'Attendance Status', ['new', 'old']);
+    }
+
+    protected function hctServicePointIndicator(string $code, string $label, bool $required, int $sortOrder): array
+    {
+        return $this->dimensionIndicator($code, $label, 'integer', $required, $sortOrder, 'service_point', 'Service Point', $this->hctServicePoints());
+    }
+
+    protected function hctAgeServicePointIndicator(string $code, string $label, bool $required, int $sortOrder): array
+    {
+        return [
+            ...$this->indicator($code, $label, $type, $required, $sortOrder),
+            'dimensions' => [
+                [
+                    'dimension_key' => 'age_group',
+                    'dimension_label' => 'Age Group',
+                    'dimension_values' => ['<2', '2-14', '15-19', '20-24', '25+'],
+                    'is_required' => $required,
+                    'total_strategy' => 'sum_values',
+                    'sort_order' => 10,
+                ],
+                [
+                    'dimension_key' => 'service_point',
+                    'dimension_label' => 'Service Point',
+                    'dimension_values' => $this->hctServicePoints(),
+                    'is_required' => $required,
+                    'total_strategy' => 'sum_values',
+                    'sort_order' => 20,
+                ],
+            ],
+        ];
+    }
+
+    /**
+     * @return list<string>
+     */
+    protected function hctServicePoints(): array
+    {
+        return ['In-patient', 'CT Site', 'TB Site', 'Blood Bank', 'FP Site', 'PCT', 'Mobile'];
     }
 
     /**

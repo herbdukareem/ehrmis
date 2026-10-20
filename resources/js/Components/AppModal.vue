@@ -3,6 +3,7 @@ import AppIcon from '@/Components/AppIcon.vue';
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 
 const props = defineProps({
+    overflowVisible: { type: Boolean, default: false },
     show: {
         type: Boolean,
         default: false,
@@ -76,6 +77,7 @@ const maxWidthClass = computed(() => ({
 <template>
     <dialog
         ref="dialog"
+        :aria-label="title || undefined"
         class="z-50 m-0 min-h-full min-w-full overflow-y-auto bg-transparent backdrop:bg-transparent"
     >
         <div class="fixed inset-0 z-50 overflow-y-auto px-4 py-6 sm:px-0" scroll-region>
@@ -106,8 +108,8 @@ const maxWidthClass = computed(() => ({
             >
                 <div
                     v-show="show"
-                    class="mb-6 transform overflow-hidden rounded-ehrmis bg-white shadow-ehrmis-pop transition-all sm:mx-auto sm:w-full"
-                    :class="maxWidthClass"
+                    class="mb-6 transform rounded-ehrmis bg-white shadow-ehrmis-pop transition-all sm:mx-auto sm:w-full"
+                    :class="[maxWidthClass, overflowVisible ? 'overflow-visible' : 'overflow-hidden']"
                 >
                     <template v-if="showSlot">
                         <div
@@ -118,6 +120,7 @@ const maxWidthClass = computed(() => ({
                             <button
                                 v-if="closeable"
                                 type="button"
+                                aria-label="Close dialog"
                                 class="rounded-lg p-1 text-ehrmis-muted transition hover:bg-slate-100 hover:text-ehrmis-text"
                                 @click="close"
                             >

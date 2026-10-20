@@ -11,7 +11,7 @@ import ServiceReportsSubmissions from '../components/service-reporting/ServiceRe
 import ServiceReportsSubmitReturn from '../components/service-reporting/ServiceReportsSubmitReturn.vue';
 import ServiceReportsTemplates from '../components/service-reporting/ServiceReportsTemplates.vue';
 import { api, apiMessage } from '../lib/api';
-import { titleCase, valueKey } from '../lib/serviceReporting';
+import { hasMatrixDimensions, matrixCellDimensions, matrixValueKey, matrixColumnDimension, matrixRowDimension, titleCase, valueKey } from '../lib/serviceReporting';
 import { auth, can } from '../stores/auth';
 import { pushToast } from '../stores/app';
 
@@ -240,6 +240,9 @@ async function loadIndicators() {
 async function loadDraftSubmission(id) {
     selectedDraftSubmission.value = (await api.get(`/service-reports/submissions/${id}`)).data.data;
     const submission = selectedDraftSubmission.value;
+    const indicatorsByCode = new Map((submission.template_detail?.sections ?? [])
+        .flatMap((section) => section.indicators ?? [])
+        .map((indicator) => [indicator.code, indicator]));
 
     draftForm.template_id = submission.template_id;
     draftForm.mda_id = submission.mda_id;
@@ -248,7 +251,14 @@ async function loadDraftSubmission(id) {
     draftForm.values = {};
 
     for (const value of submission.values ?? []) {
-        draftForm.values[valueKey(value.indicator_code, value.dimension_key ?? '', value.dimension_value ?? '')] = value.value;
+        if (value.dimensions && Object.keys(value.dimensions).length > 1) {
+            draftForm.values[matrixValueKey(value.indicator_code, value.dimensions)] = value.value;
+        } else {
+            const indicator = indicatorsByCode.get(value.indicator_code);
+            draftForm.values[valueKey(value.indicator_code, value.dimension_key ?? '', value.dimension_value ?? '')] = indicator?.field_type === 'multi_select'
+                ? (value.metadata?.option?.selected_values ?? [])
+                : value.value;
+        }
     }
 
     syncReportingScopeDefaults();
@@ -317,6 +327,24 @@ function buildValuesPayload() {
     if (!template) return [];
 
     return template.sections.flatMap((section) => section.indicators.map((indicator) => {
+        if (hasMatrixDimensions(indicator)) {
+            const rowDimension = matrixRowDimension(indicator);
+            const columnDimension = matrixColumnDimension(indicator);
+            const cells = [];
+
+            for (const rowValue of rowDimension.dimension_values) {
+                for (const columnValue of columnDimension.dimension_values) {
+                    const dimensions = matrixCellDimensions(indicator, rowValue, columnValue);
+                    cells.push({
+                        dimensions,
+                        value: draftForm.values[matrixValueKey(indicator, dimensions)] ?? null,
+                    });
+                }
+            }
+
+            return { indicator_code: indicator.code, cells };
+        }
+
         if (indicator.dimensions?.length) {
             const dimensions = {};
             for (const dimension of indicator.dimensions) {

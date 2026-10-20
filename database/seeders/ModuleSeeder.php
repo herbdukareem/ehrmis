@@ -73,6 +73,62 @@ class ModuleSeeder extends Seeder
                 'approve-budgets',
             ],
         ],
+        'budget_procurement' => [
+            'name' => 'Budget & Procurement',
+            'description' => 'Budget cycles, allocations, releases, procurement planning, requisitions, sourcing, awards, purchase orders, receipts, vendors, and exports.',
+            'category' => 'Planning',
+            'icon' => 'wallet',
+            'permissions' => [
+                'view-budget-cycles',
+                'create-budget-cycles',
+                'approve-budget-cycles',
+                'manage-budget-allocations',
+                'manage-budget-releases',
+                'manage-budget-adjustments',
+                'view-procurement',
+                'manage-procurement-plans',
+                'create-requisitions',
+                'approve-requisitions',
+                'review-budget-availability',
+                'manage-sourcing',
+                'evaluate-bids',
+                'approve-awards',
+                'manage-purchase-orders',
+                'record-procurement-receipts',
+                'view-supplier-payables',
+                'manage-supplier-invoices',
+                'approve-supplier-invoices',
+                'record-supplier-payments',
+                'approve-supplier-payments',
+                'manage-vendors',
+                'export-procurement-reports',
+            ],
+            'templates' => [
+                'viewer' => [
+                    'view-budget-cycles',
+                    'view-procurement',
+                    'view-supplier-payables',
+                ],
+                'officer' => [
+                    'view-budget-cycles',
+                    'create-budget-cycles',
+                    'manage-budget-allocations',
+                    'manage-budget-releases',
+                    'manage-budget-adjustments',
+                    'view-procurement',
+                    'manage-procurement-plans',
+                    'create-requisitions',
+                    'review-budget-availability',
+                    'manage-sourcing',
+                    'manage-purchase-orders',
+                    'record-procurement-receipts',
+                    'view-supplier-payables',
+                    'manage-supplier-invoices',
+                    'record-supplier-payments',
+                    'manage-vendors',
+                ],
+            ],
+        ],
         'workplan_performance' => [
             'name' => 'Workplan & Performance',
             'description' => 'Annual workplan preparation, performance targets, and delivery tracking.',
@@ -191,7 +247,7 @@ class ModuleSeeder extends Seeder
                 );
             }
 
-            $this->seedTemplates($module, $definition['permissions']);
+            $this->seedTemplates($module, $definition['permissions'], $definition['templates'] ?? []);
             $sort += 10;
         }
 
@@ -201,10 +257,15 @@ class ModuleSeeder extends Seeder
     /**
      * @param  list<string>  $permissions
      */
-    protected function seedTemplates(Module $module, array $permissions): void
+    protected function seedTemplates(Module $module, array $permissions, array $templateOverrides = []): void
     {
         $viewPermission = collect($permissions)->first(fn (string $permission): bool => str_starts_with($permission, 'view-'));
-        $base = $viewPermission ? [$viewPermission] : [];
+        $base = $templateOverrides['viewer'] ?? ($viewPermission ? [$viewPermission] : []);
+        $officerPermissions = $templateOverrides['officer'] ?? collect($permissions)
+            ->filter(fn (string $permission): bool => str_starts_with($permission, 'view-') || str_starts_with($permission, 'create-') || str_starts_with($permission, 'submit-') || str_starts_with($permission, 'import-'))
+            ->values()
+            ->all();
+        $adminPermissions = $templateOverrides['admin'] ?? $permissions;
 
         $templates = [
             [
@@ -218,17 +279,14 @@ class ModuleSeeder extends Seeder
                 'name' => $module->name.' Officer',
                 'code' => $module->code.'_officer',
                 'description' => 'Operational access for '.$module->name.'.',
-                'permissions' => collect($permissions)
-                    ->filter(fn (string $permission): bool => str_starts_with($permission, 'view-') || str_starts_with($permission, 'create-') || str_starts_with($permission, 'submit-') || str_starts_with($permission, 'import-'))
-                    ->values()
-                    ->all(),
+                'permissions' => $officerPermissions,
                 'sort_order' => 20,
             ],
             [
                 'name' => $module->name.' Admin',
                 'code' => $module->code.'_admin',
                 'description' => 'Full module-level access for '.$module->name.'.',
-                'permissions' => $permissions,
+                'permissions' => $adminPermissions,
                 'sort_order' => 30,
             ],
         ];
@@ -255,7 +313,7 @@ class ModuleSeeder extends Seeder
 
     protected function enableDefaultsForExistingMdas(): void
     {
-        $defaultModules = ['staff_registry', 'legacy_import', 'movement_budget', 'workplan_performance', 'dashboards_analytics', 'settings', 'access_management'];
+        $defaultModules = ['staff_registry', 'legacy_import', 'movement_budget', 'budget_procurement', 'workplan_performance', 'dashboards_analytics', 'settings', 'access_management'];
         $hmbModules = [...$defaultModules, 'service_reporting'];
 
         Mda::query()->each(function (Mda $mda) use ($defaultModules, $hmbModules): void {

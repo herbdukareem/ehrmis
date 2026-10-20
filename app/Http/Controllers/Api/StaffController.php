@@ -12,21 +12,24 @@ use App\Domain\Staff\Models\QualificationType;
 use App\Domain\Staff\Models\Rank;
 use App\Domain\Staff\Models\SalaryScale;
 use App\Domain\Staff\Models\Staff;
+use App\Domain\Staff\Services\StaffAllowanceService;
 use App\Domain\Staff\Services\StaffQueryService;
 use App\Domain\Staff\Services\StaffRecomputeService;
 use App\Domain\Staff\Services\StaffSalaryPlacementService;
 use App\Domain\Staff\Services\StaffUpdateService;
-use App\Domain\Staff\Services\StaffAllowanceService;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Staff\ResolveStaffFlaggedIssueRequest;
-use App\Http\Requests\Staff\UpdateStaffAppointmentRequest;
+use App\Http\Requests\Staff\StoreStaffRegistryRequest;
 use App\Http\Requests\Staff\UpdateStaffAllowanceAssignmentRequest;
+use App\Http\Requests\Staff\UpdateStaffAppointmentRequest;
 use App\Http\Requests\Staff\UpdateStaffRequest;
 use App\Http\Resources\StaffDetailResource;
 use App\Http\Resources\StaffResource;
+use App\Services\AuditLogService;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\ValidationException;
@@ -54,6 +57,63 @@ class StaffController extends Controller
                 'total' => $staff->total(),
             ],
         ]);
+    }
+
+    public function store(
+        StoreStaffRegistryRequest $request,
+        StaffUpdateService $staffUpdateService,
+        StaffSalaryPlacementService $salaryPlacementService,
+        StaffAllowanceService $allowanceService,
+        AuditLogService $audit,
+    ): JsonResponse {
+        $this->authorize('create', Staff::class);
+        $data = $request->validated();
+
+        $staff = DB::transaction(function () use ($data, $staffUpdateService, $salaryPlacementService, $allowanceService, $audit): Staff {
+            $staff = Staff::query()->create([
+                ...Arr::only($data, ['mda_id', 'staff_number', 'legacy_cno', 'legacy_psn', 'surname', 'first_name', 'middle_name', 'full_name', 'sex', 'date_of_birth', 'status', 'is_contract_staff']),
+                'legacy_cno_psn' => ! empty($data['legacy_cno']) && ! empty($data['legacy_psn'])
+                    ? $data['legacy_cno'].$data['legacy_psn'] : null,
+            ]);
+
+            if (! empty($data['personal_detail'])) {
+                $staff->personalDetail()->create($data['personal_detail']);
+            }
+            if (! empty($data['employment'])) {
+                $staffUpdateService->createEmploymentRecord($staff, [
+                    ...$data['employment'],
+                    'mda_id' => $staff->mda_id,
+                    'employment_status' => $data['employment']['employment_status'] ?? (in_array($staff->status, ['active', 'inactive', 'retired'], true) ? $staff->status : 'active'),
+                    'effective_from' => $data['employment']['effective_from'] ?? now()->toDateString(),
+                ]);
+            }
+            if (! empty($data['salary_placement']['salary_scale_id'])) {
+                $placement = $data['salary_placement'];
+                $placement['salary_scale'] = SalaryScale::query()->findOrFail($placement['salary_scale_id']);
+                $salaryPlacementService->createPlacement($staff, $placement);
+            }
+            if (! empty($data['qualification']['qualification_type_id']) || ! empty($data['qualification']['qualification_name'])) {
+                $staffUpdateService->storeQualification($staff, [
+                    ...$data['qualification'], 'source' => 'staff_management',
+                ]);
+            }
+            if (! empty($data['allowances'])) {
+                $allowanceService->syncAssignments($staff, $data['allowances']);
+            }
+            $staff->statusHistories()->create([
+                'status' => $staff->status,
+                'reason' => 'Created through staff registry',
+                'effective_from' => now()->toDateString(),
+                'metadata' => ['source' => 'staff_management.create'],
+            ]);
+            $audit->logCreated($staff, ['source' => 'staff_management.create', 'mda_id' => $staff->mda_id]);
+
+            return $staff;
+        });
+
+        $this->loadStaffRelations($staff);
+
+        return response()->json(['message' => 'Staff record created.', 'data' => StaffDetailResource::make($staff)->resolve()], 201);
     }
 
     public function show(Staff $staff): JsonResponse

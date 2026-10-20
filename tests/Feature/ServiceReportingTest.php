@@ -7,6 +7,7 @@ use App\Domain\Module\Models\Module;
 use App\Domain\Organization\Models\Mda;
 use App\Domain\Organization\Models\Station;
 use App\Domain\ServiceReporting\Models\ReportSubmission;
+use App\Domain\ServiceReporting\Models\ReportSubmissionValue;
 use App\Domain\ServiceReporting\Models\ReportTemplate;
 use App\Models\User;
 use App\Models\UserAccessScope;
@@ -220,6 +221,99 @@ class ServiceReportingTest extends TestCase
             ->assertJsonPath('data.indicators.0.totals.grand_total', 12)
             ->assertJsonPath('data.indicators.1.indicator.code', 'hiv_positive')
             ->assertJsonPath('data.indicators.1.totals.grand_total', 18);
+    }
+
+    public function test_matrix_indicator_cells_keep_all_dimension_values(): void
+    {
+        [$hmb] = $this->seedFixtures();
+        $user = $this->makeMdaAdmin($hmb);
+        $template = ReportTemplate::query()->where('code', 'HCT_MONTHLY_REPORT')->firstOrFail();
+        $station = Station::query()->where('mda_id', $hmb->id)->firstOrFail();
+
+        $draftId = $this->actingAs($user)
+            ->postJson(route('api.service-reports.submissions.store'), [
+                'template_id' => $template->id,
+                'mda_id' => $hmb->id,
+                'station_id' => $station->id,
+                'period' => '2026-06',
+            ])
+            ->assertCreated()
+            ->json('data.id');
+
+        $this->actingAs($user)
+            ->putJson(route('api.service-reports.submissions.draft', $draftId), [
+                'values' => [[
+                    'indicator_code' => 'hct_negative_male',
+                    'cells' => [
+                        ['dimensions' => ['age_group' => '<2', 'service_point' => 'CT Site'], 'value' => 11],
+                        ['dimensions' => ['age_group' => '2-14', 'service_point' => 'Mobile'], 'value' => 4],
+                    ],
+                ]],
+            ])
+            ->assertOk()
+            ->assertJsonPath('data.summary.hct_negative_male', 15);
+
+        $values = ReportSubmissionValue::query()
+            ->where('report_submission_id', $draftId)
+            ->where('indicator_code', 'hct_negative_male')
+            ->orderBy('id')
+            ->get();
+
+        $this->assertCount(2, $values);
+        $this->assertSame('matrix', $values[0]->dimension_key);
+        $this->assertSame(['age_group' => '<2', 'service_point' => 'CT Site'], $values[0]->metadata['dimensions']);
+        $this->assertSame(['age_group' => '2-14', 'service_point' => 'Mobile'], $values[1]->metadata['dimensions']);
+    }
+
+    public function test_option_indicator_scores_and_review_flags_are_summarized(): void
+    {
+        [$hmb] = $this->seedFixtures();
+        $user = $this->makeMdaAdmin($hmb);
+        $template = ReportTemplate::query()->where('code', 'HCT_MONTHLY_REPORT')->firstOrFail();
+        $section = $template->sections()->where('code', 'HCT_MONITORING_TRAINING')->firstOrFail();
+        $station = Station::query()->where('mda_id', $hmb->id)->firstOrFail();
+
+        $indicator = $section->indicators()->create([
+            'code' => 'infection_control_assessment',
+            'label' => 'General infection control',
+            'value_type' => 'text',
+            'field_type' => 'select',
+            'is_required' => false,
+            'contributes_to_score' => true,
+            'sort_order' => 500,
+            'status' => 'active',
+        ]);
+        $indicator->options()->createMany([
+            ['label' => 'Burning', 'value' => 'burning', 'score' => 2, 'requires_review' => true, 'sort_order' => 10],
+            ['label' => 'None', 'value' => 'none', 'score' => 0, 'requires_review' => false, 'sort_order' => 20],
+        ]);
+
+        $draftId = $this->actingAs($user)
+            ->postJson(route('api.service-reports.submissions.store'), [
+                'template_id' => $template->id,
+                'mda_id' => $hmb->id,
+                'station_id' => $station->id,
+                'period' => '2026-07',
+            ])
+            ->assertCreated()
+            ->json('data.id');
+
+        $this->actingAs($user)
+            ->putJson(route('api.service-reports.submissions.draft', $draftId), [
+                'values' => [[
+                    'indicator_code' => 'infection_control_assessment',
+                    'value' => 'burning',
+                ]],
+            ])
+            ->assertOk()
+            ->assertJsonPath('data.summary._assessment.score', 2)
+            ->assertJsonPath('data.summary._assessment.requires_review', true);
+
+        $this->assertDatabaseHas('report_submission_values', [
+            'report_submission_id' => $draftId,
+            'indicator_code' => 'infection_control_assessment',
+            'value_text' => 'burning',
+        ]);
     }
 
     public function test_template_table_analytics_returns_all_template_sections_for_selected_months(): void

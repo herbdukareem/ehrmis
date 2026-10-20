@@ -1,6 +1,7 @@
 import { createRouter, createWebHistory } from 'vue-router';
 import { auth, defaultAuthenticatedPath, hasAnyAccess, loadSession } from './stores/auth';
-import { appState, clearPageError } from './stores/app';
+import { appState, clearPageError, clearNavigationError, setNavigationError } from './stores/app';
+import { bpAreas } from './lib/budgetProcurement';
 
 const routes = [
     { path: '/login', name: 'login', component: () => import('./views/LoginView.vue'), meta: { guest: true } },
@@ -25,6 +26,14 @@ const routes = [
     { path: '/posting-requests/:id', name: 'postings.show', component: () => import('./views/PostingShowView.vue') },
     { path: '/budget-workbooks', name: 'budgets.index', component: () => import('./views/BudgetIndexView.vue'), meta: { module: 'movement_budget', permissionAny: ['view-budgets', 'create-budgets', 'approve-budgets'] } },
     { path: '/budget-workbooks/:id', name: 'budgets.show', component: () => import('./views/BudgetShowView.vue') },
+    { path: '/budget-procurement', redirect: '/budget-procurement/cycles' },
+    { path: '/budget-procurement/notifications', name: 'budget-procurement.notifications', component: () => import('./views/ProcurementNotificationsView.vue'), meta: { title: 'Notifications', module: 'budget_procurement', permissionAny: ['view-budget-cycles', 'view-procurement', 'view-supplier-payables'] } },
+    { path: '/budget-procurement/reports', name: 'budget-procurement.reports', component: () => import('./views/ProcurementReportsView.vue'), meta: { title: 'Reports & dashboard', module: 'budget_procurement', permissionAny: ['view-budget-cycles', 'view-procurement', 'view-supplier-payables'] } },
+    ...Object.entries({ 'budget-utilization': 'view-budget-cycles', 'procurement-tracking': 'view-procurement', 'supplier-balances': 'view-supplier-payables', 'payment-history': 'view-supplier-payables' }).map(([type, permission]) => ({ path: `/budget-procurement/reports/:type(${type})`, name: `budget-procurement.reports.${type}`, component: () => import('./views/ProcurementReportsView.vue'), meta: { title: 'Budget & procurement reports', module: 'budget_procurement', permissionAny: [permission] } })),
+    ...Object.entries(bpAreas).flatMap(([area, config]) => [
+        ...(!config.detailOnly ? [{ path: `/budget-procurement/${area}`, name: `budget-procurement.${area}`, component: () => import('./views/BudgetProcurementView.vue'), meta: { area, title: config.title, module: 'budget_procurement', permissionAny: [config.permission] } }] : []),
+        ...(['cycles', 'allocations', 'plans', 'requisitions', 'vendors', 'solicitations', 'awards', 'purchase-orders', 'receipts', 'bids', 'supplier-invoices', 'supplier-payments'].includes(area) ? [{ path: `/budget-procurement/${area}/:id`, name: `budget-procurement.${area}.show`, component: () => import('./views/BudgetProcurementView.vue'), meta: { area, title: config.singular, module: 'budget_procurement', permissionAny: [config.permission] } }] : []),
+    ]),
     { path: '/workplans', name: 'workplans.index', component: () => import('./views/WorkplanIndexView.vue'), meta: { module: 'workplan_performance', permissionAny: ['view-workplans'] } },
     { path: '/workplans/:id/edit', name: 'workplans.edit', component: () => import('./views/WorkplanEditorView.vue'), meta: { module: 'workplan_performance', permissionAny: ['update-workplans'] } },
      { path: '/workplans/:id', name: 'workplans.show', component: () => import('./views/WorkplanShowView.vue'), meta: { module: 'workplan_performance', permissionAny: ['view-workplans'] } },
@@ -56,6 +65,17 @@ const router = createRouter({
     history: createWebHistory(),
     routes,
     scrollBehavior: () => ({ top: 0 }),
+});
+
+router.onError((error, to) => {
+    const unavailableAssets = /dynamically imported module|module script|loading chunk|css chunk/i.test(error.message);
+    setNavigationError(to.fullPath, unavailableAssets
+        ? 'The page files are unavailable. Your current page has been kept open.'
+        : 'The page could not be opened. Please try again.');
+});
+
+router.afterEach((_to, _from, failure) => {
+    if (!failure) clearNavigationError();
 });
 
 router.beforeEach(async (to) => {
