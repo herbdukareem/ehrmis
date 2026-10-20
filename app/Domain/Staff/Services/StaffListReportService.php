@@ -7,15 +7,25 @@ use App\Domain\Organization\Models\Mda;
 use App\Domain\Organization\Models\Station;
 use App\Domain\Staff\Models\AllowanceType;
 use App\Domain\Staff\Models\Cadre;
+use App\Domain\Staff\Models\Rank;
 use App\Domain\Staff\Models\SalaryScale;
 use App\Domain\Staff\Models\Staff;
 use App\Models\User;
 use App\Support\ReportFormatter;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\DB;
 
 class StaffListReportService
 {
+    public const REPORT_TYPES = [
+        'staff_list' => 'Staff list',
+        'facility' => 'Group by facility',
+        'cadre' => 'Group by cadre',
+        'rank' => 'Group by rank',
+        'salary_grade' => 'Group by salary grade',
+    ];
+
     public const DATE_COLUMNS = ['date_of_birth', 'date_first_appointment', 'date_last_promotion', 'next_promotion_date', 'expected_retirement_date'];
 
     public const COLUMNS = [
@@ -57,12 +67,99 @@ class StaffListReportService
         }
         $this->staffQueryService->applyFilters($query, $filters, $user);
 
+        foreach (['station_ids' => 'station_id', 'cadre_ids' => 'cadre_id'] as $key => $column) {
+            if (! empty($filters[$key])) {
+                $query->whereHas('currentEmployment', fn (Builder $employment) => $employment->whereIn($column, $filters[$key]));
+            }
+        }
+
+        $type = $filters['report_type'] ?? 'staff_list';
+        if (in_array($type, ['facility', 'cadre', 'rank'], true)) {
+            $column = $type === 'facility' ? 'station_id' : $type.'_id';
+            $query->withAggregate('currentEmployment as report_group_id', $column)->orderBy('report_group_id');
+        } elseif ($type === 'salary_grade') {
+            $query->withAggregate('currentSalaryPlacement as report_scale_id', 'salary_scale_id')
+                ->withAggregate('currentSalaryPlacement as report_level', 'level')
+                ->orderBy('report_scale_id')->orderBy('report_level');
+        }
+
         return $query->orderBy('full_name')->orderBy('id');
     }
 
     public function allowanceTypes(): Collection
     {
         return AllowanceType::query()->orderBy('name')->get(['id', 'code', 'name']);
+    }
+
+    public function columns(?array $selected = null, ?Collection $types = null): array
+    {
+        $columns = self::COLUMNS;
+        foreach ($types ?? $this->allowanceTypes() as $type) {
+            $columns['allowance_'.$type->id.'_eligibility'] = $type->name.' eligibility';
+            $columns['allowance_'.$type->id] = $type->name.' (NGN)';
+        }
+        $columns['calculation_note'] = 'Calculation note';
+
+        return $selected === null ? $columns : array_intersect_key($columns, array_flip($selected));
+    }
+
+    public function columnDefinitions(array $columns): array
+    {
+        return collect($columns)->map(fn ($label, $key) => ['key' => $key, 'label' => $label])->values()->all();
+    }
+
+    public function reportColumns(array $filters, ?Collection $types = null): array
+    {
+        return $this->columns($filters['columns'] ?? null, $types);
+    }
+
+    public function groupKey(Staff $staff, string $type): string
+    {
+        return match ($type) {
+            'salary_grade' => ($staff->currentSalaryPlacement?->salary_scale_id ?? 'none').':'.($staff->currentSalaryPlacement?->level ?? 'none'),
+            'facility' => (string) ($staff->currentEmployment?->station_id ?? 'none'),
+            'cadre' => (string) ($staff->currentEmployment?->cadre_id ?? 'none'),
+            'rank' => (string) ($staff->currentEmployment?->rank_id ?? 'none'),
+        };
+    }
+
+    public function groupedRows(User $user, array $filters): Collection
+    {
+        // Aggregate the already scoped and filtered staff query, including current appointments only.
+        $query = $this->query($user, $filters)->reorder()->setEagerLoads([])->select('staff.id');
+        $type = $filters['report_type'];
+        if ($type === 'salary_grade') {
+            $query->withAggregate('currentSalaryPlacement as salary_scale_id', 'salary_scale_id')
+                ->withAggregate('currentSalaryPlacement as level', 'level');
+            $groups = DB::query()->fromSub($query->toBase(), 'report_staff')
+                ->select('salary_scale_id', 'level')->selectRaw('COUNT(*) as staff_count')
+                ->groupBy('salary_scale_id', 'level')->get();
+            $scales = SalaryScale::query()->whereIn('id', $groups->pluck('salary_scale_id')->filter())->pluck('code', 'id');
+
+            return $groups->map(fn ($group) => [
+                'id' => ($group->salary_scale_id ?? 'none').':'.($group->level ?? 'none'),
+                'salary_scale' => $scales[$group->salary_scale_id] ?? 'Not specified',
+                'level' => $group->level === null ? 'Not specified' : (int) $group->level,
+                'group_label' => ($scales[$group->salary_scale_id] ?? 'Not specified').' / Grade '.($group->level ?? 'Not specified'),
+                'staff_count' => (int) $group->staff_count,
+            ])->sortBy([['salary_scale', 'asc'], ['level', 'asc']])->values();
+        }
+
+        [$column, $model] = match ($type) {
+            'facility' => ['station_id', Station::class],
+            'cadre' => ['cadre_id', Cadre::class],
+            'rank' => ['rank_id', Rank::class],
+        };
+        $query->withAggregate('currentEmployment as group_id', $column);
+        $groups = DB::query()->fromSub($query->toBase(), 'report_staff')
+            ->select('group_id')->selectRaw('COUNT(*) as staff_count')->groupBy('group_id')->get();
+        $labels = $model::query()->whereIn('id', $groups->pluck('group_id')->filter())->pluck('name', 'id');
+
+        return $groups->map(fn ($group) => [
+            'id' => $group->group_id ?? 'none',
+            'group_label' => $labels[$group->group_id] ?? 'Not specified',
+            'staff_count' => (int) $group->staff_count,
+        ])->sortBy('group_label', SORT_NATURAL | SORT_FLAG_CASE)->values();
     }
 
     public function options(User $user): array
@@ -83,6 +180,8 @@ class StaffListReportService
                 ->orderBy('name')->get(['id', 'department_id', 'name']),
             'salary_scales' => SalaryScale::query()->orderBy('code')->get(['id', 'code', 'name']),
             'statuses' => ['active', 'retired', 'inactive', 'duplicate'],
+            'columns' => $this->columnDefinitions($this->columns()),
+            'report_types' => $this->columnDefinitions(self::REPORT_TYPES),
         ];
     }
 
@@ -149,6 +248,13 @@ class StaffListReportService
             'gross_salary' => $basic !== null && $total !== null ? round($basic + $total, 2) : null,
             'unpriced_allowances' => $unpricedAllowances,
             'allowances' => $allowances->all(),
+            ...$allowances->flatMap(fn ($allowance) => [
+                'allowance_'.$allowance['id'].'_eligibility' => $allowance['eligibility'],
+                'allowance_'.$allowance['id'] => $allowance['amount'],
+            ])->all(),
+            'calculation_note' => $basic === null
+                ? 'Salary rate unavailable'
+                : ($unpricedAllowances ? 'Partial total; excludes unpriced allowances: '.implode(', ', $unpricedAllowances) : ''),
         ];
     }
 }

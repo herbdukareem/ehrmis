@@ -3,27 +3,26 @@ import { computed, onMounted, reactive, ref, watch } from 'vue';
 import AppPageHeader from '@/Components/AppPageHeader.vue';
 import AppCard from '@/Components/AppCard.vue';
 import AppButton from '@/Components/AppButton.vue';
-import AppTable from '@/Components/AppTable.vue';
+import StaffReportTable from '../components/reports/StaffReportTable.vue';
 import AppTextInput from '@/Components/AppTextInput.vue';
 import AppSelect from '@/Components/AppSelect.vue';
 import AppEmptyState from '@/Components/AppEmptyState.vue';
 import AppLoadingState from '@/Components/AppLoadingState.vue';
 import AppAlert from '@/Components/AppAlert.vue';
-import MoneyDisplay from '@/Components/MoneyDisplay.vue';
 import { api, apiMessage } from '../lib/api';
 import { hasAnyPermission } from '../stores/auth';
 import { setPageError } from '../stores/app';
-import { reportDate, reportDateTime } from '../lib/reportFormatting';
+import { reportDateTime } from '../lib/reportFormatting';
 
 const canAccessReports = computed(() => hasAnyPermission(['view-reports', 'export-reports']));
 const canExport = computed(() => hasAnyPermission(['export-reports']));
-const defaults = { search: '', mda_id: '', department_id: '', station_id: '', cadre_id: '', salary_scale_id: '', status: '', per_page: 500 };
-const filters = reactive({ ...defaults });
+const defaults = () => ({ search: '', mda_id: '', department_id: '', station_ids: [], cadre_ids: [], salary_scale_id: '', status: '', per_page: 500, report_type: 'staff_list', columns: [] });
+const filters = reactive(defaults());
 const appliedFilters = ref(null);
-const options = ref({ mdas: [], departments: [], stations: [], cadres: [], salary_scales: [], statuses: [] });
+const options = ref({ mdas: [], departments: [], stations: [], cadres: [], salary_scales: [], statuses: [], columns: [], report_types: [] });
 const rows = ref([]);
 const columns = ref([]);
-const allowanceTypes = ref([]);
+const groups = ref([]);
 const meta = ref(null);
 const loading = ref(false);
 const initializing = ref(true);
@@ -39,7 +38,6 @@ const cadres = computed(() => options.value.cadres.filter((item) => filters.depa
 const headers = computed(() => [
     { key: 'serial', label: 'S/N' },
     ...columns.value,
-    ...allowanceTypes.value.map((type) => ({ key: `allowance_${type.id}`, label: `${type.name} (NGN)` })),
 ]);
 const tableRows = computed(() => rows.value.map((row, index) => ({
     ...row,
@@ -49,25 +47,36 @@ const tableRows = computed(() => rows.value.map((row, index) => ({
         item.eligibility === 'Eligible' ? item.amount ?? 'Rate unavailable' : item.eligibility,
     ])),
 })));
-const moneyColumns = ['basic_salary', 'allowance_total', 'gross_salary'];
-const dateColumns = ['date_of_birth', 'date_first_appointment', 'date_last_promotion', 'next_promotion_date', 'expected_retirement_date'];
-const text = (value) => value === null || value === undefined || value === '' ? '—' : value;
-const date = reportDate;
 const generatedAt = computed(() => meta.value ? reportDateTime(meta.value.generated_at) : '');
+const grouped = computed(() => meta.value && meta.value.report_type !== 'staff_list');
+const reportGroups = computed(() => {
+    const pageGroups = new Map();
+    for (const row of tableRows.value) {
+        const key = String(row.group_key);
+        if (!pageGroups.has(key)) {
+            const group = groups.value.find(item => String(item.id) === key);
+            pageGroups.set(key, { ...group, rows: [] });
+        }
+        pageGroups.get(key).rows.push(row);
+    }
+    return [...pageGroups.values()];
+});
+const selectAllColumns = () => { filters.columns = options.value.columns.map(column => column.key); };
+const clearFilters = () => { Object.assign(filters, defaults()); selectAllColumns(); };
 
-watch(() => filters.mda_id, () => { filters.department_id = ''; filters.station_id = ''; filters.cadre_id = ''; });
-watch(() => filters.department_id, () => { filters.cadre_id = ''; });
+watch(() => filters.mda_id, () => { filters.department_id = ''; filters.station_ids = []; filters.cadre_ids = []; });
+watch(() => filters.department_id, () => { filters.cadre_ids = []; });
 
 async function generate(page = 1, useApplied = false) {
-    if (loading.value) return;
+    if (loading.value || (!useApplied && !filters.columns.length)) return;
     loading.value = true;
     error.value = '';
-    const requested = { ...(useApplied ? appliedFilters.value : filters) };
+    const requested = JSON.parse(JSON.stringify(useApplied ? appliedFilters.value : filters));
     try {
         const { data } = await api.get('/reports/staff-list', { params: { ...requested, page } });
         rows.value = data.data;
         columns.value = data.columns;
-        allowanceTypes.value = data.allowance_types;
+        groups.value = data.groups;
         meta.value = data.meta;
         appliedFilters.value = requested;
     } catch (failure) {
@@ -112,6 +121,7 @@ onMounted(async () => {
     }
     try {
         options.value = (await api.get('/reports/staff-list/options')).data.data;
+        selectAllColumns();
     } catch (failure) {
         error.value = apiMessage(failure, 'Report filters could not be loaded. Please refresh the page.');
     } finally {
@@ -122,71 +132,65 @@ onMounted(async () => {
 
 <template>
     <div v-if="canAccessReports" class="space-y-6">
-        <AppPageHeader eyebrow="Reports" title="Staff list report" subtitle="Select your filters, then generate a table with one row per staff member." :show-breadcrumbs="false">
+        <AppPageHeader eyebrow="Reports" title="Staff reports" subtitle="Choose your columns and staff filters, then generate a list or group staff by facility, cadre, rank, or salary grade." :show-breadcrumbs="false">
             <template #actions>
                 <AppButton v-if="canExport" :disabled="initializing || loading || exporting || !meta?.total || !!dirty || !!error" @click="download">
                     {{ exporting ? 'Preparing Excel…' : 'Download Excel' }}
                 </AppButton>
             </template>
         </AppPageHeader>
-        <AppCard title="Choose staff" subtitle="Leave filters open to include all staff you can access.">
-            <form class="space-y-4" @submit.prevent="generate()">
-                <fieldset :disabled="initializing || loading" class="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        <form class="space-y-6" @submit.prevent="generate()">
+            <AppCard title="Choose report" subtitle="Tick the columns to include in the preview and Excel download.">
+                <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                    <AppSelect v-model="filters.report_type" label="Report format" :options="options.report_types" option-label="label" option-value="key" :searchable="false" :disabled="initializing || loading" help="Grouped reports list staff under each group, with a staff total. Salary grade uses salary scale and grade level." />
+                    <AppSelect v-model="filters.columns" multiple label="Columns to include" :options="options.columns" option-label="label" option-value="key" placeholder="Select columns" :disabled="initializing || loading" :help="`${filters.columns.length} of ${options.columns.length} columns selected. Select at least one column.`" />
+                </div>
+                <div class="mt-3 flex gap-3">
+                    <AppButton variant="outline" :disabled="initializing || loading" @click="selectAllColumns">Select all columns</AppButton>
+                    <AppButton variant="outline" :disabled="initializing || loading" @click="filters.columns = []">Clear columns</AppButton>
+                </div>
+            </AppCard>
+            <AppCard title="Choose staff" subtitle="Leave filters open to include all staff you can access.">
+                <div class="space-y-4">
+                <fieldset :disabled="initializing || loading" class="grid min-w-0 grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
                     <AppTextInput v-model="filters.search" label="Name, staff number, CNO or PSN" placeholder="Search staff" />
                     <AppSelect v-model="filters.mda_id" label="MDA" :options="options.mdas" option-label="name" option-value="id" placeholder="All accessible MDAs" />
                     <AppSelect v-model="filters.department_id" label="Department" :options="departments" option-label="name" option-value="id" placeholder="All departments" />
-                    <AppSelect v-model="filters.station_id" label="Station" :options="stations" option-label="name" option-value="id" placeholder="All stations" />
-                    <AppSelect v-model="filters.cadre_id" label="Cadre" :options="cadres" option-label="name" option-value="id" placeholder="All cadres" />
+                    <AppSelect v-model="filters.station_ids" multiple label="Stations" :options="stations" option-label="name" option-value="id" placeholder="All stations" :disabled="initializing || loading" />
+                    <AppSelect v-model="filters.cadre_ids" multiple label="Cadres" :options="cadres" option-label="name" option-value="id" placeholder="All cadres" :disabled="initializing || loading" />
                     <AppSelect v-model="filters.salary_scale_id" label="Salary scale" :options="options.salary_scales" option-label="code" option-value="id" placeholder="All scales" />
                     <AppSelect v-model="filters.status" label="Staff status" :options="options.statuses.map(value => ({ value, label: value.charAt(0).toUpperCase() + value.slice(1) }))" placeholder="All statuses" />
                     <AppSelect v-model="filters.per_page" label="Preview rows per page" :searchable="false" :options="[20, 50, 100, 250, 500].map(value => ({ value, label: String(value) }))" />
                 </fieldset>
                 <div class="flex flex-wrap items-center gap-3">
-                    <AppButton type="submit" :disabled="initializing || loading">{{ loading ? 'Generating…' : 'Generate report' }}</AppButton>
-                    <AppButton variant="outline" :disabled="initializing || loading" @click="Object.assign(filters, defaults)">Clear filters</AppButton>
-                    <span v-if="dirty" class="text-sm text-ehrmis-muted">Filters changed. Generate the report to apply them.</span>
+                    <AppButton type="submit" :disabled="initializing || loading || !filters.columns.length">{{ loading ? 'Generating…' : 'Generate report' }}</AppButton>
+                    <AppButton variant="outline" :disabled="initializing || loading" @click="clearFilters">Clear filters</AppButton>
+                    <span v-if="dirty" class="text-sm text-ehrmis-muted">Report choices changed. Generate the report to apply them.</span>
                 </div>
-            </form>
-        </AppCard>
+                </div>
+            </AppCard>
+        </form>
         <AppAlert v-if="error" tone="danger" title="Report unavailable">{{ error }}</AppAlert>
         <AppAlert v-if="exportError" tone="danger" title="Download failed">{{ exportError }}</AppAlert>
         <AppLoadingState v-if="initializing || loading" :lines="5" aria-label="Generating staff report" role="status" />
-        <AppEmptyState v-else-if="!meta && !error" title="Generate your staff list" message="Choose the staff filters above and click Generate report. The table will include basic information, appointments, and allowances." />
+        <AppEmptyState v-else-if="!meta && !error" title="Generate your staff report" message="Choose a report format, tick your columns, select staff filters, and click Generate report." />
         <AppCard v-else-if="meta" :title="`${meta.total.toLocaleString()} staff in this report`" :subtitle="`Generated ${generatedAt}. Excel includes every matching record.`">
 
             <AppEmptyState v-if="!rows.length" title="No staff match these filters" message="Change the filters and generate the report again." />
 
-            <AppTable v-if="rows.length" :headers="headers" :rows="tableRows" class="staff-report-table">
-                <template #cell="{ row, value, column }">
-                    <template v-if="moneyColumns.includes(column.key) || column.key.startsWith('allowance_')">
-                        <MoneyDisplay v-if="typeof value === 'number'" :amount="value" />
-                        <span v-else>{{ value ?? 'Rate unavailable' }}</span>
-                        <span
-                            v-if="typeof value === 'number' && ['allowance_total', 'gross_salary'].includes(column.key) && row.unpriced_allowances?.length"
-                            class="mt-1 block text-xs text-ehrmis-muted"
-                            :title="`Unpriced allowances: ${row.unpriced_allowances.join(', ')}`"
-                        >
-                            Excludes {{ row.unpriced_allowances.length }} unpriced allowance{{ row.unpriced_allowances.length === 1 ? '' : 's' }}
-                        </span>
-                    </template>
-                    <span v-else-if="dateColumns.includes(column.key)">{{ date(value) }}</span>
-                    <strong v-else-if="column.key === 'full_name'">{{ text(value) }}</strong>
-                    <span v-else>{{ text(value) }}</span>
-                </template>
-            </AppTable>
+            <div v-if="rows.length && grouped" class="space-y-6">
+                <AppCard v-for="group in reportGroups" :key="group.id" :title="group.group_label" :subtitle="`${group.staff_count.toLocaleString()} staff in this group · ${group.rows.length.toLocaleString()} shown on this page`">
+                    <StaffReportTable :headers="headers" :rows="group.rows" />
+                </AppCard>
+            </div>
+            <StaffReportTable v-else-if="rows.length" :headers="headers" :rows="tableRows" />
             <div v-if="meta.total" class="mt-4 flex flex-wrap items-center justify-between gap-3">
                 <span class="text-sm text-ehrmis-muted">Showing {{ meta.from }}–{{ meta.to }} of {{ meta.total.toLocaleString() }} staff · Page {{ meta.current_page }} of {{ meta.last_page }}</span>
                 <div class="flex gap-2">
-                    <AppButton variant="outline" :disabled="meta.current_page <= 1" @click="generate(meta.current_page - 1, true)">Previous</AppButton>
-                    <AppButton variant="outline" :disabled="meta.current_page >= meta.last_page" @click="generate(meta.current_page + 1, true)">Next</AppButton>
+                    <AppButton variant="outline" :disabled="loading || meta.current_page <= 1" @click="generate(meta.current_page - 1, true)">Previous</AppButton>
+                    <AppButton variant="outline" :disabled="loading || meta.current_page >= meta.last_page" @click="generate(meta.current_page + 1, true)">Next</AppButton>
                 </div>
             </div>
         </AppCard>
     </div>
 </template>
-
-<style scoped>
-.staff-report-table :deep(td), .staff-report-table :deep(th) { white-space: nowrap; }
-
-.staff-report-table :deep(th) { position: sticky; top: 0; z-index: 1; }
-</style>

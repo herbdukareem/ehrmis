@@ -5,6 +5,7 @@ import InputLabel from '@/Components/InputLabel.vue';
 import { computed, nextTick, onBeforeUnmount, onMounted, onUpdated, ref, useId, watch } from 'vue';
 
 const props = defineProps({
+    multiple: { type: Boolean, default: false },
     disabled: { type: Boolean, default: false },
     label: {
         type: String,
@@ -65,7 +66,7 @@ const slotItems = ref([]);
 const optionRefs = ref([]);
 const isCivic = computed(() => props.variant === 'civic');
 
-const rootClass = computed(() => (isCivic.value ? 'relative civic-field' : 'relative'));
+const rootClass = computed(() => (isCivic.value ? 'relative min-w-0 civic-field' : 'relative min-w-0'));
 const triggerClass = computed(() => (
     isCivic.value
         ? 'flex w-full items-center justify-between gap-2 px-3 py-2 text-left'
@@ -163,13 +164,29 @@ const displayItems = computed(() => {
 });
 
 const selectedLabel = computed(() => {
+    if (props.multiple) {
+        const selected = items.value.filter(isSelected);
+        return selected.length ? (selected.length <= 2 ? selected.map(item => item.label).join(', ') : `${selected.length} selected`) : '';
+    }
     const match = items.value.find((item) => String(item.value) === String(model.value) && model.value !== '');
 
     return match ? match.label : '';
 });
 
+const isSelected = (item) => props.multiple
+    ? Array.isArray(model.value) && model.value.some(value => String(value) === String(item.value))
+    : String(item.value) === String(model.value) && model.value !== '';
+
 const selectItem = (item) => {
     if (props.disabled) return;
+    if (props.multiple) {
+        const selected = Array.isArray(model.value) ? model.value : [];
+        model.value = item.isPlaceholder ? [] : (isSelected(item)
+            ? selected.filter(value => String(value) !== String(item.value))
+            : [...selected, item.value]);
+        if (props.searchable) nextTick(focusSearchInput);
+        return;
+    }
     model.value = item.value;
     closePanel();
 };
@@ -186,7 +203,7 @@ const focusSearchInput = () => {
 const isPrintableKey = (event) => event.key.length === 1 && !event.ctrlKey && !event.metaKey && !event.altKey;
 
 const syncHighlightToValue = () => {
-    const selectedIndex = displayItems.value.findIndex((item) => String(item.value) === String(model.value));
+    const selectedIndex = displayItems.value.findIndex(isSelected);
     highlighted.value = selectedIndex >= 0 ? selectedIndex : 0;
     nextTick(scrollHighlightedIntoView);
 };
@@ -277,6 +294,11 @@ const onSearchKeydown = (e) => {
 };
 
 const onPanelKeydown = (e) => {
+    if (e.key === 'Escape') {
+        e.preventDefault();
+        closePanel();
+        return;
+    }
     if (!props.searchable || !open.value) {
         return;
     }
@@ -335,6 +357,9 @@ onBeforeUnmount(() => document.removeEventListener('click', onClickOutside));
             data-combobox-trigger
             type="button"
             :disabled="disabled"
+            :aria-expanded="open"
+            :aria-controls="`${id}-options`"
+            aria-haspopup="listbox"
             :class="triggerClass"
             :style="triggerStyle"
             @click="togglePanel"
@@ -377,19 +402,21 @@ onBeforeUnmount(() => document.removeEventListener('click', onClickOutside));
                 </div>
             </div>
 
-            <ul :class="optionsClass">
+            <ul :id="`${id}-options`" :class="optionsClass" role="listbox" :aria-label="label || placeholder || 'Options'" :aria-multiselectable="multiple || undefined">
                 <li
                     v-for="(item, index) in displayItems"
                     :key="`${item.value}-${index}`"
                 >
                     <button
                         type="button"
+                        :role="multiple ? 'option' : undefined"
+                        :aria-selected="item.isPlaceholder && multiple ? !model?.length : isSelected(item)"
                         :ref="(el) => { optionRefs[index] = el; }"
                         class="flex w-full items-center px-3 py-1.5 text-left"
                         :class="[
                             !isCivic && (index === highlighted ? 'bg-ehrmis-primary-50 text-ehrmis-primary-800' : 'text-ehrmis-text hover:bg-slate-50'),
                             !isCivic && item.isPlaceholder ? 'text-ehrmis-muted' : '',
-                            String(item.value) === String(model.value) && model.value !== '' ? 'font-semibold' : '',
+                            isSelected(item) ? 'font-semibold' : '',
                         ]"
                         :style="isCivic ? {
                             color: item.isPlaceholder ? 'var(--civic-muted)' : 'var(--civic-ink)',
@@ -398,6 +425,7 @@ onBeforeUnmount(() => document.removeEventListener('click', onClickOutside));
                         @mouseenter="highlighted = index"
                         @click="selectItem(item)"
                     >
+                        <span v-if="multiple" class="mr-2 inline-flex h-4 w-4 shrink-0 items-center justify-center rounded border border-ehrmis-border text-xs text-ehrmis-primary-800" aria-hidden="true">{{ isSelected(item) ? '✓' : '' }}</span>
                         {{ item.label }}
                     </button>
                 </li>

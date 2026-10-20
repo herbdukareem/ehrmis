@@ -21,12 +21,23 @@ class StaffListReportController extends Controller
     {
         $filters = $request->validated();
         $types = $report->allowanceTypes();
+        $columns = $report->reportColumns($filters, $types);
+        $grouped = ($filters['report_type'] ?? 'staff_list') !== 'staff_list';
         $staff = $report->query($request->user(), $filters)->paginate($filters['per_page'] ?? 500);
+        $rows = $staff->getCollection()->map(function ($record) use ($report, $types, $columns, $grouped, $filters) {
+            $row = array_intersect_key($report->row($record, $types), $columns + ['id' => '', 'allowances' => '', 'unpriced_allowances' => '']);
+            if ($grouped) {
+                $row['group_key'] = $report->groupKey($record, $filters['report_type']);
+            }
+
+            return $row;
+        });
 
         return response()->json([
-            'data' => $staff->getCollection()->map(fn ($record) => $report->row($record, $types)),
-            'columns' => collect(StaffListReportService::COLUMNS)->map(fn ($label, $key) => ['key' => $key, 'label' => $label])->values(),
+            'data' => $rows,
+            'columns' => $report->columnDefinitions($columns),
             'allowance_types' => $types,
+            'groups' => $grouped ? $report->groupedRows($request->user(), $filters) : [],
             'meta' => [
                 'current_page' => $staff->currentPage(),
                 'last_page' => $staff->lastPage(),
@@ -35,6 +46,8 @@ class StaffListReportController extends Controller
                 'from' => $staff->firstItem(),
                 'to' => $staff->lastItem(),
                 'generated_at' => now()->toIso8601String(),
+                'report_type' => $filters['report_type'] ?? 'staff_list',
+                'staff_total' => $staff->total(),
             ],
         ]);
     }
@@ -42,10 +55,12 @@ class StaffListReportController extends Controller
     public function export(StaffListReportRequest $request, StaffListReportService $report): BinaryFileResponse
     {
         abort_unless($request->user()->can('export-reports'), 403);
+        $type = $request->validated('report_type', 'staff_list');
+        $filename = $type === 'staff_list' ? 'staff-list' : 'staff-by-'.str_replace('_', '-', $type);
 
         return Excel::download(
             new StaffListReportExport($report, $request->user(), $request->validated()),
-            'staff-list-'.now()->format('Y-m-d-His').'.xlsx',
+            $filename.'-'.now()->format('Y-m-d-His').'.xlsx',
         );
     }
 }

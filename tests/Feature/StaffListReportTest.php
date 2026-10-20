@@ -7,6 +7,7 @@ use App\Domain\Organization\Models\Mda;
 use App\Domain\Organization\Models\Station;
 use App\Domain\Staff\Models\AllowanceType;
 use App\Domain\Staff\Models\Cadre;
+use App\Domain\Staff\Models\Rank;
 use App\Domain\Staff\Models\SalaryScale;
 use App\Domain\Staff\Models\SalaryStructureRate;
 use App\Domain\Staff\Models\Staff;
@@ -325,6 +326,156 @@ class StaffListReportTest extends TestCase
         }
         $this->getJson('/api/reports/staff-list?department_id='.$this->department->id.'&status=inactive')
             ->assertOk()->assertJsonPath('meta.total', 0);
+    }
+
+    public function test_multiple_stations_and_cadres_filter_preview_and_export_together(): void
+    {
+        $station = Station::query()->create(['mda_id' => $this->mda->id, 'code' => 'SECOND', 'name' => 'Second station']);
+        $cadres = collect(['Nursing', 'Medical', 'Other'])->map(fn ($name) => Cadre::query()->create([
+            'department_id' => $this->department->id, 'salary_scale_id' => $this->scale->id, 'name' => $name,
+        ]));
+        foreach ([['A', $this->station->id, $cadres[0]->id], ['B', $station->id, $cadres[1]->id], ['C', $station->id, $cadres[2]->id]] as [$number, $stationId, $cadreId]) {
+            $this->staff(['staff_number' => $number, 'full_name' => $number])->currentEmployment()->update(['station_id' => $stationId, 'cadre_id' => $cadreId]);
+        }
+        $query = '?'.http_build_query(['station_ids' => [$this->station->id, $station->id], 'cadre_ids' => [$cadres[0]->id, $cadres[1]->id]]);
+        $response = $this->actingAs($this->user)->getJson('/api/reports/staff-list'.$query)->assertOk()->assertJsonPath('meta.total', 2);
+        $this->assertSame(['A', 'B'], array_column($response->json('data'), 'staff_number'));
+        $this->assertWorkbookStaffNumbers(['A', 'B'], $query);
+        $this->getJson('/api/reports/staff-list?'.http_build_query(['station_ids' => [$this->station->id]]))
+            ->assertOk()->assertJsonPath('meta.total', 1);
+    }
+
+    public function test_selected_columns_apply_to_preview_and_excel_with_correct_date_and_money_formats(): void
+    {
+        $this->staff();
+        SalaryStructureRate::query()->create(['salary_scale_id' => $this->scale->id, 'level' => 6, 'step' => 2, 'basic_salary' => 100000]);
+        $query = '?'.http_build_query(['columns' => ['cno', 'full_name', 'date_first_appointment', 'basic_salary']]);
+        $response = $this->actingAs($this->user)->getJson('/api/reports/staff-list'.$query)->assertOk();
+        $this->assertSame(['cno', 'full_name', 'date_first_appointment', 'basic_salary'], array_column($response->json('columns'), 'key'));
+        $this->assertArrayNotHasKey('phone', $response->json('data.0'));
+        $export = $this->get('/api/reports/staff-list/export'.$query)->assertOk();
+        $path = $export->baseResponse->getFile()->getPathname();
+        try {
+            Cell::setValueBinder(new DefaultValueBinder);
+            $book = IOFactory::load($path);
+            $sheet = $book->getActiveSheet();
+            $this->assertSame(['CNO', 'Full name', 'First appointment', 'Basic salary (NGN)'], $sheet->rangeToArray('A1:D1')[0]);
+            $this->assertSame('D', $sheet->getHighestColumn());
+            $this->assertSame('000123', $sheet->getCell('A2')->getValue());
+            $this->assertSame('01-06-2015', $sheet->getCell('C2')->getFormattedValue());
+            $this->assertEquals(100000, $sheet->getCell('D2')->getValue());
+            $this->assertSame('#,##0.00', $sheet->getStyle('D2')->getNumberFormat()->getFormatCode());
+            $book->disconnectWorksheets();
+        } finally {
+            unlink($path);
+        }
+    }
+
+    public function test_all_grouped_formats_return_staff_details_and_scoped_group_totals(): void
+    {
+        $cadre = Cadre::query()->create(['department_id' => $this->department->id, 'salary_scale_id' => $this->scale->id, 'name' => 'Medical officers']);
+        $rank = Rank::query()->create(['cadre_id' => $cadre->id, 'name' => 'Senior officer']);
+        $staff = $this->staff();
+        $staff->currentEmployment()->update(['cadre_id' => $cadre->id, 'rank_id' => $rank->id]);
+        $staff->employments()->create(['mda_id' => $this->mda->id, 'station_id' => null, 'is_current' => false]);
+        $missing = $this->staff(['staff_number' => 'MISSING', 'full_name' => 'Missing details']);
+        $missing->currentEmployment()->delete();
+        $missing->currentSalaryPlacement()->delete();
+        $this->staff(['staff_number' => 'HIDDEN', 'mda_id' => Mda::factory()->create()->id]);
+
+        $this->actingAs($this->user);
+        foreach (['facility' => 'Report station', 'cadre' => 'Medical officers', 'rank' => 'Senior officer', 'salary_grade' => 'RPT / Grade 6'] as $type => $label) {
+            $response = $this->getJson('/api/reports/staff-list?'.http_build_query(['report_type' => $type, 'columns' => ['staff_number', 'full_name']]))
+                ->assertOk()->assertJsonPath('meta.total', 2)->assertJsonPath('meta.report_type', $type)->assertJsonCount(2, 'groups');
+            $this->assertSame(2, array_sum(array_column($response->json('groups'), 'staff_count')));
+            $this->assertContains($label, array_column($response->json('groups'), 'group_label'));
+            $this->assertContains('Test Officer', array_column($response->json('data'), 'full_name'));
+            $this->assertNotContains('HIDDEN', array_column($response->json('data'), 'staff_number'));
+            foreach ($response->json('data') as $row) {
+                $this->assertContains($row['group_key'], array_map('strval', array_column($response->json('groups'), 'id')));
+            }
+            $export = $this->get('/api/reports/staff-list/export?'.http_build_query(['report_type' => $type, 'columns' => ['staff_number', 'full_name']]))->assertOk();
+            $path = $export->baseResponse->getFile()->getPathname();
+            try {
+                Cell::setValueBinder(new DefaultValueBinder);
+                $book = IOFactory::load($path);
+                $sheet = $book->getActiveSheet();
+                $this->assertSame(6, $sheet->getHighestRow());
+                $values = $sheet->toArray();
+                $this->assertContains($label.' (1 staff)', array_column($values, 0));
+                $this->assertContains('Test Officer', array_column($values, 1));
+                $this->assertContains('Missing details', array_column($values, 1));
+                $this->assertNotContains('HIDDEN', array_column($values, 0));
+                $book->disconnectWorksheets();
+            } finally {
+                unlink($path);
+            }
+        }
+    }
+
+    public function test_salary_grade_groups_separate_scales_and_levels_and_combine_steps(): void
+    {
+        $otherScale = SalaryScale::query()->create(['code' => 'OTHER', 'name' => 'Other scale']);
+        foreach ([[$this->scale->id, 6, 1], [$this->scale->id, 6, 2], [$this->scale->id, 7, 1], [$otherScale->id, 6, 1]] as $index => [$scale, $level, $step]) {
+            $this->staff(['staff_number' => 'STAFF-'.$index])->currentSalaryPlacement()->update(['salary_scale_id' => $scale, 'level' => $level, 'step' => $step]);
+        }
+        $response = $this->actingAs($this->user)->getJson('/api/reports/staff-list?report_type=salary_grade')->assertOk()
+            ->assertJsonPath('meta.total', 4)->assertJsonCount(3, 'groups');
+        $groups = collect($response->json('groups'))->keyBy('group_label');
+        $this->assertSame(2, $groups['RPT / Grade 6']['staff_count']);
+        $this->assertSame(1, $groups['RPT / Grade 7']['staff_count']);
+        $this->assertSame(1, $groups['OTHER / Grade 6']['staff_count']);
+    }
+
+    public function test_grouped_preview_pages_keep_full_group_totals_and_excel_includes_every_staff_member(): void
+    {
+        for ($i = 1; $i <= 12; $i++) {
+            $this->staff(['staff_number' => 'STAFF-'.$i, 'full_name' => sprintf('Staff %02d', $i)]);
+        }
+        $query = '?'.http_build_query(['report_type' => 'facility', 'columns' => ['staff_number', 'full_name', 'date_first_appointment'], 'per_page' => 10, 'page' => 2]);
+        $this->actingAs($this->user)->getJson('/api/reports/staff-list'.$query)->assertOk()
+            ->assertJsonCount(2, 'data')->assertJsonPath('meta.total', 12)->assertJsonPath('groups.0.staff_count', 12)
+            ->assertJsonPath('data.0.full_name', 'Staff 11');
+        $export = $this->get('/api/reports/staff-list/export'.$query)->assertOk();
+        $path = $export->baseResponse->getFile()->getPathname();
+        try {
+            Cell::setValueBinder(new DefaultValueBinder);
+            $book = IOFactory::load($path);
+            $sheet = $book->getActiveSheet();
+            $this->assertSame('Report station (12 staff)', $sheet->getCell('A1')->getValue());
+            $this->assertSame(['Staff number', 'Full name', 'First appointment'], $sheet->rangeToArray('A2:C2')[0]);
+            $this->assertSame('STAFF-1', $sheet->getCell('A3')->getValue());
+            $this->assertSame('Staff 12', $sheet->getCell('B14')->getValue());
+            $this->assertSame(14, $sheet->getHighestRow());
+            $this->assertSame('01-06-2015', $sheet->getCell('C3')->getFormattedValue());
+            $this->assertContains('A1:C1', $sheet->getMergeCells());
+            $book->disconnectWorksheets();
+        } finally {
+            unlink($path);
+        }
+    }
+
+    public function test_grouped_multiselect_cannot_expand_a_station_scoped_users_access(): void
+    {
+        $visible = $this->staff();
+        $otherStation = Station::query()->create(['mda_id' => $this->mda->id, 'code' => 'OTHER', 'name' => 'Hidden station']);
+        $this->staff(['staff_number' => 'HIDDEN'])->currentEmployment()->update(['station_id' => $otherStation->id]);
+        $this->user->forceFill(['station_id' => $this->station->id])->save();
+        $query = '?'.http_build_query(['report_type' => 'facility', 'station_ids' => [$this->station->id, $otherStation->id], 'columns' => ['staff_number']]);
+        $this->actingAs($this->user)->getJson('/api/reports/staff-list'.$query)->assertOk()
+            ->assertJsonPath('meta.total', 1)->assertJsonPath('data.0.id', $visible->id)->assertJsonCount(1, 'groups')
+            ->assertJsonPath('groups.0.staff_count', 1)->assertJsonMissing(['group_label' => 'Hidden station']);
+        $this->getJson('/api/reports/staff-list?'.http_build_query(['station_ids' => [$otherStation->id]]))
+            ->assertOk()->assertJsonPath('meta.total', 0);
+    }
+
+    public function test_invalid_report_types_columns_and_multiselect_values_are_rejected(): void
+    {
+        $query = '?'.http_build_query(['report_type' => 'invalid', 'columns' => ['unknown'], 'station_ids' => ['invalid'], 'cadre_ids' => [0]]);
+        $this->actingAs($this->user)->getJson('/api/reports/staff-list'.$query)->assertUnprocessable()
+            ->assertJsonValidationErrors(['report_type', 'columns.0', 'station_ids.0', 'cadre_ids.0']);
+        $this->getJson('/api/reports/staff-list?columns=full_name&station_ids=1')->assertUnprocessable()
+            ->assertJsonValidationErrors(['columns', 'station_ids']);
     }
 
     protected function staff(array $attributes = []): Staff

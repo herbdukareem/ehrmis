@@ -26,6 +26,12 @@ class StaffListReportExport extends DefaultValueBinder implements FromGenerator,
 {
     protected Collection $types;
 
+    protected array $columns;
+
+    protected array $groupHeadingRows = [];
+
+    protected array $columnHeadingRows = [];
+
     public function __construct(protected StaffListReportService $report, protected User $user, protected array $filters)
     {
         // PhpSpreadsheet retains worksheet cells even when source rows are streamed.
@@ -39,44 +45,52 @@ class StaffListReportExport extends DefaultValueBinder implements FromGenerator,
             set_time_limit(max((int) ini_get('max_execution_time'), (int) config('reports.staff_list_export_timeout', 120)));
         }
         $this->types = $report->allowanceTypes();
+        $this->columns = $report->reportColumns($filters, $this->types);
     }
 
     public function title(): string
     {
-        return 'Staff list';
+        return StaffListReportService::REPORT_TYPES[$this->filters['report_type'] ?? 'staff_list'];
     }
 
     public function headings(): array
     {
-        $headings = array_values(StaffListReportService::COLUMNS);
-        foreach ($this->types as $type) {
-            $headings[] = $type->name.' eligibility';
-            $headings[] = $type->name.' (NGN)';
-        }
-        $headings[] = 'Calculation note';
+        return $this->isGrouped() ? [] : array_values($this->columns);
+    }
 
-        return $headings;
+    protected function isGrouped(): bool
+    {
+        return ($this->filters['report_type'] ?? 'staff_list') !== 'staff_list';
     }
 
     public function generator(): Generator
     {
+        $groups = $this->isGrouped() ? $this->report->groupedRows($this->user, $this->filters)->keyBy('id') : collect();
+        $previousGroup = null;
+        $rowNumber = 0;
         // Export all matching staff, irrespective of the preview page.
         foreach ($this->report->query($this->user, $this->filters)->lazy(250) as $staff) {
+            if ($this->isGrouped()) {
+                $key = $this->report->groupKey($staff, $this->filters['report_type']);
+                if ($key !== $previousGroup) {
+                    $group = $groups->get($key);
+                    $this->groupHeadingRows[] = ++$rowNumber;
+                    yield [$group['group_label'].' ('.$group['staff_count'].' staff)'];
+                    $this->columnHeadingRows[] = ++$rowNumber;
+                    yield array_values($this->columns);
+                    $previousGroup = $key;
+                }
+            }
             $record = $this->report->row($staff, $this->types);
             foreach (StaffListReportService::DATE_COLUMNS as $key) {
                 $record[$key] = $record[$key] ? Date::PHPToExcel(new DateTimeImmutable($record[$key])) : null;
             }
-            $row = array_map(fn ($key) => $record[$key], array_keys(StaffListReportService::COLUMNS));
-            foreach ($record['allowances'] as $allowance) {
-                $row[] = $allowance['eligibility'];
-                $row[] = $allowance['amount'];
-            }
-            $row[] = $record['basic_salary'] === null
-                ? 'Salary rate unavailable'
-                : ($record['unpriced_allowances']
-                    ? 'Partial total; excludes unpriced allowances: '.implode(', ', $record['unpriced_allowances'])
-                    : '');
-            yield $row;
+            ++$rowNumber;
+            yield array_map(fn ($key) => $record[$key], array_keys($this->columns));
+        }
+        if ($this->isGrouped() && !$rowNumber) {
+            $this->columnHeadingRows[] = 1;
+            yield array_values($this->columns);
         }
     }
 
@@ -94,14 +108,16 @@ class StaffListReportExport extends DefaultValueBinder implements FromGenerator,
 
     public function columnFormats(): array
     {
-        $columns = ['AA' => '#,##0.00', 'AB' => '#,##0.00', 'AC' => '#,##0.00'];
-        foreach (array_keys(StaffListReportService::COLUMNS) as $index => $key) {
+        $columns = [];
+        foreach (array_keys($this->columns) as $index => $key) {
+            $column = Coordinate::stringFromColumnIndex($index + 1);
             if (in_array($key, StaffListReportService::DATE_COLUMNS, true)) {
-                $columns[Coordinate::stringFromColumnIndex($index + 1)] = ReportFormatter::EXCEL_DATE_FORMAT;
+                $columns[$column] = ReportFormatter::EXCEL_DATE_FORMAT;
+            } elseif (in_array($key, ['basic_salary', 'allowance_total', 'gross_salary'], true) || preg_match('/^allowance_\d+$/', $key)) {
+                $columns[$column] = '#,##0.00';
+            } elseif (in_array($key, ['staff_count', 'level', 'step'], true)) {
+                $columns[$column] = '0';
             }
-        }
-        foreach ($this->types->values() as $index => $type) {
-            $columns[Coordinate::stringFromColumnIndex(count(StaffListReportService::COLUMNS) + ($index * 2) + 2)] = '#,##0.00';
         }
 
         return $columns;
@@ -112,19 +128,37 @@ class StaffListReportExport extends DefaultValueBinder implements FromGenerator,
         return [AfterSheet::class => function (AfterSheet $event): void {
             $sheet = $event->sheet->getDelegate();
             $lastColumn = $sheet->getHighestColumn();
-            $sheet->freezePane('E2');
-            $sheet->setAutoFilter('A1:'.$lastColumn.$sheet->getHighestRow());
+            $sheet->freezePane($this->isGrouped() ? 'A3' : (!isset($this->filters['columns']) ? 'E2' : 'A2'));
+            if (!$this->isGrouped()) {
+                $sheet->setAutoFilter('A1:'.$lastColumn.$sheet->getHighestRow());
+            }
             $sheet->getDefaultColumnDimension()->setWidth(22);
-            $sheet->getColumnDimension('D')->setWidth(34);
-            $sheet->getColumnDimension('L')->setWidth(38);
-            $sheet->getColumnDimension($lastColumn)->setWidth(55);
-            $sheet->getStyle($lastColumn.'2:'.$lastColumn.max(2, $sheet->getHighestRow()))->getAlignment()->setWrapText(true);
-            $sheet->getRowDimension(1)->setRowHeight(44);
-            $sheet->getStyle('A1:'.$lastColumn.'1')->applyFromArray([
-                'font' => ['bold' => true, 'color' => ['rgb' => 'FFFFFF']],
-                'fill' => ['fillType' => 'solid', 'startColor' => ['rgb' => '134E4A']],
-                'alignment' => ['wrapText' => true, 'vertical' => 'center'],
-            ]);
+            foreach (array_keys($this->columns) as $index => $key) {
+                $column = Coordinate::stringFromColumnIndex($index + 1);
+                if (in_array($key, ['full_name', 'mda', 'group_label', 'calculation_note'], true)) {
+                    $sheet->getColumnDimension($column)->setWidth($key === 'calculation_note' ? 55 : 38);
+                    $sheet->getStyle($column.'2:'.$column.max(2, $sheet->getHighestRow()))->getAlignment()->setWrapText(true);
+                }
+            }
+            foreach ($this->isGrouped() ? $this->columnHeadingRows : [1] as $row) {
+                $sheet->getRowDimension($row)->setRowHeight(44);
+                $sheet->getStyle('A'.$row.':'.$lastColumn.$row)->applyFromArray([
+                    'font' => ['bold' => true, 'color' => ['rgb' => 'FFFFFF']],
+                    'fill' => ['fillType' => 'solid', 'startColor' => ['rgb' => '134E4A']],
+                    'alignment' => ['wrapText' => true, 'vertical' => 'center'],
+                ]);
+            }
+            foreach ($this->groupHeadingRows as $row) {
+                if ($lastColumn !== 'A') {
+                    $sheet->mergeCells('A'.$row.':'.$lastColumn.$row);
+                }
+                $sheet->getRowDimension($row)->setRowHeight(30);
+                $sheet->getStyle('A'.$row.':'.$lastColumn.$row)->applyFromArray([
+                    'font' => ['bold' => true],
+                    'fill' => ['fillType' => 'solid', 'startColor' => ['rgb' => 'E6F2EF']],
+                    'alignment' => ['wrapText' => true, 'vertical' => 'center'],
+                ]);
+            }
             $sheet->getStyle('A2:'.$lastColumn.max(2, $sheet->getHighestRow()))->getAlignment()->setVertical('top');
         }];
     }
