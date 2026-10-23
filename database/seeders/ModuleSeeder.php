@@ -252,6 +252,7 @@ class ModuleSeeder extends Seeder
         }
 
         $this->enableDefaultsForExistingMdas();
+        $this->call(ExecutiveOfficeSeeder::class);
     }
 
     /**

@@ -38,6 +38,7 @@ Route::post('/login', [SpaAuthController::class, 'login'])->middleware('guest')-
 
 Route::middleware('auth')->group(function (): void {
     require __DIR__.'/budget-procurement.php';
+    require __DIR__.'/executive-office.php';
 
     Route::post('/logout', [SpaAuthController::class, 'logout'])->name('api.logout');
     Route::get('/me', [CurrentUserContextController::class, 'show'])->name('api.me');

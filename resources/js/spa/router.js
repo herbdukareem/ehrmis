@@ -4,6 +4,7 @@ import { appState, clearPageError, clearNavigationError, setNavigationError } fr
 import { bpAreas } from './lib/budgetProcurement';
 
 const routes = [
+    { path: '/executive-office/:area?', name: 'executive-office', component: () => import('./views/ExecutiveOfficeView.vue'), meta: { module: 'executive_office', permissionAny: ['view-executive-office', 'manage-executive-office'], title: 'Executive Office' } },
     { path: '/login', name: 'login', component: () => import('./views/LoginView.vue'), meta: { guest: true } },
     { path: '/promotion/apply', name: 'promotion.apply', component: () => import('./views/PublicPromotionApplicationView.vue'), meta: { public: true, title: 'Promotion APA Application' } },
     { path: '/forgot-password', name: 'password.request', component: () => import('./views/PasswordAccessView.vue'), props: { mode: 'forgot' }, meta: { guest: true } },

@@ -88,6 +88,7 @@ export function defaultAuthenticatedPath() {
         { path: '/workplans', module: 'workplan_performance', permissions: ['view-workplans'] },
         { path: '/service-reports', module: 'service_reporting', permissions: ['view-service-reports'] },
         { path: '/reports', module: 'dashboards_analytics', permissions: ['view-reports', 'export-reports'] },
+        { path: '/executive-office', module: 'executive_office', permissions: ['view-executive-office', 'manage-executive-office'] },
         { path: '/settings', module: 'settings', permissions: ['manage-platform-settings', 'manage-mda-settings'] },
         { path: '/setup-management', permissions: ['manage-departments', 'manage-stations', 'manage-cadres', 'manage-ranks', 'manage-allowance-types', 'manage-salary-scales', 'manage-qualification-types', 'manage-salary-structure'] },
         { path: '/access-management', module: 'access_management', permissions: ['manage-users', 'manage-roles'] },

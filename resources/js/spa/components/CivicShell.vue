@@ -11,6 +11,7 @@ const router = useRouter();
 const mobileOpen = ref(false);
 
 const navBlueprint = [
+    { id: 'executive-office', label: 'Executive Office', items: [{ id: 'executive-office-workspace', label: 'Executive Office', icon: 'building', children: [{ label: 'Office workspace', to: '/executive-office', module: 'executive_office', permissionAny: ['view-executive-office', 'manage-executive-office'] }] }] },
     {
         id: 'operations',
         label: 'Operations',

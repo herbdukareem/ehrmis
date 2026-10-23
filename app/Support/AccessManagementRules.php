@@ -14,6 +14,8 @@ class AccessManagementRules
     public static function mdaRolePermissionNames(): array
     {
         return [
+            'view-executive-office',
+            'manage-executive-office',
             'view-staff',
             'create-staff',
             'update-staff',
